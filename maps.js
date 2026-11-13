@@ -88,7 +88,10 @@ function normalizeRows(payload){
   });
 }
 function validPoint(p){return p.lat!==null&&p.lng!==null&&p.lat>=-90&&p.lat<=90&&p.lng>=-180&&p.lng<=180}
-function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&','<':'<','>':'>','"':'"',"'":'''}[c]))}
+function esc(s){
+  const ent={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
+  return String(s).replace(/[&<>"']/g,c=>ent[c]);
+}
 function buildMarker(p){
   const marker=L.marker([p.lat,p.lng],{title:p.name});
   marker.bindPopup(`<div class="popup-title">${esc(p.name)}</div><div class="popup-coord">Supplier: ${esc(p.supplier)}<br>Latitude: ${p.lat}<br>Longitude: ${p.lng}</div>`);
@@ -152,7 +155,7 @@ function renderList(){
     selectedId=id;renderList();
     if(!validPoint(p)){toast('รายการนี้ไม่มีพิกัด Latitude / Longitude ที่ถูกต้อง');return}
     const sidebar = $('sidebar');
-    if(sidebar && sidebar.classList.contains('collapsed')&&window.innerWidth<=850) sidebar.classList.add('collapsed');
+    if(sidebar && !sidebar.classList.contains('collapsed')&&window.innerWidth<=850) sidebar.classList.add('collapsed');
     map.flyTo([p.lat,p.lng],Math.max(map.getZoom(),15),{duration:.7});
     const marker=markerById.get(id);if(marker) setTimeout(()=>marker.openPopup(),500);
   }));
@@ -252,9 +255,7 @@ map.on('click',e=>{if(e.originalEvent.target===map.getContainer()) selectedId=nu
 loadData();
 
 // ===== Firebase: ตรวจสิทธิ์ / Logout / ตัด Session =====
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getAuth, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-
+// ใช้ dynamic import + try/catch เพื่อไม่ให้ถ้า Firebase โหลดไม่ได้ แล้วแผนที่พังไปด้วย
 const firebaseConfig = {
   apiKey: "AIzaSyD7HPOhloICyxEyDTfR8yRiH2rT--q4fVo",
   authDomain: "my-login-project-26857.firebaseapp.com",
@@ -266,30 +267,16 @@ const firebaseConfig = {
 
 const LOGIN_URL = "./index.html";
 const INACTIVITY_LIMIT = 10 * 60 * 1000; // 10 นาที
+const FB = "https://www.gstatic.com/firebasejs/10.8.0";
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-
-onAuthStateChanged(auth, (user) => {
-  if (user) {
-    const userEmailEl = document.getElementById("user-email");
-    if(userEmailEl) userEmailEl.textContent = user.email || "";
-    document.documentElement.classList.add("ready");
-    startInactivityTimer();
-  } else {
-    window.location.replace(LOGIN_URL);
-  }
-});
+let auth = null, signOutFn = null, inactivityStarted = false;
 
 async function doLogout() {
-  try { await signOut(auth); }
+  try { if (auth && signOutFn) await signOutFn(auth); }
   catch (error) { console.error("Logout Error:", error); }
+  window.location.replace(LOGIN_URL);
 }
 
-const logoutBtnEl = document.getElementById("logout-btn");
-if(logoutBtnEl) logoutBtnEl.addEventListener("click", doLogout);
-
-let inactivityStarted = false;
 function startInactivityTimer() {
   if (inactivityStarted) return;
   inactivityStarted = true;
@@ -306,3 +293,32 @@ function startInactivityTimer() {
   );
   reset();
 }
+
+// ปุ่มออกจากระบบ (id ต้องตรงกับ HTML = logoutBtn)
+const logoutBtnEl = document.getElementById("logoutBtn");
+if (logoutBtnEl) logoutBtnEl.addEventListener("click", doLogout);
+
+(async function initAuth() {
+  try {
+    const [{ initializeApp }, { getAuth, signOut, onAuthStateChanged }] = await Promise.all([
+      import(`${FB}/firebase-app.js`),
+      import(`${FB}/firebase-auth.js`)
+    ]);
+    const app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    signOutFn = signOut;
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        const userEmailEl = document.getElementById("user-email");
+        if (userEmailEl) userEmailEl.textContent = user.email || "";
+        document.documentElement.classList.add("ready");
+        startInactivityTimer();
+      } else {
+        window.location.replace(LOGIN_URL);
+      }
+    });
+  } catch (err) {
+    console.error("Firebase load error:", err);
+    toast("โหลดระบบยืนยันตัวตน (Firebase) ไม่สำเร็จ", 5000);
+  }
+})();
