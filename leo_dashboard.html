@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="th" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-MEC0JTJ5QJ"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-MEC0JTJ5QJ');
+</script>
+<title>แดชบอร์ดข้อมูลการปลดล็อค</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--text:#1d2433;--muted:#6b7385;--line:#e4e7ef;--accent:#f5a300;--accent2:#2f6fed;--ok:#16a34a;--bad:#dc2626;--head:#ffc000;--headtext:#1d2433;--shadow:0 1px 3px rgba(20,30,60,.08)}
+[data-theme=dark]{--bg:#0f131b;--card:#181e29;--text:#e8ecf4;--muted:#939bb0;--line:#2a3243;--accent:#ffb52e;--accent2:#6b9cff;--ok:#4ade80;--bad:#f87171;--head:#3a2f0b;--headtext:#ffd266;--shadow:none}
+*{box-sizing:border-box}
+body{margin:0;font-family:'Noto Sans Thai',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;transition:background .2s,color .2s}
+.wrap{max-width:1500px;margin:0 auto;padding:16px}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px}
+h1{font-size:24px;margin:0;font-weight:700}
+.grad{background:linear-gradient(90deg,#f5a300,#ff5e62,#a855f7,#2f6fed,#14b8a6,#f5a300);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;animation:shift 6s linear infinite}
+@keyframes shift{to{background-position:-300% 0}}
+@media (prefers-reduced-motion:reduce){.grad{animation:none}}
+.sub{color:var(--muted);font-size:12px;margin-top:2px}
+.right{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.status{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);padding:6px 12px;border-radius:999px;font-size:12px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--muted)}
+.dot.live{background:var(--ok);box-shadow:0 0 0 3px rgba(22,163,74,.2)}
+.dot.demo{background:var(--accent)}
+.dot.err{background:var(--bad)}
+button,input,select{font:inherit;color:var(--text)}
+.btn{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:#1d2433;border-color:var(--accent);font-weight:500}
+.theme{width:38px;height:38px;border-radius:50%;padding:0;font-size:18px;line-height:1}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;box-shadow:var(--shadow)}
+.filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;align-items:end;margin-bottom:12px}
+label{display:block;font-size:11px;color:var(--muted);margin-bottom:3px}
+.filters input,.filters select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.presets{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.chip{padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:var(--bg);cursor:pointer;font-size:12px}
+.chip.on{background:var(--accent);border-color:var(--accent);color:#1d2433;font-weight:500}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px}
+.kpi .v{font-size:24px;font-weight:700;margin-top:2px}
+.kpi .l{font-size:12px;color:var(--muted)}
+.kpi .s{font-size:11px;color:var(--muted);margin-top:2px}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px;margin-bottom:12px}
+.panel h3{margin:0 0 10px;font-size:14px}
+.bars{display:flex;align-items:flex-end;gap:3px;height:140px;padding-top:6px}
+.bars .col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;min-width:0}
+.bars .b{width:100%;background:var(--accent);border-radius:3px 3px 0 0;min-height:0;position:relative}
+.bars .n{font-size:10px;color:var(--muted)}
+.bars .x{font-size:9px;color:var(--muted);margin-top:2px}
+.hbar{display:grid;grid-template-columns:110px 1fr 34px;gap:8px;align-items:center;margin:6px 0;font-size:12px}
+.hbar .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hbar .tr{background:var(--bg);border-radius:6px;height:12px;overflow:hidden}
+.hbar .f{height:100%;background:var(--accent2);border-radius:6px}
+.tablebox{overflow:auto;max-height:560px;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;min-width:1300px}
+th{position:sticky;top:0;background:var(--head);color:var(--headtext);padding:9px 8px;font-size:12px;cursor:pointer;white-space:nowrap;border-right:1px solid rgba(0,0,0,.08)}
+td{padding:8px;border-top:1px solid var(--line);font-size:12.5px;vertical-align:top}
+tr:hover td{background:rgba(245,163,0,.08)}
+tbody tr{cursor:pointer}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:rgba(22,163,74,.15);color:var(--ok)}
+.tag.warn{background:rgba(245,163,0,.18);color:var(--accent)}
+.long{color:var(--bad);font-weight:500}
+.foot{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;margin:8px 2px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;padding:16px;z-index:20}
+.modal.show{display:flex}
+.modal .box{background:var(--card);border-radius:14px;max-width:640px;width:100%;max-height:88vh;overflow:auto;padding:18px}
+.kv{display:grid;grid-template-columns:140px 1fr;gap:6px 12px;font-size:13px}
+.kv b{color:var(--muted);font-weight:400}
+.empty{padding:30px;text-align:center;color:var(--muted)}
+  #cDay{overflow-x:auto;padding-bottom:4px}
+  #cDay .col{flex:0 0 26px}
+  #cDay .x{white-space:nowrap}
+  #cMonth .col{flex:1 1 0;max-width:70px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div>
+    <h1><span class="grad">แดชบอร์ดข้อมูลการปลดล็อค</span></h1>
+    <div class="sub">สรุปเคสจอดนอกจุด การขอปลด และการอนุมัติ</div>
+  </div>
+  <div class="right">
+    <div class="status"><span class="dot demo" id="dot"></span><span id="stText">ข้อมูลตัวอย่าง</span><span style="color:var(--muted)" id="stTime"></span></div>
+    <button class="btn primary" id="refresh">⟳ รีเฟรช</button>
+    <button class="btn theme" id="theme" title="สลับโทนสี">🌙</button>
+  </div>
+</header>
+
+<div class="panel" style="margin-bottom:12px">
+  <div class="presets" id="presets">
+    <span class="chip" data-p="all">ทั้งหมด</span>
+    <span class="chip" data-p="today">วันนี้</span>
+    <span class="chip" data-p="yesterday">เมื่อวาน</span>
+    <span class="chip" data-p="7">7 วันล่าสุด</span>
+    <span class="chip" data-p="30">30 วันล่าสุด</span>
+    <span class="chip" data-p="night">กะดึก 22:00-06:00</span>
+  </div>
+  <div class="filters">
+    <div><label>ตั้งแต่ (วัน/เวลาเริ่ม)</label><input type="datetime-local" id="from"></div>
+    <div><label>ถึง</label><input type="datetime-local" id="to"></div>
+    <div><label>ค้นหา (เคส, คนขับ, ทะเบียน, DO, สถานที่)</label><input type="search" id="q" placeholder="พิมพ์เพื่อค้นหา..."></div>
+    <div><label>คนขับ</label><select id="fDriver"></select></div>
+    <div><label>ผู้ปลด</label><select id="fUnlocker"></select></div>
+    <div><label>ระยะเวลา</label><select id="fDur"><option value="">ทั้งหมด</option><option value="5">ไม่เกิน 5 นาที</option><option value="30">5-30 นาที</option><option value="31">เกิน 30 นาที</option></select></div>
+  </div>
+</div>
+
+<div class="kpis" id="kpis"></div>
+
+<div class="charts">
+  <div class="panel"><h3>จำนวนเคสตามชั่วโมง (เวลาเริ่ม)</h3><div class="bars" id="cHour"></div></div>
+  <div class="panel"><h3>จำนวนเคสตามผู้ปลด</h3><div id="cUnlock"></div></div>
+  <div class="panel"><h3>คนขับที่มีเคสมากสุด</h3><div id="cDriver"></div></div>
+  <div class="panel"><h3>สาเหตุที่พบบ่อย</h3><div id="cReason"></div></div>
+  <div class="panel"><h3>การแจ้งเตือนรายวัน <span style="color:var(--muted);font-weight:400;font-size:12px">(สูงสุด 60 วันล่าสุดในช่วงที่เลือก)</span></h3><div class="bars" id="cDay"></div></div>
+  <div class="panel"><h3>การแจ้งเตือนรายเดือน</h3><div class="bars" id="cMonth"></div></div>
+</div>
+
+<div class="panel">
+  <h3>รายละเอียดเคส <span style="color:var(--muted);font-weight:400;font-size:12px">(คลิกหัวคอลัมน์เพื่อเรียง, คลิกแถวเพื่อดูรายละเอียด)</span></h3>
+  <div class="tablebox"><table><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody></table></div>
+  <div class="foot"><span id="count"></span><button class="btn" id="csv">⬇ ส่งออก CSV</button></div>
+</div>
+</div>
+
+<div class="modal" id="modal"><div class="box"><div style="display:flex;justify-content:space-between;margin-bottom:10px"><h3 style="margin:0" id="mTitle"></h3><button class="btn" id="mClose">✕</button></div><div class="kv" id="mBody"></div></div></div>
+
+<!-- เรียกใช้งานไฟล์ JavaScript ภายนอกที่แยกออกมา -->
+<script type="module" src="./leo_dashboard.js"></script>
+</body>
+</html>
