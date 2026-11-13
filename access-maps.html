@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-MEC0JTJ5QJ"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-MEC0JTJ5QJ');
+</script>
+<title>Access Maps | Geofence Monitor</title>
+<link rel="preconnect" href="https://unpkg.com">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f4f7fb;--panel:#fff;--panel2:#f8fafc;--text:#182230;--muted:#718096;--border:#e5eaf1;--accent:#4776ff;--accent2:#8b5cf6;--shadow:0 8px 28px #1d355710;--top:#ffffffeb;--map-filter:none}
+body.dark{--bg:#0b1220;--panel:#111b2b;--panel2:#162235;--text:#e8eef8;--muted:#91a0b8;--border:#26354a;--accent:#6d91ff;--accent2:#b08cff;--shadow:0 8px 28px #0004;--top:#111b2beF}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;font-family:Inter,Kanit,sans-serif;background:var(--bg);color:var(--text);overflow:hidden}
+button,input{font:inherit}button{cursor:pointer}
+.app{height:100dvh;display:flex;flex-direction:column}
+.topbar{height:78px;flex:0 0 78px;background:var(--top);backdrop-filter:blur(18px);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:22px;padding:0 24px;z-index:1000}
+.brand{display:flex;align-items:center;gap:13px;min-width:255px}
+.brandmark{width:43px;height:43px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(135deg,#4776ff,#9b5cff);box-shadow:0 7px 18px #4776ff40;color:white;font-size:23px}
+.brand h1{margin:0;font-size:25px;line-height:1;font-weight:800;letter-spacing:-1px;background:linear-gradient(90deg,#4776ff,#8d5cf6,#16c7bd,#4776ff);background-size:260% auto;color:transparent;background-clip:text;-webkit-background-clip:text;animation:shine 5s linear infinite}
+@keyframes shine{to{background-position:260% center}}
+.brand small{display:block;color:var(--muted);font-size:10px;letter-spacing:2.1px;margin-top:6px;font-weight:700}
+.top-status{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;margin-left:auto;white-space:nowrap}
+.live-dot{width:8px;height:8px;background:#20c997;border-radius:50%;box-shadow:0 0 0 4px #20c99720}
+.actions{display:flex;align-items:center;gap:9px}
+.iconbtn,.mapbtn{border:1px solid var(--border);color:var(--text);background:var(--panel);height:39px;min-width:39px;padding:0 12px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:.2s;font-weight:600;font-size:12px}
+.iconbtn:hover,.mapbtn:hover{border-color:var(--accent);transform:translateY(-1px)}
+.logout{color:#e05260}
+.main{display:flex;flex:1;min-height:0;position:relative}
+.sidebar{width:325px;min-width:325px;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:500;transition:width .25s,min-width .25s,transform .25s;overflow:hidden}
+.sidebar.collapsed{width:0;min-width:0;border-right:0}
+.sidehead{padding:22px 18px 16px;border-bottom:1px solid var(--border);min-width:325px}
+.side-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:15px}
+.side-title h2{font-size:15px;margin:0;font-weight:700}
+.count{font-size:11px;color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);padding:5px 9px;border-radius:8px;font-weight:700}
+.searchwrap{position:relative}
+.searchwrap span{position:absolute;left:12px;top:10px;color:var(--muted)}
+.searchwrap input{width:100%;height:39px;padding:0 12px 0 36px;border:1px solid var(--border);background:var(--panel2);border-radius:11px;color:var(--text);outline:none;font-size:12px}
+.searchwrap input:focus{border-color:var(--accent);box-shadow:0 0 0 3px #4776ff18}
+.filterline{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px}
+.supplierselect{flex:1 1 100%;width:100%;height:33px;padding:0 10px;border:1px solid var(--border);background:var(--panel2);color:var(--text);border-radius:8px;font-size:11px;outline:none;cursor:pointer}
+.supplierselect:focus,.supplierselect.on{border-color:var(--accent)}
+.supplierselect.on{background:color-mix(in srgb,var(--accent) 10%,var(--panel2));font-weight:600}
+.pointsup{color:var(--accent);font-weight:600}
+.chip{font-size:10px;color:var(--muted);border:1px solid var(--border);border-radius:8px;padding:6px 9px;background:transparent}
+.chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.pointlist{padding:8px;overflow:auto;flex:1;min-width:325px}
+.pointrow{display:flex;align-items:center;gap:11px;padding:12px 10px;border-radius:12px;cursor:pointer;border:1px solid transparent;transition:.15s}
+.pointrow:hover{background:var(--panel2);border-color:var(--border)}
+.pointrow.selected{background:color-mix(in srgb,var(--accent) 9%,var(--panel));border-color:color-mix(in srgb,var(--accent) 35%,transparent)}
+.pin{width:35px;height:35px;border-radius:11px;background:color-mix(in srgb,var(--accent) 13%,transparent);color:var(--accent);display:grid;place-items:center;flex-shrink:0;font-size:16px}
+.pointinfo{min-width:0;flex:1}
+.pointname{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pointcoord{font-size:10px;color:var(--muted);margin-top:5px;font-variant-numeric:tabular-nums}
+.pointarrow{color:var(--muted);font-size:17px}
+.sidefoot{border-top:1px solid var(--border);padding:13px 18px;min-width:325px;display:flex;justify-content:space-between;color:var(--muted);font-size:10px}
+.maparea{flex:1;min-width:0;position:relative;background:#dce5ed}
+#map{height:100%;width:100%;z-index:1}
+.mapcontrols{position:absolute;top:17px;left:17px;right:17px;display:flex;justify-content:space-between;align-items:flex-start;z-index:400;pointer-events:none;gap:10px}
+.mapcontrols>*{pointer-events:auto}
+.map-switcher{display:flex;gap:5px;background:var(--top);backdrop-filter:blur(14px);padding:5px;border:1px solid var(--border);border-radius:13px;box-shadow:var(--shadow)}
+.mapbtn{height:32px;border:0;background:transparent;min-width:auto;border-radius:9px;padding:0 12px;font-size:11px}
+.mapbtn.active{background:var(--accent);color:white}
+.mapright{display:flex;gap:8px}
+.floating-card{background:var(--top);backdrop-filter:blur(16px);border:1px solid var(--border);box-shadow:var(--shadow);border-radius:14px;padding:12px 15px}
+.statlabel{font-size:10px;color:var(--muted);font-weight:600}
+.statvalue{font-size:20px;font-weight:800;letter-spacing:-.5px;margin-top:3px}
+.statvalue em{font-style:normal;color:var(--accent)}
+.mapstats{display:flex;gap:8px}
+.mapstats .floating-card{min-width:104px}
+.mapbottom{position:absolute;bottom:20px;left:17px;right:17px;display:flex;justify-content:space-between;align-items:flex-end;z-index:400;pointer-events:none}
+.mapbottom>*{pointer-events:auto}
+.legend{display:flex;gap:15px;align-items:center;font-size:10px;color:var(--muted)}
+.legend .floating-card{display:flex;gap:13px;align-items:center;padding:11px 13px}
+.legend-item{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.legend-dot{width:8px;height:8px;border-radius:50%;background:#4776ff}
+.legend-dot.cluster{background:#8b5cf6}
+.coordinates{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
+.leaflet-container{font-family:Inter,Kanit,sans-serif}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--panel);color:var(--text)}
+.leaflet-popup-content{font-family:Inter,Kanit,sans-serif;font-size:12px}
+.popup-title{font-weight:700;margin-bottom:5px}
+.popup-coord{font-size:10px;color:var(--muted)}
+.marker-cluster-small,.marker-cluster-medium,.marker-cluster-large{background-color:#4776ff30}
+.marker-cluster-small div,.marker-cluster-medium div,.marker-cluster-large div{background:linear-gradient(135deg,#4776ff,#8b5cf6);color:white;font-family:Inter,sans-serif;font-weight:800;box-shadow:0 3px 12px #4776ff40}
+.empty{padding:28px 15px;text-align:center;color:var(--muted);font-size:12px;line-height:1.7}
+.toast{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);z-index:1500;background:var(--panel);border:1px solid var(--border);box-shadow:var(--shadow);padding:11px 16px;border-radius:11px;font-size:12px;display:none;max-width:90%;text-align:center}
+.toast.show{display:block}
+.loading{display:inline-block;width:13px;height:13px;border:2px solid #4776ff30;border-top-color:#4776ff;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:7px}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media(max-width:850px){.topbar{padding:0 13px;height:68px;flex-basis:68px;gap:10px}.brand{min-width:0}.brandmark{width:38px;height:38px}.brand h1{font-size:21px}.brand small{font-size:8px}.top-status{display:none}.sidebar{position:absolute;top:0;bottom:0;left:0;box-shadow:var(--shadow);width:min(325px,86vw);min-width:min(325px,86vw)}.sidebar.collapsed{transform:translateX(-100%);width:min(325px,86vw);min-width:min(325px,86vw)}.sidehead,.pointlist,.sidefoot{min-width:0}.mapstats .floating-card{min-width:78px;padding:9px}.statvalue{font-size:16px}.mapstats .statlabel{font-size:9px}.mapcontrols{top:10px;left:10px;right:10px}.mapbottom{left:10px;right:10px;bottom:10px}.legend .floating-card{gap:8px}.coordinates{display:none}.mapbtn{padding:0 9px}.actions{gap:5px}.logout span{display:none}}
+@media(max-width:470px){.mapstats .floating-card:nth-child(2){display:none}.brand small{letter-spacing:1px}.brand{gap:8px}.actions .iconbtn{padding:0 9px}.map-switcher{gap:1px}.mapbtn{font-size:10px;padding:0 7px}.legend .floating-card{font-size:9px;gap:7px}.legend-item{gap:4px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brandmark">⌖</div>
+      <div><h1>Access Maps</h1><small>GEOFENCE MONITORING</small></div>
+    </div>
+    <div class="top-status"><span class="live-dot"></span><span id="statusText">กำลังเชื่อมต่อข้อมูล...</span></div>
+    <div class="actions">
+      <button class="iconbtn" id="sidebarToggle" title="เปิด/ซ่อนรายการ">☰ <span style="font-size:11px">รายการ</span></button>
+      <button class="iconbtn" id="themeToggle" title="เปลี่ยนธีม"><span id="themeIcon">☾</span></button>
+      <button class="iconbtn" id="refreshBtn" title="โหลดข้อมูลใหม่">↻</button>
+      <!-- ปุ่มออกจากระบบ แก้ไขลิงก์กลับไปหน้า index.html ผ่านระบบ Firebase Auth ใน maps.js -->
+      <button class="iconbtn logout" id="logoutBtn" title="ออกจากระบบ">⇥ <span style="font-size:11px">ออกจากระบบ</span></button>
+    </div>
+  </header>
+  <main class="main">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidehead">
+        <div class="side-title"><h2>รายการ Geofence</h2><span class="count" id="pointCount">0 จุด</span></div>
+        <div class="searchwrap"><span>⌕</span><input id="searchInput" placeholder="ค้นหาชื่อ Geofence..." autocomplete="off"></div>
+        <div class="filterline"><button class="chip active" data-filter="all">ทั้งหมด</button><button class="chip" data-filter="valid">มีพิกัด</button><button class="chip" data-filter="invalid">พิกัดไม่ครบ</button><select class="supplierselect" id="supplierSelect" title="กรองตาม Supplier"><option value="all">Supplier: ทั้งหมด</option></select></div>
+      </div>
+      <div class="pointlist" id="pointList"><div class="empty"><span class="loading"></span>กำลังโหลดรายการพิกัด</div></div>
+      <div class="sidefoot"><span id="sourceLabel">Google Sheets API</span><span id="lastUpdated">—</span></div>
+    </aside>
+    <section class="maparea">
+      <div id="map"></div>
+      <div class="mapcontrols">
+        <div class="map-switcher">
+          <button class="mapbtn active" data-layer="street">▦ แผนที่</button>
+          <button class="mapbtn" data-layer="satellite">▧ ดาวเทียม</button>
+        </div>
+        <div class="mapright">
+          <div class="mapstats">
+            <div class="floating-card"><div class="statlabel">สถานที่ทั้งหมด</div><div class="statvalue" id="statTotal">—</div></div>
+            <div class="floating-card"><div class="statlabel">พิกัดพร้อมใช้งาน</div><div class="statvalue" id="statValid"><em>—</em></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="mapbottom">
+        <div class="legend"><div class="floating-card"><span class="legend-item"><span class="legend-dot"></span>จุดพิกัด</span><span class="legend-item"><span class="legend-dot cluster"></span>กลุ่มจุด</span></div></div>
+        <div class="floating-card coordinates" id="cursorCoords">LAT — · LNG —</div>
+      </div>
+      <div class="toast" id="toast"></div>
+    </section>
+  </main>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+<!-- เรียกใช้งานไฟล์ JavaScript ภายนอกที่แยกออกมา -->
+<script type="module" src="./maps.js"></script>
+</body>
+</html>
