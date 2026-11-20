@@ -1,3 +1,4 @@
+import { requireLogin } from './firebase-guard.js';
 // ====== ตั้งค่า API และโครงสร้างข้อมูล ======
 const API_URL = 'https://script.google.com/macros/s/AKfycbwW35lChBZEb8cKpt1TiAF2O9PyylzJaAnPorxloIpw5JTb515uicEETegQCPXmzH_Rsg/exec';
 const COL = {
@@ -343,55 +344,6 @@ if(pdfBtn) pdfBtn.onclick = () => window.print();
   if(el) el.addEventListener('input', render);
 });
 
-load();
-
-// ===== Firebase: ตรวจสิทธิ์ / Logout / ตัด Session =====
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getAuth, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-
-const firebaseConfig = {
-  apiKey: "AIzaSyD7HPOhloICyxEyDTfR8yRiH2rT--q4fVo",
-  authDomain: "my-login-project-26857.firebaseapp.com",
-  projectId: "my-login-project-26857",
-  storageBucket: "my-login-project-26857.firebasestorage.app",
-  messagingSenderId: "199741800244",
-  appId: "1:199741800244:web:41b413f67038c687dc2f61"
-};
-
-const LOGIN_URL = "./index.html";
-const INACTIVITY_LIMIT = 10 * 60 * 1000; // 10 นาที
-
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-
-onAuthStateChanged(auth, (user) => {
-  if (user) {
-    document.documentElement.classList.add("ready");
-    startInactivityTimer();
-  } else {
-    window.location.replace(LOGIN_URL);
-  }
-});
-
-async function doLogout() {
-  try { await signOut(auth); }
-  catch (error) { console.error("Logout Error:", error); }
-}
-
-let inactivityStarted = false;
-function startInactivityTimer() {
-  if (inactivityStarted) return;
-  inactivityStarted = true;
-  let timer;
-  function reset() {
-    clearTimeout(timer);
-    timer = setTimeout(async () => {
-      alert("หมดเวลาการใช้งานเนื่องจากไม่มีการเคลื่อนไหว กรุณาล็อกอินใหม่อีกครั้ง");
-      await doLogout();
-    }, INACTIVITY_LIMIT);
-  }
-  ["mousemove", "keydown", "click", "scroll", "touchstart"].forEach((evt) =>
-    window.addEventListener(evt, reset, { passive: true })
-  );
-  reset();
-}
+// ===== Firebase: ตรวจสิทธิ์ / Logout / ตัด Session (ดู firebase-guard.js) =====
+// โหลดข้อมูลหลังยืนยันตัวตนแล้วเท่านั้น
+requireLogin(() => load());
