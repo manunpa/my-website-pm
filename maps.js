@@ -1,3 +1,4 @@
+import { requireLogin } from './firebase-guard.js';
 /* ใช้ URL Web App ที่เชื่อมต่อ Google Sheets */
 const API_URL = 'https://script.google.com/macros/s/AKfycbxGxDaEkB1IVbzSbMFkMJ08zfx9n9qIRDReGx9Mb-bg2n5C0jh8KuiwDnGjdjTvuVCF/exec';
 const $ = id => document.getElementById(id);
@@ -252,73 +253,6 @@ map.on('mousemove',e=>{
 });
 map.on('click',e=>{if(e.originalEvent.target===map.getContainer()) selectedId=null;});
 
-loadData();
-
-// ===== Firebase: ตรวจสิทธิ์ / Logout / ตัด Session =====
-// ใช้ dynamic import + try/catch เพื่อไม่ให้ถ้า Firebase โหลดไม่ได้ แล้วแผนที่พังไปด้วย
-const firebaseConfig = {
-  apiKey: "AIzaSyD7HPOhloICyxEyDTfR8yRiH2rT--q4fVo",
-  authDomain: "my-login-project-26857.firebaseapp.com",
-  projectId: "my-login-project-26857",
-  storageBucket: "my-login-project-26857.firebasestorage.app",
-  messagingSenderId: "199741800244",
-  appId: "1:199741800244:web:41b413f67038c687dc2f61"
-};
-
-const LOGIN_URL = "./index.html";
-const INACTIVITY_LIMIT = 10 * 60 * 1000; // 10 นาที
-const FB = "https://www.gstatic.com/firebasejs/10.8.0";
-
-let auth = null, signOutFn = null, inactivityStarted = false;
-
-async function doLogout() {
-  try { if (auth && signOutFn) await signOutFn(auth); }
-  catch (error) { console.error("Logout Error:", error); }
-  window.location.replace(LOGIN_URL);
-}
-
-function startInactivityTimer() {
-  if (inactivityStarted) return;
-  inactivityStarted = true;
-  let timer;
-  function reset() {
-    clearTimeout(timer);
-    timer = setTimeout(async () => {
-      alert("หมดเวลาการใช้งานเนื่องจากไม่มีการเคลื่อนไหว กรุณาล็อกอินใหม่อีกครั้ง");
-      await doLogout();
-    }, INACTIVITY_LIMIT);
-  }
-  ["mousemove", "keydown", "click", "scroll", "touchstart"].forEach((evt) =>
-    window.addEventListener(evt, reset, { passive: true })
-  );
-  reset();
-}
-
-// ปุ่มออกจากระบบ (id ต้องตรงกับ HTML = logoutBtn)
-const logoutBtnEl = document.getElementById("logoutBtn");
-if (logoutBtnEl) logoutBtnEl.addEventListener("click", doLogout);
-
-(async function initAuth() {
-  try {
-    const [{ initializeApp }, { getAuth, signOut, onAuthStateChanged }] = await Promise.all([
-      import(`${FB}/firebase-app.js`),
-      import(`${FB}/firebase-auth.js`)
-    ]);
-    const app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    signOutFn = signOut;
-    onAuthStateChanged(auth, (user) => {
-      if (user) {
-        const userEmailEl = document.getElementById("user-email");
-        if (userEmailEl) userEmailEl.textContent = user.email || "";
-        document.documentElement.classList.add("ready");
-        startInactivityTimer();
-      } else {
-        window.location.replace(LOGIN_URL);
-      }
-    });
-  } catch (err) {
-    console.error("Firebase load error:", err);
-    toast("โหลดระบบยืนยันตัวตน (Firebase) ไม่สำเร็จ", 5000);
-  }
-})();
+// ===== Firebase: ตรวจสิทธิ์ / Logout / ตัด Session (ดู firebase-guard.js) =====
+// โหลดข้อมูลหลังยืนยันตัวตนแล้วเท่านั้น
+requireLogin(() => loadData(), { logoutButtonId: 'logoutBtn' });

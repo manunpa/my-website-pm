@@ -1,26 +1,12 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import {
-    getAuth,
+    auth,
+    HUB_URL,
+    onAuthStateChanged,
     signInWithEmailAndPassword,
     sendPasswordResetEmail,
     setPersistence,
-    browserLocalPersistence,
-    onAuthStateChanged
-} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-
-const firebaseConfig = {
-    apiKey: "AIzaSyD7HPOhloICyxEyDTfR8yRiH2rT--q4fVo",
-    authDomain: "my-login-project-26857.firebaseapp.com",
-    projectId: "my-login-project-26857",
-    storageBucket: "my-login-project-26857.firebasestorage.app",
-    messagingSenderId: "199741800244",
-    appId: "1:199741800244:web:41b413f67038c687dc2f61"
-};
-
-const HUB_URL = "./Access-Hub.html";
-
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
+    browserLocalPersistence
+} from "./firebase-guard.js";
 
 const form = document.getElementById("login-form");
 const emailInput = document.getElementById("email");

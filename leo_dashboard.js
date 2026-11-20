@@ -1,3 +1,4 @@
+import { requireLogin } from './firebase-guard.js';
 /* ===== ตั้งค่าการเชื่อม Google Sheets API ===== */
 const CONFIG = {
   API_URL: 'https://script.google.com/macros/s/AKfycbwrioeYqCEg1abXWwa-tdlLb16qPUDYLK6TSIT6N6PpmQWryOKgC8kzWGe3pXEBkH3V/exec',
@@ -345,62 +346,9 @@ if(csvEl){
   };
 }
 
-load();
-if(CONFIG.REFRESH_SEC > 0) timer = setInterval(load, CONFIG.REFRESH_SEC * 1000);
-
-// ===== Firebase: ตรวจสิทธิ์ / Logout / ตัด Session =====
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getAuth, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-
-const firebaseConfig = {
-  apiKey: "AIzaSyD7HPOhloICyxEyDTfR8yRiH2rT--q4fVo",
-  authDomain: "my-login-project-26857.firebaseapp.com",
-  projectId: "my-login-project-26857",
-  storageBucket: "my-login-project-26857.firebasestorage.app",
-  messagingSenderId: "199741800244",
-  appId: "1:199741800244:web:41b413f67038c687dc2f61"
-};
-
-const LOGIN_URL = "./index.html";
-const INACTIVITY_LIMIT = 10 * 60 * 1000; // 10 นาที
-
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-
-onAuthStateChanged(auth, (user) => {
-  if (user) {
-    const userEmailEl = document.getElementById("user-email");
-    if(userEmailEl) userEmailEl.textContent = user.email || "";
-    document.documentElement.classList.add("ready");
-    if (window.hubStart) window.hubStart();
-    startInactivityTimer();
-  } else {
-    window.location.replace(LOGIN_URL);
-  }
+// ===== Firebase: ตรวจสิทธิ์ / Logout / ตัด Session (ดู firebase-guard.js) =====
+// โหลดข้อมูลและเริ่มรีเฟรชอัตโนมัติหลังยืนยันตัวตนแล้วเท่านั้น
+requireLogin(() => {
+  load();
+  if(CONFIG.REFRESH_SEC > 0) timer = setInterval(load, CONFIG.REFRESH_SEC * 1000);
 });
-
-async function doLogout() {
-  try { await signOut(auth); }
-  catch (error) { console.error("Logout Error:", error); }
-}
-
-const logoutBtnEl = document.getElementById("logout-btn");
-if(logoutBtnEl) logoutBtnEl.addEventListener("click", doLogout);
-
-let inactivityStarted = false;
-function startInactivityTimer() {
-  if (inactivityStarted) return;
-  inactivityStarted = true;
-  let timer;
-  function reset() {
-    clearTimeout(timer);
-    timer = setTimeout(async () => {
-      alert("หมดเวลาการใช้งานเนื่องจากไม่มีการเคลื่อนไหว กรุณาล็อกอินใหม่อีกครั้ง");
-      await doLogout();
-    }, INACTIVITY_LIMIT);
-  }
-  ["mousemove", "keydown", "click", "scroll", "touchstart"].forEach((evt) =>
-    window.addEventListener(evt, reset, { passive: true })
-  );
-  reset();
-}
