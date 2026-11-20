@@ -51,6 +51,9 @@
                 <p class="text-sm text-white/90 mt-1">เข้าสู่ระบบเพื่อใช้งานระบบภายใน</p>
             </div>
 
+            <!-- ลูกเล่นเทศกาลลอยกระทง: แบนเนอร์จะแสดงตรงนี้ (เฉพาะช่วงเทศกาล) -->
+            <div data-lk-banner style="--accent:#5a9b00;--accent-text:#fff"></div>
+
             <form id="login-form" class="space-y-4 p-8" novalidate>
                 <div>
                     <label for="email" class="block text-sm font-semibold text-slate-700 mb-1">อีเมล</label>
@@ -95,5 +98,7 @@
 
     <!-- เรียกใช้งานไฟล์ JavaScript ที่แยกออกมา -->
     <script type="module" src="./auth.js"></script>
+    <!-- ลูกเล่นเทศกาลลอยกระทง (ชั่วคราว เปิด/ปิดเองตามวันที่ในไฟล์) -->
+    <script src="./festival-loykrathong.js" defer></script>
 </body>
 </html>
