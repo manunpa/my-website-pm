@@ -19,6 +19,39 @@ const clusters = L.markerClusterGroup({chunkedLoading:true,chunkInterval:100,chu
 map.addLayer(clusters);
 
 let searchMarker = null;
+// พิกัดที่ค้นหาล่าสุด (กด Enter) ใช้คำนวณ Geofence ที่ใกล้ที่สุด
+let searchPoint = null;
+const NEAREST_COUNT = 5;
+const nearestLines = L.layerGroup().addTo(map);
+
+// ระยะทางเป็นกิโลเมตรแบบเส้นตรงบนผิวโลก (Haversine)
+function distanceKm(lat1,lng1,lat2,lng2){
+  const R=6371, toRad=d=>d*Math.PI/180;
+  const dLat=toRad(lat2-lat1), dLng=toRad(lng2-lng1);
+  const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(a));
+}
+function formatKm(km){
+  if(km<10) return km.toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return km.toLocaleString('th-TH',{minimumFractionDigits:1,maximumFractionDigits:1});
+}
+// จุดที่ใกล้ที่สุด N อันดับ (เฉพาะจุดที่มีพิกัด และตาม Supplier ที่เลือกอยู่)
+function nearestPoints(lat,lng,n=NEAREST_COUNT){
+  return allRows
+    .filter(p=>validPoint(p)&&(activeSupplier==='all'||p.supplier===activeSupplier))
+    .map(p=>({p,km:distanceKm(lat,lng,p.lat,p.lng)}))
+    .sort((a,b)=>a.km-b.km)
+    .slice(0,n);
+}
+function drawNearestLines(){
+  nearestLines.clearLayers();
+  if(!searchPoint) return;
+  nearestPoints(searchPoint.lat,searchPoint.lng).forEach(({p},i)=>{
+    L.polyline([[searchPoint.lat,searchPoint.lng],[p.lat,p.lng]],{
+      color:i===0?'#e05260':'#4776ff',weight:i===0?3:2,opacity:i===0?.9:.55,dashArray:'6 6',interactive:false
+    }).addTo(nearestLines);
+  });
+}
 
 function parseLatLng(text){
   const m = String(text).trim().match(/^(-?\d+(?:[.,]\d+)?)\s*[,\s;/]\s*(-?\d+(?:[.,]\d+)?)$/);
@@ -31,6 +64,8 @@ function parseLatLng(text){
 
 function clearSearchMarker(){
   if(searchMarker){ map.removeLayer(searchMarker); searchMarker=null; }
+  searchPoint=null;
+  nearestLines.clearLayers();
 }
 
 function showSearchMarker(lat,lng){
@@ -40,10 +75,20 @@ function showSearchMarker(lat,lng){
     html:'<div style="width:22px;height:22px;border-radius:50%;background:#e05260;border:3px solid #fff;box-shadow:0 0 0 4px #e0526055,0 3px 10px #0006"></div>',
     iconSize:[22,22], iconAnchor:[11,11]
   });
+  searchPoint={lat,lng};
+  const near=nearestPoints(lat,lng);
+  const nearText=near.length?`<br><br>ใกล้ที่สุด: <b>${esc(near[0].p.name)}</b><br>ระยะ ${formatKm(near[0].km)} กม.`:'';
   searchMarker = L.marker([lat,lng],{icon,zIndexOffset:1000}).addTo(map);
-  searchMarker.bindPopup(`<div class="popup-title">พิกัดที่ค้นหา</div><div class="popup-coord">Latitude: ${lat}<br>Longitude: ${lng}</div>`);
-  map.flyTo([lat,lng],Math.max(map.getZoom(),16),{duration:.8});
+  searchMarker.bindPopup(`<div class="popup-title">พิกัดที่ค้นหา</div><div class="popup-coord">Latitude: ${lat}<br>Longitude: ${lng}${nearText}</div>`);
+  drawNearestLines();
+  // ซูมให้เห็นทั้งหมุดที่ค้นหาและจุดที่ใกล้ที่สุดในจอเดียว
+  if(near.length) map.flyToBounds(L.latLngBounds([[lat,lng],...near.map(n=>[n.p.lat,n.p.lng])]),{padding:[70,70],maxZoom:16,duration:.8});
+  else map.flyTo([lat,lng],Math.max(map.getZoom(),16),{duration:.8});
   setTimeout(()=>searchMarker&&searchMarker.openPopup(),850);
+  // เปิดรายการด้านข้างเพื่อให้เห็นผล 5 อันดับ
+  const sidebar=$('sidebar');
+  if(sidebar&&sidebar.classList.contains('collapsed')){ sidebar.classList.remove('collapsed'); setTimeout(()=>map.invalidateSize(),280); }
+  renderList();
 }
 
 function toast(message, duration=3500){
@@ -106,6 +151,7 @@ function renderMap(){
   const valid=bySupplier.filter(validPoint);
   const markers=valid.map(buildMarker);
   clusters.addLayers(markers);
+  drawNearestLines();
   if($('statTotal')) $('statTotal').textContent=bySupplier.length.toLocaleString('th-TH');
   if($('statValid')) $('statValid').textContent=valid.length.toLocaleString('th-TH');
   if(valid.length===1) map.setView([valid[0].lat,valid[0].lng],13);
@@ -133,16 +179,22 @@ function renderList(){
   if(!searchInput || !pointList) return;
 
   const q=searchInput.value.trim().toLocaleLowerCase();
+  const coordQ=parseLatLng(q);
+  // ค้นหาด้วยพิกัด (กด Enter แล้ว) → แสดง Geofence ที่ใกล้ที่สุด 5 อันดับ
+  if(searchPoint&&coordQ&&coordQ.lat===searchPoint.lat&&coordQ.lng===searchPoint.lng){
+    renderNearest(pointList,pointCount);
+    return;
+  }
   filteredRows=allRows.filter(p=>{
-    const isCoord = !!parseLatLng(q);
-    const matches = isCoord || (p.name+' '+p.supplier).toLocaleLowerCase().includes(q);
+    const matches = !!coordQ || (p.name+' '+p.supplier).toLocaleLowerCase().includes(q);
     if(activeSupplier!=='all'&&p.supplier!==activeSupplier) return false;
     const valid=validPoint(p);
     return matches&&(activeFilter==='all'||(activeFilter==='valid'&&valid)||(activeFilter==='invalid'&&!valid));
   });
   if(pointCount) pointCount.textContent=`${filteredRows.length.toLocaleString('th-TH')} จุด`;
   if(!filteredRows.length){pointList.innerHTML='<div class="empty">ไม่พบรายการที่ตรงกับการค้นหา</div>';return}
-  pointList.innerHTML=filteredRows.map(p=>{
+  const hint=coordQ?'<div class="nearhint">กด Enter เพื่อหา Geofence ที่ใกล้พิกัดนี้ที่สุด</div>':'';
+  pointList.innerHTML=hint+filteredRows.map(p=>{
     const valid=validPoint(p), selected=selectedId===p.id;
     return `<div class="pointrow ${selected?'selected':''}" data-id="${p.id}">
       <div class="pin">${valid?'⌖':'!'}</div>
@@ -150,6 +202,29 @@ function renderList(){
       <div class="pointarrow">${valid?'›':'·'}</div>
     </div>`;
   }).join('');
+  bindRowClicks(pointList);
+}
+
+function renderNearest(pointList,pointCount){
+  const near=nearestPoints(searchPoint.lat,searchPoint.lng);
+  filteredRows=near.map(n=>n.p);
+  if(pointCount) pointCount.textContent=`ใกล้สุด ${near.length} จุด`;
+  const supNote=activeSupplier!=='all'?`<div class="nearsub">เฉพาะ Supplier: ${esc(activeSupplier)}</div>`:'';
+  const head=`<div class="nearhead"><div class="neartitle">Geofence ที่ใกล้ที่สุด</div>
+    <div class="nearsub">จาก ${searchPoint.lat}, ${searchPoint.lng} · ระยะเส้นตรง</div>${supNote}</div>`;
+  if(!near.length){pointList.innerHTML=head+'<div class="empty">ไม่มี Geofence ที่มีพิกัดให้เทียบระยะ</div>';return}
+  pointList.innerHTML=head+near.map(({p,km},i)=>{
+    const selected=selectedId===p.id;
+    return `<div class="pointrow ${selected?'selected':''} ${i===0?'nearest':''}" data-id="${p.id}">
+      <div class="pin rank">${i+1}</div>
+      <div class="pointinfo"><div class="pointname">${esc(p.name)}</div><div class="pointcoord">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}${p.supplier!==NO_SUPPLIER?` · <span class="pointsup">${esc(p.supplier)}</span>`:''}</div></div>
+      <div class="dist"><b>${formatKm(km)}</b><span>กม.</span></div>
+    </div>`;
+  }).join('');
+  bindRowClicks(pointList);
+}
+
+function bindRowClicks(pointList){
   pointList.querySelectorAll('.pointrow').forEach(el=>el.addEventListener('click',()=>{
     const id=Number(el.dataset.id),p=allRows.find(x=>x.id===id);
     if(!p)return;
@@ -199,7 +274,10 @@ if(searchInputEl){
     }
   });
   searchInputEl.addEventListener('input',e=>{
-    if(!e.target.value.trim()) clearSearchMarker();
+    const text=e.target.value.trim();
+    const pt=parseLatLng(text);
+    // แก้ข้อความจนไม่ใช่พิกัดเดิมแล้ว → ล้างหมุด/เส้น/ผล 5 อันดับเดิม
+    if(!text||(searchPoint&&!(pt&&pt.lat===searchPoint.lat&&pt.lng===searchPoint.lng))){ clearSearchMarker(); renderList(); }
   });
 }
 

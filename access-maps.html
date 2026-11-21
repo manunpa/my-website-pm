@@ -94,6 +94,16 @@ button,input{font:inherit}button{cursor:pointer}
 .popup-coord{font-size:10px;color:var(--muted)}
 .marker-cluster-small,.marker-cluster-medium,.marker-cluster-large{background-color:#4776ff30}
 .marker-cluster-small div,.marker-cluster-medium div,.marker-cluster-large div{background:linear-gradient(135deg,#4776ff,#8b5cf6);color:white;font-family:Inter,sans-serif;font-weight:800;box-shadow:0 3px 12px #4776ff40}
+.nearhint{margin:4px 4px 8px;padding:9px 11px;border-radius:10px;font-size:11px;color:var(--accent);background:color-mix(in srgb,var(--accent) 9%,transparent)}
+.nearhead{padding:10px 10px 12px;margin-bottom:4px;border-bottom:1px solid var(--border)}
+.neartitle{font-size:13px;font-weight:700}
+.nearsub{font-size:10px;color:var(--muted);margin-top:4px;font-variant-numeric:tabular-nums}
+.pin.rank{font-weight:800;font-size:14px;font-family:Inter,sans-serif}
+.pointrow.nearest .pin.rank{background:#e05260;color:#fff}
+.dist{display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0;font-variant-numeric:tabular-nums;line-height:1.1}
+.dist b{font-size:15px;font-weight:800}
+.dist span{font-size:9px;color:var(--muted)}
+.pointrow.nearest .dist b{color:#e05260}
 .empty{padding:28px 15px;text-align:center;color:var(--muted);font-size:12px;line-height:1.7}
 .toast{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);z-index:1500;background:var(--panel);border:1px solid var(--border);box-shadow:var(--shadow);padding:11px 16px;border-radius:11px;font-size:12px;display:none;max-width:90%;text-align:center}
 .toast.show{display:block}
