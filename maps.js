@@ -44,16 +44,41 @@ function nearestPoints(lat,lng,n=NEAREST_COUNT){
     .sort((a,b)=>a.km-b.km)
     .slice(0,n);
 }
+// เส้นประจากจุดค้นหา/ตำแหน่งของฉัน ไปยัง 5 จุดที่ใกล้ที่สุด พร้อมป้ายระยะทางเล็ก ๆ กลางเส้น
+let nearestPairs = [];   // [{line,label,to:[lat,lng]}] ใช้ขยับต้นเส้น/ป้ายตามจุดสีฟ้าทุกเฟรม
+function midLatLng(a,b){ return [(a[0]+b[0])/2,(a[1]+b[1])/2]; }
 function drawNearestLines(){
   nearestLines.clearLayers();
+  nearestPairs=[];
   if(!searchPoint) return;
-  nearestPoints(searchPoint.lat,searchPoint.lng).forEach(({p},i)=>{
-    L.polyline([[searchPoint.lat,searchPoint.lng],[p.lat,p.lng]],{
+  const from=[searchPoint.lat,searchPoint.lng];
+  nearestPoints(searchPoint.lat,searchPoint.lng).forEach(({p,km},i)=>{
+    const to=[p.lat,p.lng];
+    const line=L.polyline([from,to],{
       color:i===0?'#e05260':'#4776ff',weight:i===0?3:2,opacity:i===0?.9:.55,dashArray:'6 6',interactive:false
     }).addTo(nearestLines);
+    const label=L.marker(midLatLng(from,to),{
+      icon:L.divIcon({className:'distlabel-wrap',html:`<span class="distlabel${i===0?' first':''}">${formatDist(km)}</span>`,iconSize:null}),
+      interactive:false,keyboard:false,zIndexOffset:i===0?900:800
+    }).addTo(nearestLines);
+    nearestPairs.push({line,label,to});
   });
+  layoutDistLabels();
   updateNearBar();
 }
+// ป้ายซ้อนกัน (จุดอยู่ใกล้กันมาก/ซูมออกไกล) → ซ่อนป้ายของจุดที่ไกลกว่า ให้ป้ายที่ใกล้กว่าอ่านออก (ป้ายสีแดงอันดับ 1 แสดงเสมอ)
+function layoutDistLabels(){
+  const shown=[];
+  nearestPairs.forEach((pr,i)=>{
+    const el=pr.label.getElement()?.querySelector('.distlabel');
+    if(!el) return;
+    el.style.visibility='';
+    const r=el.getBoundingClientRect();
+    const hit=i>0&&shown.some(s=>!(r.right+2<s.left||s.right+2<r.left||r.bottom+2<s.top||s.bottom+2<r.top));
+    if(hit) el.style.visibility='hidden'; else shown.push(r);
+  });
+}
+map.on('zoomend',layoutDistLabels);
 
 function parseLatLng(text){
   const m = String(text).trim().match(/^(-?\d+(?:[.,]\d+)?)\s*[,\s;/]\s*(-?\d+(?:[.,]\d+)?)$/);
@@ -98,7 +123,7 @@ function showSearchMarker(lat,lng,opts={}){
   const icon = L.divIcon({
     className:'',
     html:isGps
-      ?'<div class="mypos"></div>'
+      ?'<div class="mypos"><span class="mypos-arrow"></span></div>'
       :'<div style="width:22px;height:22px;border-radius:50%;background:#e05260;border:3px solid #fff;box-shadow:0 0 0 4px #e0526055,0 3px 10px #0006"></div>',
     iconSize:[22,22], iconAnchor:[11,11]
   });
@@ -596,23 +621,124 @@ function geoErrorText(err){
 }
 
 // ===== โหมดติดตามตำแหน่งแบบเรียลไทม์ =====
-let followWatchId = null, followLastUpdate = 0;
-const FOLLOW_MIN_INTERVAL = 2000; // อัปเดตหน้าจอไม่ถี่กว่าทุก 2 วินาที (ประหยัดแบต/ไม่กระตุก)
+// การแสดงผลแบบลื่น (B+C):
+//  - รับพิกัดทุก 1 วินาที แล้ววาดจุดสีฟ้า/วงความแม่นยำ/แผนที่ใหม่ทุกเฟรม (ไม่กระโดด)
+//  - ถ้ารถวิ่งตรงและเร็วพอ และ GPS ส่งความเร็ว+ทิศทางมา → เดาตำแหน่งล่วงหน้าตามความเร็ว (ไม่ตามหลัง)
+//    ไม่งั้น → ค่อย ๆ ไหลไปหาพิกัดล่าสุด
+//  - พิกัดจริงมาไม่ตรงกับที่เดา → ค่อย ๆ ไหลเข้าหา ไม่ดีดกลับทันที
+//  - ข้อมูลรายการ/แถบใกล้สุดยังอัปเดตทุก 2 วินาที
+const FOLLOW = {
+  FIX_INTERVAL: 1000,      // รับพิกัดไม่ถี่กว่านี้ (ms)
+  DATA_INTERVAL: 2000,     // อัปเดตรายการ 5 จุด / แถบใกล้สุด / ป๊อปอัป (ms)
+  PREDICT_MIN_SPEED: 2.8,  // m/s (~10 กม./ชม.) ต่ำกว่านี้ไม่เดาล่วงหน้า
+  PREDICT_MAX_TURN: 30,    // องศา: ทิศทางเปลี่ยนมากกว่านี้ระหว่าง 2 พิกัด = กำลังเลี้ยว ไม่เดา
+  PREDICT_MAX_MS: 2000,    // เดาต่อได้ไม่เกินเท่านี้หลังพิกัดล่าสุด แล้วหยุดรอ
+  JITTER_M: 4,             // จอดนิ่ง: ขยับน้อยกว่านี้ (เมตร) ไม่ขยับจุด
+  JUMP_SPEED: 60,          // m/s (~216 กม./ชม.) กระโดดเร็วกว่านี้ = พิกัดผิดปกติ ข้าม
+  EASE_MS_PREDICT: 600,    // เวลาไหลเข้าหาพิกัดจริง ตอนเดาล่วงหน้า
+  EASE_MS_FOLLOW: 1000     // เวลาไหลไปหาพิกัดใหม่ ตอนไม่เดา
+};
+let followWatchId = null, followLastFix = 0, followLastData = 0;
+let fix = null;            // พิกัดล่าสุดที่ใช้ได้ {lat,lng,acc,t,v:{e,n}|null,heading,gpsT}
+let fixErr = null;         // ส่วนต่างระหว่างจุดที่แสดงอยู่กับพิกัดใหม่ {dLat,dLng,t0,dur} ค่อย ๆ ลดเป็น 0
+let followRaf = null, lastMoveEndFire = 0, panDirty = false, jumpRejects = 0, lastLabelLayout = 0;
+
 function startFollow(btn){
   btn.classList.add('follow');
   btn.title='กำลังติดตามตำแหน่ง — กดเพื่อปิด';
   $('nearBar')?.classList.add('following');
+  if(searchPoint) fix={lat:searchPoint.lat,lng:searchPoint.lng,acc:accuracyCircle?accuracyCircle.getRadius():0,t:performance.now(),v:null,heading:null,gpsT:0};
+  fixErr=null; followLastFix=0; followLastData=performance.now();
   lockFollow();
   toast('เปิดติดตามตำแหน่งแบบเรียลไทม์ — กดปุ่มอีกครั้งเพื่อปิด (ใช้แบตมากขึ้น)',4500);
-  followWatchId=navigator.geolocation.watchPosition(pos=>{
-    const now=Date.now();
-    if(now-followLastUpdate<FOLLOW_MIN_INTERVAL) return;
-    followLastUpdate=now;
-    updateMyPosition(Number(pos.coords.latitude.toFixed(6)),Number(pos.coords.longitude.toFixed(6)),pos.coords.accuracy||0);
-  },err=>{
+  followWatchId=navigator.geolocation.watchPosition(onFollowFix,err=>{
     if(err.code===3) return; // หมดเวลารอบนี้ รอรอบถัดไป
     stopFollow(); toast(geoErrorText(err),6000);
-  },{enableHighAccuracy:true,timeout:20000,maximumAge:3000});
+  },{enableHighAccuracy:true,timeout:20000,maximumAge:1000});
+  if(!followRaf) followRaf=requestAnimationFrame(followFrame);
+}
+
+// ระยะทาง (เมตร) และการเลื่อนพิกัดตามเมตร แบบระยะสั้น
+function metersBetween(a,b){ return distanceKm(a.lat,a.lng,b.lat,b.lng)*1000; }
+function offsetMeters(lat,lng,e,n){ return {lat:lat+n/111320, lng:lng+e/(111320*Math.cos(lat*Math.PI/180))}; }
+function angleDiff(a,b){ const d=Math.abs(a-b)%360; return d>180?360-d:d; }
+
+function onFollowFix(pos){
+  const now=performance.now();
+  if(now-followLastFix<FOLLOW.FIX_INTERVAL) return;
+  const c=pos.coords;
+  const p={lat:Number(c.latitude.toFixed(6)),lng:Number(c.longitude.toFixed(6))};
+  const acc=c.accuracy||0;
+  const speed=(c.speed!=null&&!isNaN(c.speed))?c.speed:null;
+  const heading=(c.heading!=null&&!isNaN(c.heading))?c.heading:null;
+  if(fix){
+    const dist=metersBetween(fix,p);
+    const dt=Math.max(0.2,(pos.timestamp&&fix.gpsT?(pos.timestamp-fix.gpsT):(now-fix.t))/1000);
+    // พิกัดกระโดดผิดปกติ → ข้าม (แต่ถ้าผิดปกติติดกัน 3 ครั้ง ถือว่าย้ายที่จริง เช่น ออกจากอุโมงค์/ตึก)
+    if(dist/dt>FOLLOW.JUMP_SPEED&&dist>Math.max(40,2*acc)){ if(++jumpRejects<3) return; }
+    // จอดนิ่ง GPS แกว่ง → ไม่ขยับจุด (อัปเดตแค่ความแม่นยำ) ถ้าเพิ่งเดาล่วงหน้าไป ค่อย ๆ ไหลกลับมาที่พิกัดจริง
+    else if(dist<FOLLOW.JITTER_M&&(speed===null||speed<1)){
+      const shown=displayedPos(now);
+      followLastFix=now; jumpRejects=0; fix.acc=acc; fix.v=null; fix.heading=null; fix.gpsT=pos.timestamp||fix.gpsT;
+      if(shown) fixErr={dLat:shown.lat-fix.lat,dLng:shown.lng-fix.lng,t0:now,dur:FOLLOW.EASE_MS_FOLLOW};
+      if(accuracyCircle) accuracyCircle.setRadius(acc);
+      return;
+    }
+  }
+  followLastFix=now; jumpRejects=0;
+  // ใช้ความเร็ว+ทิศทางเดาล่วงหน้า เฉพาะเมื่อวิ่งเร็วพอและไม่ได้กำลังเลี้ยว
+  let v=null;
+  if(speed!==null&&heading!==null&&speed>=FOLLOW.PREDICT_MIN_SPEED&&!(fix&&fix.heading!==null&&angleDiff(fix.heading,heading)>FOLLOW.PREDICT_MAX_TURN)){
+    const r=heading*Math.PI/180;
+    v={e:Math.sin(r)*speed,n:Math.cos(r)*speed};
+  }
+  const shown=displayedPos(now);
+  fix={lat:p.lat,lng:p.lng,acc,t:now,v,heading:(speed!==null&&speed>=FOLLOW.PREDICT_MIN_SPEED)?heading:null,gpsT:pos.timestamp||0};
+  // จุดที่แสดงอยู่ต่างจากพิกัดใหม่เท่าไร → ค่อย ๆ ไหลเข้าหา
+  if(shown) fixErr={dLat:shown.lat-p.lat,dLng:shown.lng-p.lng,t0:now,dur:v?FOLLOW.EASE_MS_PREDICT:FOLLOW.EASE_MS_FOLLOW};
+  if(accuracyCircle) accuracyCircle.setRadius(acc);
+  if(now-followLastData>=FOLLOW.DATA_INTERVAL){ followLastData=now; updateMyPosition(p.lat,p.lng,acc); }
+}
+
+// ตำแหน่งที่ควรแสดง ณ เวลา t = พิกัดล่าสุด (+ เดาล่วงหน้า) + ส่วนต่างที่กำลังค่อย ๆ หายไป
+function displayedPos(t){
+  if(!fix) return null;
+  let base={lat:fix.lat,lng:fix.lng};
+  if(fix.v){ const s=Math.min(t-fix.t,FOLLOW.PREDICT_MAX_MS)/1000; base=offsetMeters(fix.lat,fix.lng,fix.v.e*s,fix.v.n*s); }
+  if(fixErr){
+    const k=Math.min(1,(t-fixErr.t0)/fixErr.dur), left=1-(1-Math.pow(1-k,3)); // easeOutCubic
+    if(k>=1) fixErr=null; else { base.lat+=fixErr.dLat*left; base.lng+=fixErr.dLng*left; }
+  }
+  return base;
+}
+
+// วาดทุกเฟรม: จุดสีฟ้า วงความแม่นยำ ต้นเส้นประ ลูกศรทิศทาง และเลื่อนแผนที่ (ถ้าล็อกกลางจอ)
+function followFrame(){
+  followRaf=null;
+  if(followWatchId===null||!searchMarker) return;
+  const now=performance.now();
+  const d=displayedPos(now);
+  if(d&&!document.hidden){
+    searchMarker.setLatLng([d.lat,d.lng]);
+    if(accuracyCircle) accuracyCircle.setLatLng([d.lat,d.lng]);
+    nearestPairs.forEach(pr=>{ const from=[d.lat,d.lng]; pr.line.setLatLngs([from,pr.to]); pr.label.setLatLng(midLatLng(from,pr.to)); });
+    if(now-lastLabelLayout>250){ lastLabelLayout=now; layoutDistLabels(); }
+    const el=searchMarker.getElement()?.querySelector('.mypos');
+    if(el){ const moving=!!(fix&&fix.v&&fix.heading!==null); el.classList.toggle('moving',moving); if(moving) el.style.setProperty('--hd',fix.heading+'deg'); }
+    if(followLocked&&!map._animatingZoom){
+      const off=map.latLngToContainerPoint([d.lat,d.lng]).subtract(map.getSize().divideBy(2));
+      const len=Math.hypot(off.x,off.y);
+      if(len>0.05){
+        // ห่างกลางจอมาก (เพิ่งกดกลับมาที่ตำแหน่งฉัน / เพิ่งซูม) → ค่อย ๆ ไล่ตาม, ใกล้แล้ว → ตามพอดี
+        const step=len>2?off.multiplyBy(0.18):off;
+        if(typeof map._rawPanBy==='function'){ map._rawPanBy(step); map.fire('move'); panDirty=true; }
+        else map.panBy(step,{animate:false});
+      }
+    }
+    // ให้แผนที่โหลดภาพ/จัดกลุ่มหมุดตามตำแหน่งใหม่เป็นระยะ (ไม่ทุกเฟรม เพื่อไม่ให้หนักเครื่อง)
+    if(panDirty&&now-lastMoveEndFire>500){ lastMoveEndFire=now; panDirty=false; map.fire('moveend'); }
+  }
+  followRaf=requestAnimationFrame(followFrame);
 }
 // กดแถบลอย → พาไปที่ Geofence ที่ใกล้ที่สุด
 $('nearBar')?.addEventListener('click',()=>{
@@ -627,34 +753,34 @@ $('nearBar')?.addEventListener('click',()=>{
 });
 function stopFollow(){
   if(followWatchId!==null){ navigator.geolocation.clearWatch(followWatchId); followWatchId=null; }
+  if(followRaf){ cancelAnimationFrame(followRaf); followRaf=null; }
+  if(panDirty){ panDirty=false; map.fire('moveend'); }
+  fixErr=null; jumpRejects=0;
+  searchMarker?.getElement()?.querySelector('.mypos')?.classList.remove('moving');
   $('nearBar')?.classList.remove('following');
   followLocked=false; if($('recenterBtn')) $('recenterBtn').hidden=true;
   const btn=document.querySelector('.locatebtn');
   if(btn){ btn.classList.remove('follow'); btn.title=btn.classList.contains('on')?'กดเพื่อติดตามตำแหน่งแบบเรียลไทม์':'ตำแหน่งของฉัน'; }
 }
-// ขยับจุดสีฟ้าไปตำแหน่งใหม่โดยไม่ล้างของเดิม (ไม่ซูม ไม่เปิดป๊อปอัปซ้ำ)
+// อัปเดตข้อมูลตามพิกัดล่าสุดทุก 2 วินาที (ป๊อปอัป ช่องค้นหา เส้นประ รายการ 5 จุด แถบใกล้สุด)
+// ส่วนการขยับจุด/แผนที่ทำใน followFrame ทุกเฟรม
 function updateMyPosition(lat,lng,accuracy){
   if(!searchMarker||!searchPoint) return;
   searchPoint={lat,lng};
-  searchMarker.setLatLng([lat,lng]);
-  if(accuracyCircle){ accuracyCircle.setLatLng([lat,lng]); accuracyCircle.setRadius(accuracy); }
   const near=nearestPoints(lat,lng);
   const nearText=near.length?`<br><br>ใกล้ที่สุด: <b>${esc(near[0].p.name)}</b><br>ระยะ ${formatKm(near[0].km)} กม.`:'';
   searchMarker.setPopupContent(`<div class="popup-title">ตำแหน่งของฉัน (ติดตามอยู่)</div><div class="popup-coord">Latitude: ${lat}<br>Longitude: ${lng}<br>ความแม่นยำ: ±${Math.round(accuracy).toLocaleString('th-TH')} ม.${nearText}</div>${popupActions(lat,lng)}`);
   const inp=$('searchInput'); if(inp) inp.value=`${lat}, ${lng}`;
   drawNearestLines();
   renderList();
-  // เลื่อนแผนที่ตามเฉพาะเมื่อจุดสีฟ้าใกล้หลุดขอบจอ (ไม่แย่งตอนผู้ใช้เลื่อนดูที่อื่น)
-  // ล็อกกลางจอ: แผนที่เลื่อนตามให้จุดสีฟ้าอยู่กลางจอตลอด (ถ้าผู้ใช้เลื่อนแผนที่เอง จะหยุดล็อกจนกว่าจะกด "กลับมาที่ตำแหน่งฉัน")
-  if(followLocked) map.panTo([lat,lng],{animate:true,duration:1,easeLinearity:1});
 }
 
 // ===== ล็อกกลางจอระหว่างติดตาม =====
 let followLocked = false;
+// ล็อกกลางจอ: followFrame จะค่อย ๆ เลื่อนแผนที่กลับมาให้จุดสีฟ้าอยู่กลางจอเอง
 function lockFollow(){
   followLocked=true;
   if($('recenterBtn')) $('recenterBtn').hidden=true;
-  if(searchPoint) map.panTo([searchPoint.lat,searchPoint.lng],{animate:true,duration:.6});
 }
 function unlockFollow(){
   if(followWatchId===null||!followLocked) return;

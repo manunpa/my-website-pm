@@ -109,6 +109,15 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 .locatebtn.follow{background:#1a73e8;color:#fff;border-color:#1a73e8;box-shadow:0 0 0 4px #1a73e833,var(--shadow)}
 .locatebtn.busy svg{animation:spin 1s linear infinite;color:var(--accent)}
 .mypos{width:22px;height:22px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 0 0 #1a73e855,0 2px 8px #0005;animation:mypulse 2s ease-out infinite}
+/* ป้ายระยะทางกลางเส้นประ (5 จุดที่ใกล้ที่สุด) */
+.distlabel-wrap{background:none;border:0;width:0!important;height:0!important}
+.distlabel{position:absolute;left:0;top:0;transform:translate(-50%,-50%);white-space:nowrap;padding:1px 6px;border-radius:8px;
+  font:600 10px/1.5 Inter,Kanit,sans-serif;font-variant-numeric:tabular-nums;color:#4776ff;background:var(--panel);border:1px solid #4776ff66;box-shadow:0 1px 4px #0002;pointer-events:none}
+.distlabel.first{color:#fff;background:#e05260;border-color:#e05260;font-size:11px}
+/* ลูกศรทิศทางบนจุดสีฟ้า (แสดงเฉพาะตอนรถวิ่งและ GPS ส่งทิศทางมา) */
+.mypos{position:relative}
+.mypos-arrow{position:absolute;left:50%;top:50%;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:9px solid #1a73e8;transform:translate(-50%,-50%) rotate(var(--hd,0deg)) translateY(-16px);opacity:0;transition:opacity .3s;filter:drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 1px #fff)}
+.mypos.moving .mypos-arrow{opacity:1}
 @keyframes mypulse{0%{box-shadow:0 0 0 0 #1a73e866,0 2px 8px #0005}100%{box-shadow:0 0 0 16px #1a73e800,0 2px 8px #0005}}
 .nearbar{position:absolute;top:92px;left:50%;transform:translateX(-50%);z-index:450;display:flex;align-items:center;gap:9px;max-width:min(520px,calc(100% - 24px));padding:10px 14px;border-radius:14px;border:1px solid var(--border);background:var(--top);backdrop-filter:blur(16px);box-shadow:var(--shadow);color:var(--text);font-size:13px;cursor:pointer}
 .nearbar[hidden]{display:none}
