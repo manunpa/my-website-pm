@@ -67,6 +67,7 @@ function clearSearchMarker(){
   if(searchMarker){ map.removeLayer(searchMarker); searchMarker=null; }
   if(accuracyCircle){ map.removeLayer(accuracyCircle); accuracyCircle=null; }
   document.querySelector('.locatebtn')?.classList.remove('on');
+  stopFollow();
   searchPoint=null;
   nearestLines.clearLayers();
 }
@@ -423,9 +424,12 @@ const LocateControl = L.Control.extend({
 });
 map.addControl(new LocateControl());
 
+// กดปุ่มวนเป็น 3 สถานะ: ปิด → หาตำแหน่งครั้งเดียว (on) → ติดตามเรียลไทม์ (follow) → ปิด
 function locateMe(btn){
   if(!('geolocation' in navigator)){ toast('อุปกรณ์หรือเบราว์เซอร์นี้ไม่รองรับการหาตำแหน่ง'); return; }
   if(btn.classList.contains('busy')) return;
+  if(followWatchId!==null){ stopFollow(); toast('ปิดการติดตามตำแหน่งแล้ว',2500); return; }
+  if(btn.classList.contains('on')&&searchPoint){ startFollow(btn); return; }
   btn.classList.add('busy');
   toast('กำลังหาตำแหน่งของคุณ...',10000);
   navigator.geolocation.getCurrentPosition(pos=>{
@@ -437,15 +441,61 @@ function locateMe(btn){
     showSearchMarker(lat,lng,{accuracy:pos.coords.accuracy||0});
     btn.classList.add('on');
     const near=nearestPoints(lat,lng,1)[0];
-    toast(near?`ใกล้ที่สุด: ${near.p.name} (${formatKm(near.km)} กม.) · แม่นยำ ±${Math.round(pos.coords.accuracy)} ม.`:`พบตำแหน่งแล้ว · แม่นยำ ±${Math.round(pos.coords.accuracy)} ม.`,4500);
+    toast((near?`ใกล้ที่สุด: ${near.p.name} (${formatKm(near.km)} กม.) · แม่นยำ ±${Math.round(pos.coords.accuracy)} ม.`:`พบตำแหน่งแล้ว · แม่นยำ ±${Math.round(pos.coords.accuracy)} ม.`)+' — กดปุ่มอีกครั้งเพื่อติดตามแบบเรียลไทม์',5500);
+    btn.title='กดเพื่อติดตามตำแหน่งแบบเรียลไทม์';
   },err=>{
     btn.classList.remove('busy','on');
-    const msg = err.code===1 ? 'ไม่ได้รับอนุญาตให้ใช้ตำแหน่ง — เปิดสิทธิ์ "ตำแหน่ง" ให้เว็บนี้ในการตั้งค่าเบราว์เซอร์ แล้วลองใหม่'
-      : err.code===3 ? 'หาตำแหน่งนานเกินไป ลองใหม่อีกครั้ง หรือออกไปที่โล่ง'
-      : 'หาตำแหน่งไม่สำเร็จ ตรวจสอบว่าเปิด GPS / Location ในมือถือแล้ว';
-    toast(msg,6000);
+    toast(geoErrorText(err),6000);
   },{enableHighAccuracy:true,timeout:15000,maximumAge:10000});
 }
+function geoErrorText(err){
+  return err.code===1 ? 'ไม่ได้รับอนุญาตให้ใช้ตำแหน่ง — เปิดสิทธิ์ "ตำแหน่ง" ให้เว็บนี้ในการตั้งค่าเบราว์เซอร์ แล้วลองใหม่'
+    : err.code===3 ? 'หาตำแหน่งนานเกินไป ลองใหม่อีกครั้ง หรือออกไปที่โล่ง'
+    : 'หาตำแหน่งไม่สำเร็จ ตรวจสอบว่าเปิด GPS / Location ในมือถือแล้ว';
+}
+
+// ===== โหมดติดตามตำแหน่งแบบเรียลไทม์ =====
+let followWatchId = null, followLastUpdate = 0;
+const FOLLOW_MIN_INTERVAL = 2000; // อัปเดตหน้าจอไม่ถี่กว่าทุก 2 วินาที (ประหยัดแบต/ไม่กระตุก)
+function startFollow(btn){
+  btn.classList.add('follow');
+  btn.title='กำลังติดตามตำแหน่ง — กดเพื่อปิด';
+  toast('เปิดติดตามตำแหน่งแบบเรียลไทม์ — กดปุ่มอีกครั้งเพื่อปิด (ใช้แบตมากขึ้น)',4500);
+  followWatchId=navigator.geolocation.watchPosition(pos=>{
+    const now=Date.now();
+    if(now-followLastUpdate<FOLLOW_MIN_INTERVAL) return;
+    followLastUpdate=now;
+    updateMyPosition(Number(pos.coords.latitude.toFixed(6)),Number(pos.coords.longitude.toFixed(6)),pos.coords.accuracy||0);
+  },err=>{
+    if(err.code===3) return; // หมดเวลารอบนี้ รอรอบถัดไป
+    stopFollow(); toast(geoErrorText(err),6000);
+  },{enableHighAccuracy:true,timeout:20000,maximumAge:3000});
+}
+function stopFollow(){
+  if(followWatchId!==null){ navigator.geolocation.clearWatch(followWatchId); followWatchId=null; }
+  const btn=document.querySelector('.locatebtn');
+  if(btn){ btn.classList.remove('follow'); btn.title=btn.classList.contains('on')?'กดเพื่อติดตามตำแหน่งแบบเรียลไทม์':'ตำแหน่งของฉัน'; }
+}
+// ขยับจุดสีฟ้าไปตำแหน่งใหม่โดยไม่ล้างของเดิม (ไม่ซูม ไม่เปิดป๊อปอัปซ้ำ)
+function updateMyPosition(lat,lng,accuracy){
+  if(!searchMarker||!searchPoint) return;
+  searchPoint={lat,lng};
+  searchMarker.setLatLng([lat,lng]);
+  if(accuracyCircle){ accuracyCircle.setLatLng([lat,lng]); accuracyCircle.setRadius(accuracy); }
+  const near=nearestPoints(lat,lng);
+  const nearText=near.length?`<br><br>ใกล้ที่สุด: <b>${esc(near[0].p.name)}</b><br>ระยะ ${formatKm(near[0].km)} กม.`:'';
+  searchMarker.setPopupContent(`<div class="popup-title">ตำแหน่งของฉัน (ติดตามอยู่)</div><div class="popup-coord">Latitude: ${lat}<br>Longitude: ${lng}<br>ความแม่นยำ: ±${Math.round(accuracy).toLocaleString('th-TH')} ม.${nearText}</div>${popupActions(lat,lng)}`);
+  const inp=$('searchInput'); if(inp) inp.value=`${lat}, ${lng}`;
+  drawNearestLines();
+  renderList();
+  // เลื่อนแผนที่ตามเฉพาะเมื่อจุดสีฟ้าใกล้หลุดขอบจอ (ไม่แย่งตอนผู้ใช้เลื่อนดูที่อื่น)
+  const inner=map.getBounds().pad(-0.2);
+  if(!inner.contains([lat,lng])) map.panTo([lat,lng],{animate:true,duration:.5});
+}
+// สลับไปแอปอื่น/ปิดจอ → ปิดการติดตามอัตโนมัติ เพื่อไม่ให้แบตหมดโดยไม่รู้ตัว
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden&&followWatchId!==null){ stopFollow(); toast('ปิดการติดตามตำแหน่งอัตโนมัติ (ออกจากหน้าจอ) — กดปุ่มเพื่อเริ่มใหม่',5000); }
+});
 
 // ===== Firebase: ตรวจสิทธิ์ / Logout / ตัด Session (ดู firebase-guard.js) =====
 // โหลดข้อมูลหลังยืนยันตัวตนแล้วเท่านั้น
