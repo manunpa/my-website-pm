@@ -24,7 +24,8 @@ function doPost(e) {
   let body = {};
   try { body = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (err) {}
   if (!verifyFirebaseToken_(body.idToken)) {
-    return json_({ status: 'error', error: 'unauthorized', message: 'เซสชันหมดอายุหรือไม่มีสิทธิ์ กรุณาล็อกอินใหม่' });
+    // reason บอกว่าติดตรงไหน (ไม่มีข้อมูลลับ) เช่น lookup:API key not valid = คีย์ในสคริปต์ผิด
+    return json_({ status: 'error', error: 'unauthorized', reason: FAIL_REASON_, message: 'เซสชันหมดอายุหรือไม่มีสิทธิ์ กรุณาล็อกอินใหม่' });
   }
   return getData_();
 }
@@ -82,8 +83,11 @@ function testData() {
 }
 
 // ===== ตรวจ Firebase ID token — ใช้ได้คืน {uid, email} ไม่ได้คืน null (จำผลไว้ไม่เกิน 5 นาที) =====
+let FAIL_REASON_ = '';
 function verifyFirebaseToken_(idToken) {
+  FAIL_REASON_ = 'no-token';
   if (typeof idToken !== 'string' || idToken.length < 100 || idToken.length > 4096) return null;
+  FAIL_REASON_ = 'claims';
 
   const claims = decodeJwtPayload_(idToken);
   const now = Math.floor(Date.now() / 1000);
@@ -106,7 +110,13 @@ function verifyFirebaseToken_(idToken) {
       payload: JSON.stringify({ idToken: idToken }),
       muteHttpExceptions: true
     });
-  if (res.getResponseCode() !== 200) return null;
+  if (res.getResponseCode() !== 200) {
+    let msg = '';
+    try { msg = JSON.parse(res.getContentText()).error.message; } catch (err) {}
+    FAIL_REASON_ = 'lookup:' + String(msg || res.getResponseCode()).slice(0, 80);
+    return null;
+  }
+  FAIL_REASON_ = 'account';
   const u = (JSON.parse(res.getContentText()).users || [])[0];
   if (!u || u.disabled || u.localId !== claims.sub) return null;
 
