@@ -1,6 +1,9 @@
 import { requireLogin } from './firebase-guard.js';
 /* ใช้ URL Web App ที่เชื่อมต่อ Google Sheets */
 const API_URL = 'https://script.google.com/macros/s/AKfycbxGxDaEkB1IVbzSbMFkMJ08zfx9n9qIRDReGx9Mb-bg2n5C0jh8KuiwDnGjdjTvuVCF/exec';
+/* API ชุดที่ 2: สถานี PTT (มีรายละเอียดสถานี) — โค้ดอยู่ที่ apps-script/ptt-stations.gs เว้นว่างไว้ = ไม่โหลด */
+const PTT_API_URL = 'https://script.google.com/macros/s/AKfycbyaSWY0vXvJyR8BO0bJo88Wirj_akGX6-uRMb-k-KqVFfxsZQHnY7_qp3fkzahaG4Rz/exec';
+const PTT_SUPPLIER = 'PTT Station';
 const $ = id => document.getElementById(id);
 let allRows = [], filteredRows = [], activeFilter = 'all', activeSupplier = 'all', selectedId = null, currentLayer = 'street';
 const NO_SUPPLIER = '(ไม่ระบุ Supplier)';
@@ -268,6 +271,38 @@ function normalizeRows(payload){
     return {id:i,name:String(name).trim(),lat,lng,supplier,raw:r};
   });
 }
+// แปลงข้อมูลสถานี PTT ให้เป็นจุดแบบเดียวกับชุดหลัก แต่เก็บรายละเอียดสถานีไว้ใน p.ptt
+function normalizePttRows(payload,startId){
+  const rows=Array.isArray(payload)?payload:(payload?.data??payload?.rows??[]);
+  if(!Array.isArray(rows)) throw new Error('รูปแบบข้อมูล PTT ไม่ถูกต้อง');
+  const txt=v=>String(v??'').trim();
+  return rows.map((r,i)=>{
+    const ptt={
+      type:txt(findValue(r,['type'])), province:txt(findValue(r,['province_name','province'])),
+      address:txt(findValue(r,['address'])), phone:txt(findValue(r,['phone'])),
+      products:txt(findValue(r,['products'])), services:txt(findValue(r,['services'])),
+      cards:txt(findValue(r,['card_type'])), link:txt(findValue(r,['link']))
+    };
+    return {
+      id:startId+i, name:txt(findValue(r,['name']))||`สถานี PTT ${i+1}`,
+      lat:asNumber(findValue(r,['lat','Latitude'])), lng:asNumber(findValue(r,['lng','Longitude'])),
+      supplier:PTT_SUPPLIER, ptt, searchText:`${ptt.province} ${ptt.address}`, raw:r
+    };
+  });
+}
+function pttDetailsHtml(d){
+  const line=(label,val)=>val?`<div class="ptt-line"><b>${label}</b> ${esc(val)}</div>`:'';
+  const chips=val=>val?`<div class="ptt-chips">${val.split(/\s*,\s*/).filter(Boolean).map(x=>`<span>${esc(x)}</span>`).join('')}</div>`:'';
+  const tel=d.phone?`<div class="ptt-line"><b>โทร</b> ${d.phone.split(/\s*[,/]\s*/).filter(Boolean).map(n=>`<a href="tel:${esc(n.replace(/[^\d+]/g,''))}">${esc(n)}</a>`).join(', ')}</div>`:'';
+  return `<div class="ptt-detail">
+    ${d.type?`<span class="ptt-type">${esc(d.type)}</span>`:''}${d.province?`<span class="ptt-prov">${esc(d.province)}</span>`:''}
+    ${line('ที่อยู่',d.address)}${tel}
+    ${d.products?`<div class="ptt-sec">น้ำมัน / ผลิตภัณฑ์</div>${chips(d.products)}`:''}
+    ${d.services?`<div class="ptt-sec">บริการในสถานี</div>${chips(d.services)}`:''}
+    ${line('บัตรที่รับ',d.cards)}
+    ${/^https?:\/\//.test(d.link)?`<a class="ptt-link" href="${esc(d.link)}" target="_blank" rel="noopener">ดูหน้าสถานีบน pttstation.com ↗</a>`:''}
+  </div>`;
+}
 function validPoint(p){return p.lat!==null&&p.lng!==null&&p.lat>=-90&&p.lat<=90&&p.lng>=-180&&p.lng<=180}
 function esc(s){
   const ent={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
@@ -281,7 +316,8 @@ const SUPPLIER_COLORS = {
   'SCA DTC':'#0ca678',
   'Smart Logistics':'#8b5cf6',
   'LEO System':'#e64980',
-  'PMS':'#495057'
+  'PMS':'#495057',
+  [PTT_SUPPLIER]:'#00a3e0'
 };
 const EXTRA_COLORS = ['#1098ad','#d9480f','#5c940d','#9c36b5','#364fc7','#c92a2a'];
 const NO_SUPPLIER_COLOR = '#adb5bd';
@@ -321,7 +357,10 @@ $('supplierLegend')?.addEventListener('click',e=>{
 function buildMarker(p){
   const marker=L.marker([p.lat,p.lng],{title:p.name,icon:pinIcon(supplierColor(p.supplier))});
   marker.supplierIcon=marker.options.icon;
-  marker.bindPopup(`<div class="popup-title">${esc(p.name)}</div><div class="popup-coord">Supplier: ${esc(p.supplier)}<br>Latitude: ${p.lat}<br>Longitude: ${p.lng}</div>${popupActions(p.lat,p.lng)}`);
+  marker.bindPopup(p.ptt
+    ? `<div class="popup-title">${esc(p.name)}</div>${pttDetailsHtml(p.ptt)}<div class="popup-coord">Latitude: ${p.lat}<br>Longitude: ${p.lng}</div>${popupActions(p.lat,p.lng)}`
+    : `<div class="popup-title">${esc(p.name)}</div><div class="popup-coord">Supplier: ${esc(p.supplier)}<br>Latitude: ${p.lat}<br>Longitude: ${p.lng}</div>${popupActions(p.lat,p.lng)}`,
+    p.ptt?{maxWidth:300,minWidth:240}:undefined);
   marker.on('click',()=>{ selectPoint(p.id); scrollRowIntoView(p.id); });
   markerById.set(p.id,marker);
   return marker;
@@ -452,7 +491,7 @@ function renderList(){
     return;
   }
   filteredRows=allRows.filter(p=>{
-    const matches = !!coordQ || (p.name+' '+p.supplier).toLocaleLowerCase().includes(q);
+    const matches = !!coordQ || (p.name+' '+p.supplier+(p.searchText?' '+p.searchText:'')).toLocaleLowerCase().includes(q);
     if(activeSupplier!=='all'&&p.supplier!==activeSupplier) return false;
     const valid=validPoint(p);
     return matches&&(activeFilter==='all'||(activeFilter==='valid'&&valid)||(activeFilter==='invalid'&&!valid));
@@ -511,10 +550,16 @@ async function loadData(){
   if($('pointList')) $('pointList').innerHTML='<div class="empty"><span class="loading"></span>กำลังโหลดรายการพิกัด</div>';
   if($('refreshBtn')) $('refreshBtn').disabled=true;
   try{
-    const response=await fetch(API_URL,{method:'GET',cache:'no-store',redirect:'follow'});
-    if(!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload=await response.json();
-    allRows=normalizeRows(payload);
+    // โหลด 2 ชุดพร้อมกัน — ถ้าชุด PTT ล้มเหลว ชุดหลักยังแสดงได้ตามปกติ
+    const getJson=url=>fetch(url,{method:'GET',cache:'no-store',redirect:'follow'})
+      .then(r=>{ if(!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); });
+    const [mainRes,pttRes]=await Promise.allSettled([getJson(API_URL), PTT_API_URL?getJson(PTT_API_URL):Promise.resolve(null)]);
+    if(mainRes.status==='rejected') throw mainRes.reason;
+    allRows=normalizeRows(mainRes.value);
+    if(pttRes.status==='fulfilled'&&pttRes.value){
+      try{ allRows=allRows.concat(normalizePttRows(pttRes.value,allRows.length)); }
+      catch(e){ console.error(e); toast('โหลดข้อมูลสถานี PTT ไม่สำเร็จ',4000); }
+    }else if(pttRes.status==='rejected'){ console.error(pttRes.reason); toast('โหลดข้อมูลสถานี PTT ไม่สำเร็จ',4000); }
     buildSupplierOptions();
     renderMap();renderList();
     if($('statusText')) $('statusText').textContent='เชื่อมต่อข้อมูลแล้ว';
