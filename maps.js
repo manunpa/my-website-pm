@@ -246,7 +246,7 @@ function buildMarker(p){
   const marker=L.marker([p.lat,p.lng],{title:p.name,icon:pinIcon(supplierColor(p.supplier))});
   marker.supplierIcon=marker.options.icon;
   marker.bindPopup(`<div class="popup-title">${esc(p.name)}</div><div class="popup-coord">Supplier: ${esc(p.supplier)}<br>Latitude: ${p.lat}<br>Longitude: ${p.lng}</div>${popupActions(p.lat,p.lng)}`);
-  marker.on('click',()=>{ selectPoint(p.id); renderList(); scrollRowIntoView(p.id); });
+  marker.on('click',()=>{ selectPoint(p.id); scrollRowIntoView(p.id); });
   markerById.set(p.id,marker);
   return marker;
 }
@@ -263,6 +263,7 @@ function selectPoint(id){
   selectedId=id;
   const m=id===null?null:markerById.get(id);
   if(m){ m.setIcon(selectedIcon); m.setZIndexOffset(1000); selectedMarker=m; }
+  markSelectedRow();
 }
 // พาไปที่หมุด ถ้าหมุดซ่อนอยู่ในกลุ่ม (ตัวเลข) จะซูม/กางกลุ่มออกจนเห็นหมุดนั้นแล้วค่อยเปิดป๊อปอัป
 function revealMarker(id){
@@ -287,6 +288,9 @@ function revealMarker(id){
   else { map.once('moveend',afterFly); map.flyTo(ll,z,{duration:.7}); }
 }
 function scrollRowIntoView(id){
+  // แถวยังไม่ถูกโหลด (อยู่เกิน 200 แถวแรก) → โหลดเพิ่มจนถึงแถวนั้นก่อน
+  const idx=filteredRows.findIndex(p=>p.id===id);
+  while(idx>=listShown&&listShown<filteredRows.length) appendMoreRows();
   const row=document.querySelector(`.pointrow[data-id="${id}"]`);
   if(row) row.scrollIntoView({block:'nearest',behavior:'smooth'});
 }
@@ -319,7 +323,42 @@ function buildSupplierOptions(){
   sel.value=activeSupplier;
   sel.classList.toggle('on',activeSupplier!=='all');
 }
+// ===== รายการด้านซ้าย: วาดทีละ 200 แถว (วาดหมื่นแถวทีเดียวทำให้หน้าค้างหลายวินาที) =====
+const LIST_PAGE = 200;
+let listShown = 0;
+function rowHtml(p){
+  const valid=validPoint(p), selected=selectedId===p.id;
+  return `<div class="pointrow ${selected?'selected':''}" data-id="${p.id}">
+      <div class="pin"${valid?` style="color:${supplierColor(p.supplier)};background:${supplierColor(p.supplier)}1f"`:''}>${valid?'⌖':'!'}</div>
+      <div class="pointinfo"><div class="pointname">${esc(p.name)}</div><div class="pointcoord">${valid?`${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`:'ไม่พบ Latitude / Longitude'}${p.supplier!==NO_SUPPLIER?` · <span class="pointsup" style="color:${supplierColor(p.supplier)}">${esc(p.supplier)}</span>`:''}</div></div>
+      <div class="pointarrow">${valid?'›':'·'}</div>
+    </div>`;
+}
+function moreHtml(){
+  if(listShown>=filteredRows.length) return '';
+  return `<button type="button" class="listmore">แสดง ${listShown.toLocaleString('th-TH')} จาก ${filteredRows.length.toLocaleString('th-TH')} · เลื่อนลงหรือกดเพื่อดูเพิ่ม</button>`;
+}
+function appendMoreRows(){
+  const pointList=$('pointList');
+  if(!pointList||listShown>=filteredRows.length) return;
+  pointList.querySelector('.listmore')?.remove();
+  const next=filteredRows.slice(listShown,listShown+LIST_PAGE);
+  listShown+=next.length;
+  pointList.insertAdjacentHTML('beforeend',next.map(rowHtml).join('')+moreHtml());
+}
+// อัปเดตไฮไลต์แถวที่เลือกโดยไม่วาดรายการใหม่ทั้งหมด (ตำแหน่งเลื่อนของรายการไม่กระโดด)
+function markSelectedRow(){
+  const pointList=$('pointList');
+  if(!pointList) return;
+  pointList.querySelectorAll('.pointrow.selected').forEach(r=>r.classList.remove('selected'));
+  if(selectedId!==null) pointList.querySelector(`.pointrow[data-id="${selectedId}"]`)?.classList.add('selected');
+}
+// รอให้หยุดพิมพ์ 0.25 วินาทีก่อนค้นหา
+let searchTimer = null;
+function scheduleRenderList(){ clearTimeout(searchTimer); searchTimer=setTimeout(renderList,250); }
+
 function renderList(){
+  clearTimeout(searchTimer);
   const searchInput = $('searchInput');
   const pointList = $('pointList');
   const pointCount = $('pointCount');
@@ -341,20 +380,16 @@ function renderList(){
   if(pointCount) pointCount.textContent=`${filteredRows.length.toLocaleString('th-TH')} จุด`;
   if(!filteredRows.length){pointList.innerHTML='<div class="empty">ไม่พบรายการที่ตรงกับการค้นหา</div>';return}
   const hint=coordQ?'<div class="nearhint">กด Enter เพื่อหา Geofence ที่ใกล้พิกัดนี้ที่สุด</div>':'';
-  pointList.innerHTML=hint+filteredRows.map(p=>{
-    const valid=validPoint(p), selected=selectedId===p.id;
-    return `<div class="pointrow ${selected?'selected':''}" data-id="${p.id}">
-      <div class="pin"${valid?` style="color:${supplierColor(p.supplier)};background:${supplierColor(p.supplier)}1f"`:''}>${valid?'⌖':'!'}</div>
-      <div class="pointinfo"><div class="pointname">${esc(p.name)}</div><div class="pointcoord">${valid?`${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`:'ไม่พบ Latitude / Longitude'}${p.supplier!==NO_SUPPLIER?` · <span class="pointsup" style="color:${supplierColor(p.supplier)}">${esc(p.supplier)}</span>`:''}</div></div>
-      <div class="pointarrow">${valid?'›':'·'}</div>
-    </div>`;
-  }).join('');
-  bindRowClicks(pointList);
+  const first=filteredRows.slice(0,LIST_PAGE);
+  listShown=first.length;
+  pointList.innerHTML=hint+first.map(rowHtml).join('')+moreHtml();
+  pointList.scrollTop=0;
 }
 
 function renderNearest(pointList,pointCount){
   const near=nearestPoints(searchPoint.lat,searchPoint.lng);
   filteredRows=near.map(n=>n.p);
+  listShown=filteredRows.length;
   if(pointCount) pointCount.textContent=`ใกล้สุด ${near.length} จุด`;
   const supNote=activeSupplier!=='all'?`<div class="nearsub">เฉพาะ Supplier: ${esc(activeSupplier)}</div>`:'';
   const head=`<div class="nearhead"><div class="neartitle">Geofence ที่ใกล้ที่สุด</div>
@@ -368,19 +403,27 @@ function renderNearest(pointList,pointCount){
       <div class="dist"><b>${formatKm(km)}</b><span>กม.</span></div>
     </div>`;
   }).join('');
-  bindRowClicks(pointList);
 }
 
-function bindRowClicks(pointList){
-  pointList.querySelectorAll('.pointrow').forEach(el=>el.addEventListener('click',()=>{
+// คลิกในรายการ: ผูก event ครั้งเดียวที่กล่องรายการ (แถวที่โหลดเพิ่มภายหลังก็ใช้ได้)
+const pointListEl=$('pointList');
+if(pointListEl){
+  pointListEl.addEventListener('click',e=>{
+    if(e.target.closest('.listmore')){ appendMoreRows(); return; }
+    const el=e.target.closest('.pointrow');
+    if(!el) return;
     const id=Number(el.dataset.id),p=allRows.find(x=>x.id===id);
     if(!p)return;
-    selectPoint(id);renderList();
+    selectPoint(id);
     if(!validPoint(p)){toast('รายการนี้ไม่มีพิกัด Latitude / Longitude ที่ถูกต้อง');return}
     const sidebar = $('sidebar');
     if(sidebar && !sidebar.classList.contains('collapsed')&&window.innerWidth<=850) sidebar.classList.add('collapsed');
     revealMarker(id);
-  }));
+  });
+  // เลื่อนใกล้ท้ายรายการ → โหลดเพิ่มอีก 200 แถว
+  pointListEl.addEventListener('scroll',()=>{
+    if(pointListEl.scrollTop+pointListEl.clientHeight>pointListEl.scrollHeight-400) appendMoreRows();
+  },{passive:true});
 }
 
 async function loadData(){
@@ -407,7 +450,7 @@ async function loadData(){
 
 const searchInputEl = $('searchInput');
 if(searchInputEl){
-  searchInputEl.addEventListener('input',renderList);
+  searchInputEl.addEventListener('input',scheduleRenderList);
   searchInputEl.addEventListener('keydown',e=>{
     if(e.key!=='Enter') return;
     const text=e.target.value.trim();
@@ -423,7 +466,7 @@ if(searchInputEl){
     const text=e.target.value.trim();
     const pt=parseLatLng(text);
     // แก้ข้อความจนไม่ใช่พิกัดเดิมแล้ว → ล้างหมุด/เส้น/ผล 5 อันดับเดิม
-    if(!text||(searchPoint&&!(pt&&pt.lat===searchPoint.lat&&pt.lng===searchPoint.lng))){ clearSearchMarker(); renderList(); }
+    if(!text||(searchPoint&&!(pt&&pt.lat===searchPoint.lat&&pt.lng===searchPoint.lng))){ clearSearchMarker(); scheduleRenderList(); }
   });
 }
 
@@ -481,7 +524,7 @@ map.on('mousemove',e=>{
   const cursorCoords = $('cursorCoords');
   if(cursorCoords) cursorCoords.textContent=`LAT ${e.latlng.lat.toFixed(5)} · LNG ${e.latlng.lng.toFixed(5)}`;
 });
-map.on('click',e=>{if(e.originalEvent.target===map.getContainer()&&selectedId!==null){ selectPoint(null); renderList(); }});
+map.on('click',e=>{if(e.originalEvent.target===map.getContainer()&&selectedId!==null){ selectPoint(null); }});
 
 // ===== ปุ่มตำแหน่งของฉัน (มุมขวาล่าง เหนือปุ่มซูม) =====
 // ใช้ Geolocation ของเบราว์เซอร์ ตำแหน่งอยู่ในเครื่องผู้ใช้เท่านั้น ไม่ได้ส่งไปเก็บที่ไหน
@@ -551,7 +594,7 @@ function startFollow(btn){
 $('nearBar')?.addEventListener('click',()=>{
   const id=Number($('nearBar').dataset.id);
   if(!Number.isFinite(id)) return;
-  selectPoint(id); renderList();
+  selectPoint(id);
   const p=allRows.find(x=>x.id===id);
   // ระหว่างติดตาม: ซูมให้เห็นทั้งตัวเราและจุดนั้น (ถ้าบินไปที่จุดเดียว แผนที่จะถูกดึงกลับมาหาตัวเรา)
   if(followWatchId!==null) unlockFollow();
