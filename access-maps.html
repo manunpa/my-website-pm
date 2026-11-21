@@ -28,8 +28,9 @@ button,input{font:inherit}button{cursor:pointer}
 .topbar{height:78px;flex:0 0 78px;background:var(--top);backdrop-filter:blur(18px);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:22px;padding:0 24px;z-index:1000}
 .brand{display:flex;align-items:center;gap:13px;min-width:255px}
 .brandmark{width:43px;height:43px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(135deg,#4776ff,#9b5cff);box-shadow:0 7px 18px #4776ff40;color:white;font-size:23px}
-.brand h1{margin:0;font-size:25px;line-height:1;font-weight:800;letter-spacing:-1px;background:linear-gradient(90deg,#4776ff,#8d5cf6,#16c7bd,#4776ff);background-size:260% auto;color:transparent;background-clip:text;-webkit-background-clip:text;animation:shine 5s linear infinite}
-@keyframes shine{to{background-position:260% center}}
+.brand h1{margin:0;font-size:25px;line-height:1;font-weight:800;letter-spacing:-1px;background:linear-gradient(90deg,#4776ff,#8d5cf6,#16c7bd,#4776ff);background-size:200% auto;color:transparent;background-clip:text;-webkit-background-clip:text;animation:shine 5s linear infinite}
+/* ไล่สีวนต่อเนื่อง: เลื่อนพอดี 1 รอบของสีพื้นหลัง (ขนาด 200% ↔ เลื่อน 200%) จุดเริ่มกับจุดจบจึงต่อกันสนิท ไม่กระตุก */
+@keyframes shine{from{background-position:0% center}to{background-position:200% center}}
 .brand small{display:block;color:var(--muted);font-size:10px;letter-spacing:2.1px;margin-top:6px;font-weight:700}
 .top-status{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;margin-left:auto;white-space:nowrap}
 .live-dot{width:8px;height:8px;background:#20c997;border-radius:50%;box-shadow:0 0 0 4px #20c99720}
