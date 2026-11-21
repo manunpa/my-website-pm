@@ -1,7 +1,7 @@
-import { requireLogin } from './firebase-guard.js';
+import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122-leo';
 /* ===== ตั้งค่าการเชื่อม Google Sheets API ===== */
 const CONFIG = {
-  API_URL: 'https://script.google.com/macros/s/AKfycbwrioeYqCEg1abXWwa-tdlLb16qPUDYLK6TSIT6N6PpmQWryOKgC8kzWGe3pXEBkH3V/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbyWoNoFrTC1Ep3j395aio1ZP9E9qrTwubtUei2uydmoHnsIigYk7V8jN29wvl32t84W/exec',
   SHEET_ID: '',          
   API_KEY: '',           
   RANGE: 'Sheet1!A:Q',   
@@ -135,9 +135,8 @@ async function load(){
   if(stTextEl) stTextEl.textContent = 'กำลังอัปเดต...';
   try{
     if(CONFIG.API_URL){
-      const res = await fetch(CONFIG.API_URL + (CONFIG.API_URL.includes('?') ? '&' : '?') + 't=' + Date.now());
-      if(!res.ok) throw new Error('HTTP ' + res.status);
-      const j = await res.json();
+      // แนบ Firebase ID token ไปให้ Apps Script ตรวจ (apps-script/leo.gs) — URL เดิม ...XBkH3V ยังเปิดไว้ให้ my-web-p3
+      const j = JSON.parse(await fetchProtectedText(CONFIG.API_URL));
       if(j && j.error) throw new Error(j.error);
       ROWS = buildChecked(j); mode = 'live';
     } else if(CONFIG.SHEET_ID && CONFIG.API_KEY){
