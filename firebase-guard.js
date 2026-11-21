@@ -25,7 +25,7 @@ const firebaseConfig = {
 
 export const LOGIN_URL = "./index.html";
 export const HUB_URL = "./Access-Hub.html";
-export const INACTIVITY_LIMIT = 10 * 60 * 1000; // 10 นาที
+export const INACTIVITY_LIMIT = 6 * 60 * 60 * 1000; // 6 ชั่วโมง (ไม่มีการใช้งานครบเวลานี้ → ออกจากระบบ)
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
@@ -58,7 +58,7 @@ function startInactivityTimer() {
  * ใช้ในทุกหน้าที่ต้องล็อกอินก่อน
  * - ยังไม่ล็อกอิน: พาไปหน้าเข้าสู่ระบบ
  * - ล็อกอินแล้ว: แสดงหน้า (ใส่คลาส .ready ที่ <html>), แสดงอีเมลใน #user-email (ถ้ามี),
- *   ผูกปุ่มออกจากระบบ, เริ่มตัวจับเวลา 10 นาที แล้วเรียก onReady(user) ครั้งเดียว
+ *   ผูกปุ่มออกจากระบบ, เริ่มตัวจับเวลา (INACTIVITY_LIMIT) แล้วเรียก onReady(user) ครั้งเดียว
  * หน้า HTML ควรมี <style>html:not(.ready) body{visibility:hidden}</style> ใน <head>
  * เพื่อซ่อนหน้าไว้จนกว่าจะยืนยันตัวตนเสร็จ
  *
