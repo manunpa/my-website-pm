@@ -51,6 +51,7 @@ function drawNearestLines(){
       color:i===0?'#e05260':'#4776ff',weight:i===0?3:2,opacity:i===0?.9:.55,dashArray:'6 6',interactive:false
     }).addTo(nearestLines);
   });
+  updateNearBar();
 }
 
 function parseLatLng(text){
@@ -68,8 +69,25 @@ function clearSearchMarker(){
   if(accuracyCircle){ map.removeLayer(accuracyCircle); accuracyCircle=null; }
   document.querySelector('.locatebtn')?.classList.remove('on');
   stopFollow();
-  searchPoint=null;
+  searchPoint=null; gpsActive=false;
   nearestLines.clearLayers();
+  updateNearBar();
+}
+
+// ===== แถบลอยบนแผนที่: Geofence ที่ใกล้ที่สุด (แสดงเมื่อใช้ปุ่มตำแหน่งของฉัน) =====
+let gpsActive = false;
+function formatDist(km){
+  return km<1 ? `${Math.round(km*1000).toLocaleString('th-TH')} ม.` : `${formatKm(km)} กม.`;
+}
+function updateNearBar(){
+  const bar=$('nearBar');
+  if(!bar) return;
+  const near=gpsActive&&searchPoint ? nearestPoints(searchPoint.lat,searchPoint.lng,1)[0] : null;
+  if(!near){ bar.hidden=true; return; }
+  bar.hidden=false;
+  bar.dataset.id=near.p.id;
+  bar.classList.toggle('following',followWatchId!==null);
+  bar.innerHTML=`<span class="nb-dot"></span><span class="nb-label">ใกล้สุด</span><span class="nb-name">${esc(near.p.name)}</span><span class="nb-dist">${formatDist(near.km)}</span>`;
 }
 
 // opts.accuracy (เมตร) = มาจากปุ่มตำแหน่งของฉัน → แสดงเป็นจุดสีฟ้า + วงความแม่นยำ
@@ -83,7 +101,7 @@ function showSearchMarker(lat,lng,opts={}){
       :'<div style="width:22px;height:22px;border-radius:50%;background:#e05260;border:3px solid #fff;box-shadow:0 0 0 4px #e0526055,0 3px 10px #0006"></div>',
     iconSize:[22,22], iconAnchor:[11,11]
   });
-  searchPoint={lat,lng};
+  searchPoint={lat,lng}; gpsActive=isGps;
   const near=nearestPoints(lat,lng);
   const nearText=near.length?`<br><br>ใกล้ที่สุด: <b>${esc(near[0].p.name)}</b><br>ระยะ ${formatKm(near[0].km)} กม.`:'';
   if(isGps) accuracyCircle=L.circle([lat,lng],{radius:opts.accuracy,color:'#1a73e8',weight:1,opacity:.5,fillColor:'#1a73e8',fillOpacity:.12,interactive:false}).addTo(map);
@@ -95,7 +113,8 @@ function showSearchMarker(lat,lng,opts={}){
   // ซูมให้เห็นทั้งหมุดที่ค้นหาและจุดที่ใกล้ที่สุดในจอเดียว
   if(near.length) map.flyToBounds(L.latLngBounds([[lat,lng],...near.map(n=>[n.p.lat,n.p.lng])]),{padding:[70,70],maxZoom:16,duration:.8});
   else map.flyTo([lat,lng],Math.max(map.getZoom(),16),{duration:.8});
-  setTimeout(()=>searchMarker&&searchMarker.openPopup(),850);
+  // ตำแหน่งของฉัน: ไม่เปิดป๊อปอัปเอง เพราะแถบลอยด้านบนแสดงข้อมูลเดียวกันอยู่แล้ว (กดจุดสีฟ้าเพื่อเปิดได้)
+  if(!isGps) setTimeout(()=>searchMarker&&searchMarker.openPopup(),850);
   // เปิดรายการด้านข้างเพื่อให้เห็นผล 5 อันดับ
   const sidebar=$('sidebar');
   if(sidebar&&sidebar.classList.contains('collapsed')){ sidebar.classList.remove('collapsed'); setTimeout(()=>map.invalidateSize(),280); }
@@ -202,6 +221,7 @@ function selectPoint(id){
 function revealMarker(id){
   const m=markerById.get(id);
   if(!m) return;
+  unlockFollow(); // กำลังติดตามอยู่ → หยุดล็อกกลางจอ ไม่งั้นแผนที่จะถูกดึงกลับมาหาตัวเรา
   const ll=m.getLatLng();
   const hidden=()=>{ const vp=clusters.getVisibleParent(m); return vp&&vp!==m ? vp : null; };
   // ขั้นสุดท้าย: ถ้ายังอยู่ในกลุ่ม (หมุดซ้อนที่เดียวกัน) ให้กางกลุ่มออกแล้วเปิดป๊อปอัป
@@ -460,6 +480,8 @@ const FOLLOW_MIN_INTERVAL = 2000; // อัปเดตหน้าจอไม�
 function startFollow(btn){
   btn.classList.add('follow');
   btn.title='กำลังติดตามตำแหน่ง — กดเพื่อปิด';
+  $('nearBar')?.classList.add('following');
+  lockFollow();
   toast('เปิดติดตามตำแหน่งแบบเรียลไทม์ — กดปุ่มอีกครั้งเพื่อปิด (ใช้แบตมากขึ้น)',4500);
   followWatchId=navigator.geolocation.watchPosition(pos=>{
     const now=Date.now();
@@ -471,8 +493,21 @@ function startFollow(btn){
     stopFollow(); toast(geoErrorText(err),6000);
   },{enableHighAccuracy:true,timeout:20000,maximumAge:3000});
 }
+// กดแถบลอย → พาไปที่ Geofence ที่ใกล้ที่สุด
+$('nearBar')?.addEventListener('click',()=>{
+  const id=Number($('nearBar').dataset.id);
+  if(!Number.isFinite(id)) return;
+  selectPoint(id); renderList();
+  const p=allRows.find(x=>x.id===id);
+  // ระหว่างติดตาม: ซูมให้เห็นทั้งตัวเราและจุดนั้น (ถ้าบินไปที่จุดเดียว แผนที่จะถูกดึงกลับมาหาตัวเรา)
+  if(followWatchId!==null) unlockFollow();
+  if(followWatchId!==null&&p&&searchPoint) map.flyToBounds(L.latLngBounds([[searchPoint.lat,searchPoint.lng],[p.lat,p.lng]]),{padding:[90,90],maxZoom:17,duration:.7});
+  else revealMarker(id);
+});
 function stopFollow(){
   if(followWatchId!==null){ navigator.geolocation.clearWatch(followWatchId); followWatchId=null; }
+  $('nearBar')?.classList.remove('following');
+  followLocked=false; if($('recenterBtn')) $('recenterBtn').hidden=true;
   const btn=document.querySelector('.locatebtn');
   if(btn){ btn.classList.remove('follow'); btn.title=btn.classList.contains('on')?'กดเพื่อติดตามตำแหน่งแบบเรียลไทม์':'ตำแหน่งของฉัน'; }
 }
@@ -489,9 +524,24 @@ function updateMyPosition(lat,lng,accuracy){
   drawNearestLines();
   renderList();
   // เลื่อนแผนที่ตามเฉพาะเมื่อจุดสีฟ้าใกล้หลุดขอบจอ (ไม่แย่งตอนผู้ใช้เลื่อนดูที่อื่น)
-  const inner=map.getBounds().pad(-0.2);
-  if(!inner.contains([lat,lng])) map.panTo([lat,lng],{animate:true,duration:.5});
+  // ล็อกกลางจอ: แผนที่เลื่อนตามให้จุดสีฟ้าอยู่กลางจอตลอด (ถ้าผู้ใช้เลื่อนแผนที่เอง จะหยุดล็อกจนกว่าจะกด "กลับมาที่ตำแหน่งฉัน")
+  if(followLocked) map.panTo([lat,lng],{animate:true,duration:1,easeLinearity:1});
 }
+
+// ===== ล็อกกลางจอระหว่างติดตาม =====
+let followLocked = false;
+function lockFollow(){
+  followLocked=true;
+  if($('recenterBtn')) $('recenterBtn').hidden=true;
+  if(searchPoint) map.panTo([searchPoint.lat,searchPoint.lng],{animate:true,duration:.6});
+}
+function unlockFollow(){
+  if(followWatchId===null||!followLocked) return;
+  followLocked=false;
+  if($('recenterBtn')) $('recenterBtn').hidden=false;
+}
+map.on('dragstart',unlockFollow);   // ใช้นิ้ว/เมาส์ลากแผนที่เอง → หยุดล็อก
+$('recenterBtn')?.addEventListener('click',lockFollow);
 // สลับไปแอปอื่น/ปิดจอ → ปิดการติดตามอัตโนมัติ เพื่อไม่ให้แบตหมดโดยไม่รู้ตัว
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden&&followWatchId!==null){ stopFollow(); toast('ปิดการติดตามตำแหน่งอัตโนมัติ (ออกจากหน้าจอ) — กดปุ่มเพื่อเริ่มใหม่',5000); }

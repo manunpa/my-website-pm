@@ -99,6 +99,16 @@ button,input{font:inherit}button{cursor:pointer}
 .locatebtn.busy svg{animation:spin 1s linear infinite;color:var(--accent)}
 .mypos{width:22px;height:22px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 0 0 #1a73e855,0 2px 8px #0005;animation:mypulse 2s ease-out infinite}
 @keyframes mypulse{0%{box-shadow:0 0 0 0 #1a73e866,0 2px 8px #0005}100%{box-shadow:0 0 0 16px #1a73e800,0 2px 8px #0005}}
+.nearbar{position:absolute;top:92px;left:50%;transform:translateX(-50%);z-index:450;display:flex;align-items:center;gap:9px;max-width:min(520px,calc(100% - 24px));padding:10px 14px;border-radius:14px;border:1px solid var(--border);background:var(--top);backdrop-filter:blur(16px);box-shadow:var(--shadow);color:var(--text);font-size:13px;cursor:pointer}
+.nearbar[hidden]{display:none}
+.nearbar .nb-dot{width:10px;height:10px;border-radius:50%;background:#1a73e8;flex-shrink:0}
+.nearbar.following .nb-dot{animation:mypulse 1.6s ease-out infinite}
+.nearbar .nb-label{font-size:11px;color:var(--muted);flex-shrink:0}
+.nearbar .nb-name{font-weight:600;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nearbar .nb-dist{font-weight:800;font-size:16px;color:#e05260;flex-shrink:0;font-variant-numeric:tabular-nums;margin-left:4px}
+@media(max-width:850px){.nearbar{top:70px;font-size:12px;padding:9px 12px}.nearbar .nb-dist{font-size:15px}}
+.recenter{position:absolute;bottom:72px;left:50%;transform:translateX(-50%);z-index:450;height:42px;padding:0 18px;border-radius:21px;border:0;background:#1a73e8;color:#fff;font-weight:700;font-size:13px;box-shadow:0 6px 18px #1a73e855;cursor:pointer;white-space:nowrap}
+.recenter[hidden]{display:none}
 .selpin{background:none;border:0}
 .selpin svg{position:relative;display:block;filter:drop-shadow(0 3px 6px #0006);animation:selbounce .6s ease-out 2}
 .selpin-pulse{position:absolute;left:50%;bottom:-2px;width:22px;height:22px;margin-left:-11px;border-radius:50%;background:#e0526066;animation:selpulse 1.6s ease-out infinite}
@@ -173,6 +183,8 @@ button,input{font:inherit}button{cursor:pointer}
         <div class="legend"><div class="floating-card"><span class="legend-item"><span class="legend-dot"></span>จุดพิกัด</span><span class="legend-item"><span class="legend-dot cluster"></span>กลุ่มจุด</span></div></div>
         <div class="floating-card coordinates" id="cursorCoords">LAT — · LNG —</div>
       </div>
+      <button type="button" class="nearbar" id="nearBar" hidden title="กดเพื่อไปที่จุดนี้"></button>
+      <button type="button" class="recenter" id="recenterBtn" hidden>⌖ กลับมาที่ตำแหน่งฉัน</button>
       <div class="toast" id="toast"></div>
     </section>
   </main>
