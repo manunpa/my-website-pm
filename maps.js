@@ -48,19 +48,25 @@ function nearestPoints(lat,lng,n=NEAREST_COUNT){
 }
 // เส้นประจากจุดค้นหา/ตำแหน่งของฉัน ไปยัง 5 จุดที่ใกล้ที่สุด พร้อมป้ายระยะทางเล็ก ๆ บนเส้น
 let nearestPairs = [];   // [{line,label,to:[lat,lng]}] ใช้ขยับต้นเส้น/ป้ายตามจุดสีฟ้าทุกเฟรม
-// ตำแหน่งป้าย: ห่างจากจุดสีฟ้า LABEL_PX พิกเซลบนจอตามแนวเส้น (ซูมแค่ไหนป้ายก็อยู่ใกล้ตัวเรา ไม่หลุดขอบจอ)
-// ถ้าเส้นสั้นกว่า 2 เท่าของระยะนี้ → วางกลางเส้นแทน
+// ตำแหน่งป้าย (ยึดสเกลหน้าจอ): ตำแหน่งที่ลองตามลำดับ — slot 0 คือที่ปกติ ถ้าทับป้ายอื่นค่อยลอง slot ถัดไป
+//  - เส้นยาวบนจอ: ห่างจากจุดสีฟ้า 70 → 105 → 140 → 175 px ตามแนวเส้น (ซูมแค่ไหนป้ายก็อยู่ใกล้ตัวเรา)
+//  - เส้นสั้นบนจอ (< 140 px): 50% → 75% → 30% → 90% ของความยาวเส้น
 const LABEL_PX = 70;
-function labelLatLng(from,to,px=LABEL_PX){
-  if(map._animatingZoom) return null;
+const LABEL_STEPS_PX = [70,105,140,175];
+const LABEL_STEPS_FRAC = [0.5,0.75,0.3,0.9];
+function labelLatLng(from,to,slot=0){
   const a=map.latLngToContainerPoint(from), b=map.latLngToContainerPoint(to);
   const len=a.distanceTo(b);
-  const t=len<=px*2?0.5:px/len;
+  if(len<1) return from;
+  let t;
+  if(len>LABEL_PX*2){ const px=LABEL_STEPS_PX[slot]; if(px>len*0.9) return null; t=px/len; }
+  else t=LABEL_STEPS_FRAC[slot];
   const ll=map.containerPointToLatLng(a.add(b.subtract(a).multiplyBy(t)));
   return [ll.lat,ll.lng];
 }
 function placeDistLabels(from){
-  nearestPairs.forEach(pr=>{ const ll=labelLatLng(from,pr.to,pr.px||LABEL_PX); if(ll) pr.label.setLatLng(ll); });
+  if(map._animatingZoom) return;
+  nearestPairs.forEach(pr=>{ const ll=labelLatLng(from,pr.to,pr.slot||0); if(ll) pr.label.setLatLng(ll); });
 }
 function drawNearestLines(){
   nearestLines.clearLayers();
@@ -73,7 +79,7 @@ function drawNearestLines(){
       color:i===0?'#e05260':i===1?'#f2b705':'#4776ff',weight:i<=1?3:2,opacity:i===0?.9:i===1?.95:.55,dashArray:'6 6',interactive:false,
       renderer:nearestLineRenderer,className:'nearline'+(i===0?' first':i===1?' second':'')
     }).addTo(nearestLines);
-    const label=L.marker(labelLatLng(from,to)||from,{
+    const label=L.marker(labelLatLng(from,to,0)||from,{
       icon:L.divIcon({className:'distlabel-wrap',html:`<span class="distlabel${i===0?' first':i===1?' second':''}">${formatDist(km)}</span>`,iconSize:null}),
       interactive:false,keyboard:false,zIndexOffset:i===0?900:i===1?850:800
     }).addTo(nearestLines);
@@ -84,9 +90,8 @@ function drawNearestLines(){
   layoutDistLabels();
   updateNearBar();
 }
-// ป้ายซ้อนกัน → เลื่อนป้ายของจุดที่ไกลกว่าออกไปตามเส้นของมันก่อน (70 → 105 → 140 → 175 px)
-// ถ้ายังทับอยู่ค่อยซ่อน (ป้ายแดงอันดับ 1 แสดงเสมอ ที่ 70 px)
-const LABEL_STEPS=[LABEL_PX,105,140,175];
+// ป้ายซ้อนกัน → เลื่อนป้ายของจุดที่ไกลกว่าไปตำแหน่งถัดไปบนเส้นของมันก่อน (ดู slot ด้านบน)
+// ถ้าลองครบแล้วยังทับ ค่อยซ่อน (ป้ายแดงอันดับ 1 แสดงเสมอ ที่ตำแหน่งปกติ)
 function layoutDistLabels(){
   if(map._animatingZoom||!nearestPairs.length) return;
   const fl=nearestPairs[0].line.getLatLngs()[0], from=[fl.lat,fl.lng];
@@ -96,23 +101,33 @@ function layoutDistLabels(){
     const el=pr.label.getElement()?.querySelector('.distlabel');
     if(!el) return;
     el.style.visibility='';
+    // คำนวณกรอบป้ายจากพิกัดบนจอของแผนที่ + ขนาดป้าย (ไม่อ่านตำแหน่งจากหน้าเว็บ ซึ่งอาจยังไม่อัปเดตหลังซูม)
+    const w=el.offsetWidth||44, h=el.offsetHeight||18;
     let placed=false;
-    for(const px of (i===0?[LABEL_PX]:LABEL_STEPS)){
-      const ll=labelLatLng(from,pr.to,px); if(!ll) break;
-      pr.label.setLatLng(ll); pr.px=px;
-      const r=el.getBoundingClientRect();
-      if(i===0||!overlaps(r)){ shown.push(r); placed=true; break; }
+    for(let slot=0; slot<(i===0?1:LABEL_STEPS_PX.length); slot++){
+      const ll=labelLatLng(from,pr.to,slot); if(!ll) continue;
+      const c=map.latLngToContainerPoint(ll);
+      const r={left:c.x-w/2,right:c.x+w/2,top:c.y-h/2,bottom:c.y+h/2};
+      if(i===0||!overlaps(r)){ pr.label.setLatLng(ll); pr.slot=slot; shown.push(r); placed=true; break; }
     }
-    if(!placed){ el.style.visibility='hidden'; pr.px=LABEL_PX; }
+    if(!placed){ el.style.visibility='hidden'; pr.slot=0; }
   });
 }
-// ซูมแล้ว: วางป้ายใหม่ให้ห่างจากจุดเท่าเดิมบนจอ แล้วจัดป้ายที่ซ้อนกัน
-map.on('zoomend',()=>{
+// ซูม/เลื่อนแผนที่เสร็จ → รอสักครู่ให้แอนิเมชันซูมของแผนที่เข้าที่จริง (วัดทันทีจะได้ตำแหน่งป้ายเก่า)
+// แล้ววางป้ายใหม่และจัดป้ายที่ซ้อนกัน
+let labelRelayoutTimer=null;
+function scheduleLabelRelayout(){
   if(!nearestPairs.length) return;
-  const ll=nearestPairs[0].line.getLatLngs()[0];
-  placeDistLabels([ll.lat,ll.lng]);
-  layoutDistLabels();
-});
+  clearTimeout(labelRelayoutTimer);
+  labelRelayoutTimer=setTimeout(()=>{
+    labelRelayoutTimer=null;
+    if(!nearestPairs.length||map._animatingZoom) return;
+    const ll=nearestPairs[0].line.getLatLngs()[0];
+    placeDistLabels([ll.lat,ll.lng]);
+    layoutDistLabels();
+  },150);
+}
+map.on('zoomend moveend resize',scheduleLabelRelayout);
 
 function parseLatLng(text){
   const m = String(text).trim().match(/^(-?\d+(?:[.,]\d+)?)\s*[,\s;/]\s*(-?\d+(?:[.,]\d+)?)$/);
