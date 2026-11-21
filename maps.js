@@ -169,9 +169,48 @@ function esc(s){
 function buildMarker(p){
   const marker=L.marker([p.lat,p.lng],{title:p.name});
   marker.bindPopup(`<div class="popup-title">${esc(p.name)}</div><div class="popup-coord">Supplier: ${esc(p.supplier)}<br>Latitude: ${p.lat}<br>Longitude: ${p.lng}</div>${popupActions(p.lat,p.lng)}`);
-  marker.on('click',()=>{selectedId=p.id;renderList();});
+  marker.on('click',()=>{ selectPoint(p.id); renderList(); scrollRowIntoView(p.id); });
   markerById.set(p.id,marker);
   return marker;
+}
+
+// ===== หมุดที่ถูกเลือก: เปลี่ยนเป็นหมุดสีแดงใหญ่ มีวงกระเพื่อม ให้รู้ว่า "คือหมุดนี้" =====
+const selectedIcon = L.divIcon({
+  className:'selpin',
+  html:'<span class="selpin-pulse"></span><svg viewBox="0 0 32 44" width="34" height="46"><path d="M16 1C7.7 1 1 7.6 1 15.9 1 27 16 43 16 43s15-16 15-27.1C31 7.6 24.3 1 16 1z" fill="#e05260" stroke="#fff" stroke-width="2"/><circle cx="16" cy="16" r="6" fill="#fff"/></svg>',
+  iconSize:[34,46], iconAnchor:[17,45], popupAnchor:[0,-40]
+});
+let selectedMarker = null;
+function selectPoint(id){
+  if(selectedMarker){ selectedMarker.setIcon(new L.Icon.Default()); selectedMarker.setZIndexOffset(0); selectedMarker=null; }
+  selectedId=id;
+  const m=id===null?null:markerById.get(id);
+  if(m){ m.setIcon(selectedIcon); m.setZIndexOffset(1000); selectedMarker=m; }
+}
+// พาไปที่หมุด ถ้าหมุดซ่อนอยู่ในกลุ่ม (ตัวเลข) จะซูม/กางกลุ่มออกจนเห็นหมุดนั้นแล้วค่อยเปิดป๊อปอัป
+function revealMarker(id){
+  const m=markerById.get(id);
+  if(!m) return;
+  const ll=m.getLatLng();
+  const hidden=()=>{ const vp=clusters.getVisibleParent(m); return vp&&vp!==m ? vp : null; };
+  // ขั้นสุดท้าย: ถ้ายังอยู่ในกลุ่ม (หมุดซ้อนที่เดียวกัน) ให้กางกลุ่มออกแล้วเปิดป๊อปอัป
+  const finish=()=>{
+    const c=hidden();
+    if(c&&c.spiderfy){ c.spiderfy(); setTimeout(()=>m.openPopup(),350); }
+    else m.openPopup();
+  };
+  // ถ้าซูม 17 แล้วยังอยู่ในกลุ่ม ซูมเข้าสุดอีกขั้น
+  const afterFly=()=>{
+    if(hidden()&&map.getZoom()<map.getMaxZoom()){ map.once('moveend',finish); map.setView(ll,map.getMaxZoom()); }
+    else finish();
+  };
+  const z=Math.max(map.getZoom(),17);
+  if(map.getZoom()===z&&map.getCenter().distanceTo(ll)<1) afterFly();
+  else { map.once('moveend',afterFly); map.flyTo(ll,z,{duration:.7}); }
+}
+function scrollRowIntoView(id){
+  const row=document.querySelector(`.pointrow[data-id="${id}"]`);
+  if(row) row.scrollIntoView({block:'nearest',behavior:'smooth'});
 }
 function renderMap(){
   clusters.clearLayers();markerById.clear();
@@ -179,6 +218,7 @@ function renderMap(){
   const valid=bySupplier.filter(validPoint);
   const markers=valid.map(buildMarker);
   clusters.addLayers(markers);
+  selectedMarker=null; selectPoint(selectedId);
   drawNearestLines();
   if($('statTotal')) $('statTotal').textContent=bySupplier.length.toLocaleString('th-TH');
   if($('statValid')) $('statValid').textContent=valid.length.toLocaleString('th-TH');
@@ -256,12 +296,11 @@ function bindRowClicks(pointList){
   pointList.querySelectorAll('.pointrow').forEach(el=>el.addEventListener('click',()=>{
     const id=Number(el.dataset.id),p=allRows.find(x=>x.id===id);
     if(!p)return;
-    selectedId=id;renderList();
+    selectPoint(id);renderList();
     if(!validPoint(p)){toast('รายการนี้ไม่มีพิกัด Latitude / Longitude ที่ถูกต้อง');return}
     const sidebar = $('sidebar');
     if(sidebar && !sidebar.classList.contains('collapsed')&&window.innerWidth<=850) sidebar.classList.add('collapsed');
-    map.flyTo([p.lat,p.lng],Math.max(map.getZoom(),15),{duration:.7});
-    const marker=markerById.get(id);if(marker) setTimeout(()=>marker.openPopup(),500);
+    revealMarker(id);
   }));
 }
 
@@ -357,7 +396,7 @@ map.on('mousemove',e=>{
   const cursorCoords = $('cursorCoords');
   if(cursorCoords) cursorCoords.textContent=`LAT ${e.latlng.lat.toFixed(5)} · LNG ${e.latlng.lng.toFixed(5)}`;
 });
-map.on('click',e=>{if(e.originalEvent.target===map.getContainer()) selectedId=null;});
+map.on('click',e=>{if(e.originalEvent.target===map.getContainer()&&selectedId!==null){ selectPoint(null); renderList(); }});
 
 // ===== Firebase: ตรวจสิทธิ์ / Logout / ตัด Session (ดู firebase-guard.js) =====
 // โหลดข้อมูลหลังยืนยันตัวตนแล้วเท่านั้น

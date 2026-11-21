@@ -92,6 +92,11 @@ button,input{font:inherit}button{cursor:pointer}
 .leaflet-popup-content{font-family:Inter,Kanit,sans-serif;font-size:12px}
 .popup-title{font-weight:700;margin-bottom:5px}
 .popup-coord{font-size:10px;color:var(--muted)}
+.selpin{background:none;border:0}
+.selpin svg{position:relative;display:block;filter:drop-shadow(0 3px 6px #0006);animation:selbounce .6s ease-out 2}
+.selpin-pulse{position:absolute;left:50%;bottom:-2px;width:22px;height:22px;margin-left:-11px;border-radius:50%;background:#e0526066;animation:selpulse 1.6s ease-out infinite}
+@keyframes selpulse{0%{transform:scale(.4);opacity:1}100%{transform:scale(2.6);opacity:0}}
+@keyframes selbounce{0%,100%{transform:translateY(0)}40%{transform:translateY(-12px)}}
 .popactions{display:flex;gap:6px;margin-top:10px}
 .popbtn{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;height:30px;padding:0 10px;border-radius:9px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:11px;font-weight:600;white-space:nowrap;text-decoration:none;cursor:pointer;transition:.15s}
 .popbtn:hover{border-color:var(--accent)}
