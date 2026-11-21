@@ -38,7 +38,8 @@ function doGet() {
 // ===== อ่านข้อมูล Mileage + Alarm (เหมือนโค้ดเดิม) =====
 function getData_() {
   try {
-    const ss = SpreadsheetApp.openById(SHEET_ID);
+    // สคริปต์ผูกกับชีต alert-mileage database อยู่แล้ว → ใช้ชีตนั้นตรงๆ (ถ้าไม่ได้ผูก ค่อยเปิดด้วย SHEET_ID)
+    const ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SHEET_ID);
     const data = {};
 
     SHEET_NAMES.forEach(function (name) {
