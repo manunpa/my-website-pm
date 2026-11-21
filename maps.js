@@ -1,6 +1,6 @@
-import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261121-auth';
-/* ใช้ URL Web App ที่เชื่อมต่อ Google Sheets */
-const API_URL = 'https://script.google.com/macros/s/AKfycbxGxDaEkB1IVbzSbMFkMJ08zfx9n9qIRDReGx9Mb-bg2n5C0jh8KuiwDnGjdjTvuVCF/exec';
+import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261121-auth2';
+/* API ชุดที่ 1: Geofence — โค้ดอยู่ที่ apps-script/geofence.gs (URL เดิม ...uVCF ยังเปิดไว้ให้ my-web-p3 ใช้) */
+const API_URL = 'https://script.google.com/macros/s/AKfycbyZFJgBnwq8u-8ND1zQo9T9tJ6XuGX5ZXIAeip2EkI6uNf7eZOhIqAjU435doLMtABf/exec';
 /* API ชุดที่ 2: ปั๊มน้ำมันทุกแบรนด์ (แท็บละแบรนด์ มีรายละเอียดสถานี) — โค้ดอยู่ที่ apps-script/stations.gs เว้นว่างไว้ = ไม่โหลด */
 const STATIONS_API_URL = 'https://script.google.com/macros/s/AKfycbx2TJEkaUdHu5gYck2T5YRsqCdfxFob8pTq78ehlhYgXsEV7oxEkYc5Dz3h3AQ1r40zNQ/exec';
 const $ = id => document.getElementById(id);
@@ -738,13 +738,9 @@ function markDuplicates(){
     p.dupKey = n ? 'n:'+nameKey(p) : c ? 'c:'+coordKey(p) : '';
   });
 }
-// ชุดปั๊มน้ำมันแนบ Firebase ID token ไปให้ Apps Script ตรวจ (ดู firebase-guard.js / apps-script/stations.gs)
-// ชุด Geofence ยังเรียกแบบเดิม (GET) จนกว่า Apps Script ตัวนั้นจะเพิ่มการตรวจ token
-const PROTECTED_URLS=new Set([STATIONS_API_URL]);
-const fetchText=url=>PROTECTED_URLS.has(url)
-  ? fetchProtectedText(url)
-  : fetch(url,{method:'GET',cache:'no-store',redirect:'follow'})
-      .then(r=>{ if(!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); });
+// ทั้ง 2 ชุด (Geofence + ปั๊มน้ำมัน) แนบ Firebase ID token ไปให้ Apps Script ตรวจ
+// (ดู firebase-guard.js / apps-script/geofence.gs / apps-script/stations.gs)
+const fetchText=url=>fetchProtectedText(url);
 async function loadData(){
   const setStatus=t=>{ if($('statusText')) $('statusText').textContent=t; };
   if($('refreshBtn')) $('refreshBtn').disabled=true;
@@ -787,7 +783,7 @@ async function loadData(){
   }catch(err){
     console.error(err);
     setStatus('โหลดข้อมูลไม่สำเร็จ');
-    if($('pointList')) $('pointList').innerHTML=`<div class="empty">ไม่สามารถโหลดข้อมูลได้<br><br>${esc(err.message)}<br><br>ตรวจสอบว่า Apps Script เปิดสิทธิ์ Web app ให้เข้าถึงได้ และส่งข้อมูล JSON ที่มีคอลัมน์ Geofence, Latitude, Longitude</div>`;
+    if($('pointList')) $('pointList').innerHTML=`<div class="empty">ไม่สามารถโหลดข้อมูลได้<br><br>${esc(err.message)}<br><br>ลองกดรีเฟรชหน้า หรือออกจากระบบแล้วล็อกอินใหม่</div>`;
     toast('โหลดข้อมูลไม่สำเร็จ — ตรวจสอบ URL, สิทธิ์ Web App และ CORS',5000);
   }finally{if($('refreshBtn')) $('refreshBtn').disabled=false}
 }
