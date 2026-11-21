@@ -9,7 +9,8 @@ let markerById = new Map();
 const map = L.map('map',{zoomControl:false,preferCanvas:true}).setView([13.7563,100.5018],6);
 L.control.zoom({position:'bottomright'}).addTo(map);
 const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-  maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  className:'street-tiles' // โหมดมืดใช้ CSS filter (--map-filter) กับเลเยอร์นี้เท่านั้น ภาพดาวเทียมไม่ถูกปรับสี
 });
 const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
   maxZoom:19,attribution:'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community'
@@ -452,11 +453,17 @@ if(sidebarToggleEl){
 
 const themeToggleEl = $('themeToggle');
 if(themeToggleEl){
-  themeToggleEl.addEventListener('click',()=>{
-    document.body.classList.toggle('dark');
-    const dark=document.body.classList.contains('dark');
+  const applyTheme=dark=>{
+    document.body.classList.toggle('dark',dark);
     if($('themeIcon')) $('themeIcon').textContent=dark?'☀':'☾';
     themeToggleEl.title=dark?'เปลี่ยนเป็นโหมดสว่าง':'เปลี่ยนเป็นโหมดมืด';
+  };
+  // จำธีมที่เลือกไว้ในเบราว์เซอร์นี้ (เปิดหน้าใหม่ยังเป็นธีมเดิม)
+  try{ if(localStorage.getItem('accessMapsTheme')==='dark') applyTheme(true); }catch{}
+  themeToggleEl.addEventListener('click',()=>{
+    const dark=!document.body.classList.contains('dark');
+    applyTheme(dark);
+    try{ localStorage.setItem('accessMapsTheme',dark?'dark':'light'); }catch{}
   });
 }
 

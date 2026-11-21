@@ -66,6 +66,13 @@ button,input{font:inherit}button{cursor:pointer}
 .pointarrow{color:var(--muted);font-size:17px}
 .sidefoot{border-top:1px solid var(--border);padding:13px 18px;min-width:325px;display:flex;justify-content:space-between;color:var(--muted);font-size:10px}
 .maparea{flex:1;min-width:0;position:relative;background:#dce5ed}
+/* โหมดมืด: กลับสีแผนที่ถนนให้มืด (หมุด/เส้น/ป๊อปอัปอยู่คนละชั้น ไม่โดนกลับสี) */
+body.dark{--map-filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.88) saturate(.75)}
+body.dark .maparea,body.dark .leaflet-container{background:#0e1726}
+.street-tiles{filter:var(--map-filter)}
+.leaflet-control-attribution{background:var(--top) !important;color:var(--muted)}
+.leaflet-control-attribution a{color:var(--accent)}
+body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:var(--border)}
 #map{height:100%;width:100%;z-index:1}
 .mapcontrols{position:absolute;top:17px;left:17px;right:17px;display:flex;justify-content:space-between;align-items:flex-start;z-index:400;pointer-events:none;gap:10px}
 .mapcontrols>*{pointer-events:auto}
