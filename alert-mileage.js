@@ -1,6 +1,6 @@
-import { requireLogin } from './firebase-guard.js';
+import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122-am';
 // ====== ตั้งค่า API และโครงสร้างข้อมูล ======
-const API_URL = 'https://script.google.com/macros/s/AKfycbwW35lChBZEb8cKpt1TiAF2O9PyylzJaAnPorxloIpw5JTb515uicEETegQCPXmzH_Rsg/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbxdmvJAoE2PkljyNuMnDwglijx3pjwJaEx56r2j5cMMuoif8UEW0a6JReKk1AWvEkuB2w/exec';
 const COL = {
   m: {id:'Device No.', km:'Driving distance', fleet:'Fleet'},
   a: {id:'หมายเลขรถ', type:['ประเภทการเตือน','ประเภทแจ้งเตือน'], fleet:'หน่วยงาน'}
@@ -67,9 +67,8 @@ async function load(){
   const stampEl = $('stamp');
   if(stampEl) stampEl.textContent = 'กำลังโหลดข้อมูล...';
   try{
-    const res = await fetch(API_URL);
-    if(!res.ok) throw new Error('HTTP ' + res.status);
-    const json = await res.json();
+    // แนบ Firebase ID token ไปให้ Apps Script ตรวจ (apps-script/alert-mileage.gs)
+    const json = JSON.parse(await fetchProtectedText(API_URL));
     if(json.status === 'error') throw new Error(json.message);
     RAW = extract(json);
     RAW.mileage.forEach(r => r.__ym = monthOfMileage(r));
@@ -81,7 +80,7 @@ async function load(){
   }catch(e){
     const appEl = $('app');
     if(appEl) appEl.innerHTML = '<div class="panel msg err">โหลดข้อมูลไม่สำเร็จ: ' + esc(e.message) +
-      '<br><span class="sub">ตรวจสอบว่า Deploy เป็น Web App และตั้งผู้มีสิทธิ์เข้าถึงเป็น “ทุกคน”</span></div>';
+      '<br><span class="sub">ลองกดรีเฟรชหน้า หรือออกจากระบบแล้วล็อกอินใหม่</span></div>';
     if(stampEl) stampEl.textContent = 'โหลดข้อมูลไม่สำเร็จ';
   }
 }
