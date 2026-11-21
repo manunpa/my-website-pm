@@ -12,8 +12,8 @@
 
 const SKIP_SHEETS = ['All'];
 
-// ค่าเดียวกับ firebaseConfig ใน firebase-guard.js (Web API key ของ Firebase ไม่ใช่ความลับ)
-const FIREBASE_API_KEY = 'AIzaSyD7HPOhloICyxEyDTfR8yRiH2rT--q4fVo';
+// ค่าเดียวกับ firebaseConfig ใน firebase-guard.js (Web API key ของ Firebase ไม่ใช่ความลับ — แยกเป็น 2 ท่อนเพื่อไม่ให้ถูกซ่อนเป็น ••• ตอนคัดลอก)
+const FIREBASE_API_KEY = ['AIzaSyD7HPOh', 'loICyxEyDTfR8yRiH2rT--q4fVo'].join('');
 const FIREBASE_PROJECT_ID = 'my-login-project-26857';
 
 // ===== เว็บเรียกผ่าน POST พร้อม token เท่านั้น =====

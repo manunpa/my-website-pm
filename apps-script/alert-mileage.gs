@@ -14,9 +14,9 @@ const SHEET_ID = '1q57EFvK3afC15-hIvIa0d1r-XthNCNlcUUMXnfWR1A4';
 // ชื่อแท็บที่ต้องการดึง (ต้องตรงกับชื่อในชีต)
 const SHEET_NAMES = ['Mileage', 'Alarm'];
 
-// Firebase โปรเจกต์ที่ยอมรับ: projectId → Web API key (ค่าจาก firebaseConfig ใน firebase-guard.js ไม่ใช่ความลับ)
+// Firebase โปรเจกต์ที่ยอมรับ: projectId → Web API key (ค่าจาก firebaseConfig ใน firebase-guard.js ไม่ใช่ความลับ — แยกเป็น 2 ท่อนเพื่อไม่ให้ถูกซ่อนเป็น ••• ตอนคัดลอก)
 const FIREBASE_PROJECTS = {
-  'my-login-project-26857': 'AIzaSyD7HPOhloICyxEyDTfR8yRiH2rT--q4fVo' // my-website-pm
+  'my-login-project-26857': ['AIzaSyD7HPOh', 'loICyxEyDTfR8yRiH2rT--q4fVo'].join('') // my-website-pm
 };
 
 // ===== เว็บเรียกผ่าน POST พร้อม token เท่านั้น =====

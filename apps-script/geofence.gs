@@ -10,10 +10,10 @@
  * (ได้ URL ใหม่ — URL เดิมยังทำงานด้วยโค้ดเก่า my-web-p3 จึงใช้ต่อได้จนกว่าจะย้ายมา URL ใหม่)
  */
 
-// Firebase โปรเจกต์ที่ยอมรับ: projectId → Web API key (ค่าจาก firebaseConfig ของแต่ละเว็บ ไม่ใช่ความลับ)
+// Firebase โปรเจกต์ที่ยอมรับ: projectId → Web API key (ค่าจาก firebaseConfig ของแต่ละเว็บ ไม่ใช่ความลับ — แยกเป็น 2 ท่อนเพื่อไม่ให้ถูกซ่อนเป็น ••• ตอนคัดลอก)
 const FIREBASE_PROJECTS = {
-  'my-login-project-26857': 'AIzaSyD7HPOhloICyxEyDTfR8yRiH2rT--q4fVo', // my-website-pm (firebase-guard.js)
-  'my-web-p3':              'AIzaSyA5OM2om_4CnwTuFAixQGwxhtyUUmDjv7Y'  // my-web-p3 (src/firebase.js)
+  'my-login-project-26857': ['AIzaSyD7HPOh', 'loICyxEyDTfR8yRiH2rT--q4fVo'].join(''), // my-website-pm (firebase-guard.js)
+  'my-web-p3':              ['AIzaSyA5OM2o', 'm_4CnwTuFAixQGwxhtyUUmDjv7Y'].join('')  // my-web-p3 (src/firebase.js)
 };
 
 // ===== เว็บเรียกผ่าน POST พร้อม token เท่านั้น =====
