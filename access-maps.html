@@ -14,6 +14,7 @@
 <!-- ซ่อนหน้าไว้จนกว่า Firebase จะยืนยันตัวตนเสร็จ (firebase-guard.js จะใส่คลาส .ready) -->
 <style>html:not(.ready) body { visibility: hidden; }</style>
 <title>Access Maps | Geofence Monitor</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Cdefs%3E%3ClinearGradient id=%27g%27 x1=%270%27 y1=%270%27 x2=%271%27 y2=%271%27%3E%3Cstop offset=%270%27 stop-color=%27%234776ff%27/%3E%3Cstop offset=%271%27 stop-color=%27%238d5cf6%27/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27url(%23g)%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%277%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272.4%27/%3E%3Cpath d=%27M16 5v6M16 21v6M5 16h6M21 16h6%27 stroke=%27white%27 stroke-width=%272.4%27 stroke-linecap=%27round%27/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://unpkg.com">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
@@ -156,6 +157,9 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 .legend[hidden]{display:none}
 .legend .floating-card:has(.legrow){flex-direction:column;align-items:stretch;gap:7px}
 .legrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+/* มือถือ: คำอธิบายสัญลักษณ์แถวละบรรทัดเดียว เลื่อนซ้าย-ขวาได้ (ไม่สูงบังแผนที่) · ชื่อ Access Maps ไม่ตัดบรรทัด */
+@media(max-width:850px){.legend .floating-card:has(.legrow){max-width:calc(100vw - 78px);padding:8px 10px}.legrow{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}.legrow::-webkit-scrollbar{display:none}.leghead{min-width:auto;flex-shrink:0}.legrow .legend-item{flex-shrink:0}}
+@media(max-width:470px){.brand h1{font-size:19px;white-space:nowrap}#sidebarToggle span{display:none}}
 .legrow+.legrow{padding-top:7px;border-top:1px solid var(--border)}
 .leghead{font-weight:700;color:var(--text);min-width:64px}
 .legend-dot.drop{border-radius:50% 50% 50% 0;transform:rotate(-45deg);width:9px;height:9px}
@@ -183,6 +187,7 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 .nb-row.nb-st{padding-top:6px;border-top:1px solid var(--border)}
 .nb-fuel{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:10px;flex-shrink:0;margin:0 -4px}
 .nearbar .nb-st .nb-dist{color:#00a3e0;font-size:14px}
+.dupbadge{display:inline-block;margin-left:4px;padding:0 6px;border-radius:6px;font-size:9px;font-weight:600;color:#8a4b00;background:#fff4db;border:1px solid #f2c46d;vertical-align:1px}
 .listmore{display:block;width:100%;margin:6px 0 10px;padding:11px;border:1px dashed var(--border);border-radius:11px;background:transparent;color:var(--muted);font-size:11px;cursor:pointer}
 .listmore:hover{border-color:var(--accent);color:var(--accent)}
 /* มือถือ: ตอนแถบรายการเปิด ทำให้แผนที่ด้านข้างมืดลง บอกว่าแตะเพื่อปิดได้ */
@@ -239,7 +244,7 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
       <div class="sidehead">
         <div class="side-title"><h2 id="sideTitleText">รายการ Geofence</h2><span class="count" id="pointCount">0 จุด</span></div>
         <div class="searchwrap"><span>⌕</span><input id="searchInput" placeholder="ค้นหาชื่อ หรือวางพิกัด เช่น 13.75, 100.50" autocomplete="off" enterkeyhint="search"><button type="button" class="searchclear" id="searchClear" title="ล้างการค้นหา" aria-label="ล้างการค้นหา" hidden>✕</button></div>
-        <div class="filterline"><button class="chip active" data-filter="all">ทั้งหมด</button><button class="chip" data-filter="valid">มีพิกัด</button><button class="chip" data-filter="invalid">พิกัดไม่ครบ</button><select class="supplierselect" id="supplierSelect" title="กรองตาม Supplier"><option value="all">Supplier: ทั้งหมด</option></select><select class="supplierselect" id="brandSelect" title="กรองแบรนด์ปั๊มน้ำมัน" hidden><option value="all">⛽ ปั๊ม: ทุกแบรนด์</option></select></div>
+        <div class="filterline"><button class="chip active" data-filter="all">ทั้งหมด</button><button class="chip" data-filter="valid">มีพิกัด</button><button class="chip" data-filter="invalid">พิกัดไม่ครบ</button><button class="chip" data-filter="dup" title="Geofence ที่ชื่อหรือพิกัดซ้ำกัน">ข้อมูลซ้ำ</button><select class="supplierselect" id="supplierSelect" title="กรองตาม Supplier"><option value="all">Supplier: ทั้งหมด</option></select><select class="supplierselect" id="brandSelect" title="กรองแบรนด์ปั๊มน้ำมัน" hidden><option value="all">⛽ ปั๊ม: ทุกแบรนด์</option></select></div>
       </div>
       <div class="pointlist" id="pointList"><div class="empty"><span class="loading"></span>กำลังโหลดรายการพิกัด</div></div>
       <div class="sidefoot"><span id="sourceLabel">Google Sheets API</span><span id="lastUpdated">—</span></div>
@@ -275,6 +280,6 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 
 <!-- ต้องเปิดผ่านเว็บเซิร์ฟเวอร์ (http/https) ไม่ใช่ file:// เพราะใช้ type="module" -->
 <!-- ?v= บังคับให้มือถือโหลด maps.js ตัวใหม่ทันทีหลังอัปเดต (เปลี่ยนเลขทุกครั้งที่แก้ maps.js) -->
-<script type="module" src="./maps.js?v=20261121-2"></script>
+<script type="module" src="./maps.js?v=20261121-4"></script>
 </body>
 </html>

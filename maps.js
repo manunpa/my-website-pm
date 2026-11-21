@@ -281,6 +281,8 @@ function asNumber(v){
   const n=Number(String(v).trim().replace(',','.'));
   return Number.isFinite(n)?n:null;
 }
+// จุดที่อยู่ในประเทศไทย (ใช้ตอนซูมแผนที่ ไม่ให้จุดทดสอบในต่างประเทศดึงให้ซูมออกไปไกล)
+const inThailand = p => p.lat>=5 && p.lat<=21 && p.lng>=97 && p.lng<=106;
 function normalizeRows(payload){
   let rows=payload;
   if(payload && !Array.isArray(payload)){
@@ -535,7 +537,9 @@ function renderLayerCards(){
   if(t) t.textContent=showGeo&&showStations?'รายการ Geofence + ปั๊ม':showStations?'รายการปั๊มน้ำมัน':'รายการ Geofence';
 }
 function fitToVisible(){
-  const pts=(showGeo?geoRows():showStations?stationRows():[]).filter(validPoint);
+  const all=(showGeo?geoRows():showStations?stationRows():[]).filter(validPoint);
+  // ซูมเฉพาะจุดในประเทศไทย (จุดทดสอบในต่างประเทศไม่ดึงแผนที่ให้ซูมออกไปไกล) — ถ้าไม่มีจุดในไทยเลยค่อยใช้ทั้งหมด
+  const th=all.filter(inThailand), pts=th.length?th:all;
   if(pts.length===1) map.setView([pts[0].lat,pts[0].lng],13);
   else if(pts.length>1) map.fitBounds(L.latLngBounds(pts.map(p=>[p.lat,p.lng])),{padding:[45,45],maxZoom:12});
 }
@@ -580,7 +584,7 @@ function rowHtml(p){
   const valid=validPoint(p), selected=selectedId===p.id;
   return `<div class="pointrow ${selected?'selected':''}" data-id="${p.id}">
       <div class="pin${p.kind==='station'?' fuel':''}"${valid?` style="color:${supplierColor(p.supplier)};background:${supplierColor(p.supplier)}1f"`:''}>${!valid?'!':p.kind==='station'?FUEL_SVG:'⌖'}</div>
-      <div class="pointinfo"><div class="pointname">${esc(p.name)}</div><div class="pointcoord">${valid?`${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`:'ไม่พบ Latitude / Longitude'}${p.supplier!==NO_SUPPLIER?` · <span class="pointsup" style="color:${supplierColor(p.supplier)}">${esc(p.supplier)}</span>`:''}</div></div>
+      <div class="pointinfo"><div class="pointname">${esc(p.name)}${p.dup&&activeFilter==='dup'?` <span class="dupbadge">${p.dup}</span>`:''}</div><div class="pointcoord">${valid?`${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`:'ไม่พบ Latitude / Longitude'}${p.supplier!==NO_SUPPLIER?` · <span class="pointsup" style="color:${supplierColor(p.supplier)}">${esc(p.supplier)}</span>`:''}</div></div>
       <div class="pointarrow">${valid?'›':'·'}</div>
     </div>`;
 }
@@ -630,8 +634,10 @@ function renderList(){
     if(p.kind==='station'){ if(!showStations||(activeBrand!=='all'&&p.supplier!==activeBrand)) return false; }
     else if(!showGeo||(activeSupplier!=='all'&&p.supplier!==activeSupplier)) return false;
     const valid=validPoint(p);
-    return matches&&(activeFilter==='all'||(activeFilter==='valid'&&valid)||(activeFilter==='invalid'&&!valid));
+    return matches&&(activeFilter==='all'||(activeFilter==='valid'&&valid)||(activeFilter==='invalid'&&!valid)||(activeFilter==='dup'&&!!p.dup));
   });
+  // ตัวกรองข้อมูลซ้ำ: เรียงให้แถวที่ซ้ำกันอยู่ติดกัน
+  if(activeFilter==='dup') filteredRows.sort((a,b)=>a.dupKey.localeCompare(b.dupKey,'th')||a.id-b.id);
   if(pointCount) pointCount.textContent=`${filteredRows.length.toLocaleString('th-TH')} จุด`;
   if(!filteredRows.length){pointList.innerHTML='<div class="empty">ไม่พบรายการที่ตรงกับการค้นหา</div>';return}
   const hint=coordQ?'<div class="nearhint">กด Enter เพื่อหา Geofence ที่ใกล้พิกัดนี้ที่สุด</div>':'';
@@ -695,29 +701,87 @@ if(pointListEl){
   },{passive:true});
 }
 
+// ===== จำข้อมูลรอบก่อนไว้ในเครื่อง (Cache Storage) =====
+// เปิดหน้า → แสดงแผนที่จากข้อมูลที่จำไว้ทันที แล้วดึงข้อมูลใหม่จาก API เบื้องหลัง ถ้าข้อมูลเปลี่ยนค่อยวาดใหม่
+// ออกจากระบบ → firebase-guard.js ลบข้อมูลที่จำไว้ทิ้ง
+const DATA_CACHE = 'access-maps-data-v1';
+async function cacheGet(url){
+  try{ const r=await (await caches.open(DATA_CACHE)).match(url); return r ? await r.text() : null; }catch{ return null; }
+}
+async function cachePut(url,text){
+  try{ await (await caches.open(DATA_CACHE)).put(url,new Response(text,{headers:{'content-type':'application/json'}})); }catch{}
+}
+// แปลงข้อความ JSON ทั้ง 2 ชุดเป็นจุดบนแผนที่ แล้ววาดใหม่ (fit=false: ไม่ขยับมุมมองแผนที่ที่ผู้ใช้ดูอยู่)
+function applyData(mainText,stText,fit){
+  const rows=normalizeRows(JSON.parse(mainText));
+  let stationsOk=true;
+  if(stText){
+    try{ rows.push(...normalizeStationRows(JSON.parse(stText),rows.length)); }
+    catch(e){ console.error(e); stationsOk=false; }
+  }
+  allRows=rows;
+  markDuplicates();
+  if(selectedId!==null&&!allRows.some(p=>p.id===selectedId)) selectedId=null;
+  buildSupplierOptions();
+  renderMap({fit});renderList();
+  return stationsOk;
+}
+// Geofence ที่ชื่อซ้ำ หรือพิกัดซ้ำกัน (ใช้กับตัวกรอง "ข้อมูลซ้ำ") → p.dup = 'ชื่อซ้ำ' | 'พิกัดซ้ำ' | 'ชื่อ+พิกัดซ้ำ'
+function markDuplicates(){
+  const geo=allRows.filter(p=>p.kind==='geo');
+  const nameKey=p=>p.name.trim().toLocaleLowerCase(), coordKey=p=>`${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;
+  const names=new Map(), coords=new Map();
+  geo.forEach(p=>{ names.set(nameKey(p),(names.get(nameKey(p))||0)+1); if(validPoint(p)) coords.set(coordKey(p),(coords.get(coordKey(p))||0)+1); });
+  geo.forEach(p=>{
+    const n=names.get(nameKey(p))>1, c=validPoint(p)&&coords.get(coordKey(p))>1;
+    p.dup = n&&c ? 'ชื่อ+พิกัดซ้ำ' : n ? 'ชื่อซ้ำ' : c ? 'พิกัดซ้ำ' : null;
+    p.dupKey = n ? 'n:'+nameKey(p) : c ? 'c:'+coordKey(p) : '';
+  });
+}
+const fetchText=url=>fetch(url,{method:'GET',cache:'no-store',redirect:'follow'})
+  .then(r=>{ if(!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); });
 async function loadData(){
-  if($('statusText')) $('statusText').textContent='กำลังโหลดข้อมูล...';
-  if($('pointList')) $('pointList').innerHTML='<div class="empty"><span class="loading"></span>กำลังโหลดรายการพิกัด</div>';
+  const setStatus=t=>{ if($('statusText')) $('statusText').textContent=t; };
   if($('refreshBtn')) $('refreshBtn').disabled=true;
+  const hadRows=allRows.length>0;
+  let fromCache=false, cMain=null, cSt=null;
   try{
-    // โหลด 2 ชุดพร้อมกัน — ถ้าชุดปั๊มน้ำมันล้มเหลว ชุดหลักยังแสดงได้ตามปกติ
-    const getJson=url=>fetch(url,{method:'GET',cache:'no-store',redirect:'follow'})
-      .then(r=>{ if(!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); });
-    const [mainRes,pttRes]=await Promise.allSettled([getJson(API_URL), STATIONS_API_URL?getJson(STATIONS_API_URL):Promise.resolve(null)]);
-    if(mainRes.status==='rejected') throw mainRes.reason;
-    allRows=normalizeRows(mainRes.value);
-    if(pttRes.status==='fulfilled'&&pttRes.value){
-      try{ allRows=allRows.concat(normalizeStationRows(pttRes.value,allRows.length)); }
-      catch(e){ console.error(e); toast('โหลดข้อมูลปั๊มน้ำมันไม่สำเร็จ',4000); }
-    }else if(pttRes.status==='rejected'){ console.error(pttRes.reason); toast('โหลดข้อมูลปั๊มน้ำมันไม่สำเร็จ',4000); }
-    buildSupplierOptions();
-    renderMap();renderList();
-    if($('statusText')) $('statusText').textContent='เชื่อมต่อข้อมูลแล้ว';
+    // 1) ข้อมูลที่จำไว้ → แสดงทันที (ครั้งแรกที่เปิดยังไม่มี)
+    if(!allRows.length){
+      [cMain,cSt]=await Promise.all([cacheGet(API_URL), STATIONS_API_URL?cacheGet(STATIONS_API_URL):null]);
+      if(cMain){
+        try{ applyData(cMain,cSt,true); fromCache=true; setStatus('ข้อมูลที่บันทึกไว้ · กำลังอัปเดต...'); }
+        catch(e){ console.error(e); cMain=null; }
+      }
+    }
+    if(!fromCache&&!allRows.length){
+      setStatus('กำลังโหลดข้อมูล...');
+      if($('pointList')) $('pointList').innerHTML='<div class="empty"><span class="loading"></span>กำลังโหลดรายการพิกัด</div>';
+    }else if(!fromCache) setStatus('กำลังอัปเดตข้อมูล...');
+    // 2) ดึงข้อมูลล่าสุดจาก API ทั้ง 2 ชุดพร้อมกัน — ถ้าชุดปั๊มล้มเหลว ชุดหลักยังแสดงได้
+    const [mainRes,stRes]=await Promise.allSettled([fetchText(API_URL), STATIONS_API_URL?fetchText(STATIONS_API_URL):Promise.resolve(null)]);
+    if(mainRes.status==='rejected'){
+      if(allRows.length){ console.error(mainRes.reason); setStatus('อัปเดตไม่สำเร็จ · ใช้ข้อมูลที่บันทึกไว้'); toast('อัปเดตข้อมูลไม่สำเร็จ — แสดงข้อมูลที่บันทึกไว้ล่าสุด',4500); return; }
+      throw mainRes.reason;
+    }
+    const mainText=mainRes.value;
+    if(stRes.status==='rejected'){ console.error(stRes.reason); toast('โหลดข้อมูลปั๊มน้ำมันไม่สำเร็จ',4000); }
+    const stText=stRes.status==='fulfilled'?stRes.value:cSt;
+    // 3) วาดใหม่เฉพาะเมื่อข้อมูลเปลี่ยนจากที่แสดงอยู่ (ไม่เปลี่ยน = ไม่กระพริบ ไม่ขยับแผนที่)
+    const changed=!fromCache||mainText!==cMain||stText!==cSt;
+    if(changed){
+      const stOk=applyData(mainText,stText,!fromCache&&!hadRows);
+      if(!stOk) toast('โหลดข้อมูลปั๊มน้ำมันไม่สำเร็จ',4000);
+    }
+    cachePut(API_URL,mainText);
+    if(stRes.status==='fulfilled'&&stRes.value) cachePut(STATIONS_API_URL,stRes.value);
+    setStatus('เชื่อมต่อข้อมูลแล้ว');
     if($('lastUpdated')) $('lastUpdated').textContent=new Date().toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
-    toast(`โหลดข้อมูลสำเร็จ ${allRows.length.toLocaleString('th-TH')} รายการ`);
+    if(!fromCache) toast(`โหลดข้อมูลสำเร็จ ${allRows.length.toLocaleString('th-TH')} รายการ`);
+    else if(changed) toast('อัปเดตข้อมูลล่าสุดแล้ว',2500);
   }catch(err){
     console.error(err);
-    if($('statusText')) $('statusText').textContent='โหลดข้อมูลไม่สำเร็จ';
+    setStatus('โหลดข้อมูลไม่สำเร็จ');
     if($('pointList')) $('pointList').innerHTML=`<div class="empty">ไม่สามารถโหลดข้อมูลได้<br><br>${esc(err.message)}<br><br>ตรวจสอบว่า Apps Script เปิดสิทธิ์ Web app ให้เข้าถึงได้ และส่งข้อมูล JSON ที่มีคอลัมน์ Geofence, Latitude, Longitude</div>`;
     toast('โหลดข้อมูลไม่สำเร็จ — ตรวจสอบ URL, สิทธิ์ Web App และ CORS',5000);
   }finally{if($('refreshBtn')) $('refreshBtn').disabled=false}

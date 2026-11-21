@@ -33,6 +33,8 @@ export const auth = getAuth(app);
 export async function doLogout() {
   try { await signOut(auth); }
   catch (error) { console.error("Logout Error:", error); }
+  // ลบข้อมูลแผนที่ที่จำไว้ในเครื่อง (maps.js) — คนถัดไปที่ใช้เครื่องนี้จะไม่เห็นข้อมูลถ้ายังไม่ล็อกอิน
+  try { if (window.caches) await caches.delete("access-maps-data-v1"); } catch {}
   window.location.replace(LOGIN_URL);
 }
 
