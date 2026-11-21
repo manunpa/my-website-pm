@@ -38,6 +38,43 @@ export async function doLogout() {
   window.location.replace(LOGIN_URL);
 }
 
+/**
+ * ดึงข้อมูลจาก Apps Script โดยแนบ Firebase ID token ไปด้วย (ฝั่ง Apps Script ตรวจใน apps-script/stations.gs)
+ * - ส่งเป็น POST แบบ text/plain → token อยู่ใน body ไม่อยู่ใน URL และไม่ต้องผ่าน CORS preflight
+ * - Apps Script ตอบ {status:"error", error:"unauthorized"} ถ้า token ใช้ไม่ได้ → ขอ token ใหม่แล้วลองอีกครั้งเดียว
+ * @param {string} url  URL /exec ของ Apps Script
+ * @returns {Promise<string>} ข้อความ JSON ที่ได้
+ */
+export async function fetchProtectedText(url) {
+  const user = auth.currentUser;
+  if (!user) throw new Error("ยังไม่ได้เข้าสู่ระบบ");
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const idToken = await user.getIdToken(attempt > 0);
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ idToken }),
+      redirect: "follow",
+      cache: "no-store"
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const text = await res.text();
+    const err = apiError(text);
+    if (!err) return text;
+    if (err.error === "unauthorized" && attempt === 0) continue;
+    throw new Error(err.message || err.error || "เกิดข้อผิดพลาดจาก API");
+  }
+}
+
+// ข้อความตอบกลับแบบผิดพลาดเป็น object สั้นๆ เสมอ — ไม่ต้อง parse ข้อมูลก้อนใหญ่ซ้ำ
+function apiError(text) {
+  if (text.length > 2000 || text.charAt(0) !== "{") return null;
+  try {
+    const j = JSON.parse(text);
+    return j && j.status === "error" && j.error ? j : null;
+  } catch { return null; }
+}
+
 let inactivityStarted = false;
 function startInactivityTimer() {
   if (inactivityStarted) return;

@@ -1,4 +1,4 @@
-import { requireLogin } from './firebase-guard.js';
+import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261121-auth';
 /* ใช้ URL Web App ที่เชื่อมต่อ Google Sheets */
 const API_URL = 'https://script.google.com/macros/s/AKfycbxGxDaEkB1IVbzSbMFkMJ08zfx9n9qIRDReGx9Mb-bg2n5C0jh8KuiwDnGjdjTvuVCF/exec';
 /* API ชุดที่ 2: ปั๊มน้ำมันทุกแบรนด์ (แท็บละแบรนด์ มีรายละเอียดสถานี) — โค้ดอยู่ที่ apps-script/stations.gs เว้นว่างไว้ = ไม่โหลด */
@@ -738,8 +738,13 @@ function markDuplicates(){
     p.dupKey = n ? 'n:'+nameKey(p) : c ? 'c:'+coordKey(p) : '';
   });
 }
-const fetchText=url=>fetch(url,{method:'GET',cache:'no-store',redirect:'follow'})
-  .then(r=>{ if(!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); });
+// ชุดปั๊มน้ำมันแนบ Firebase ID token ไปให้ Apps Script ตรวจ (ดู firebase-guard.js / apps-script/stations.gs)
+// ชุด Geofence ยังเรียกแบบเดิม (GET) จนกว่า Apps Script ตัวนั้นจะเพิ่มการตรวจ token
+const PROTECTED_URLS=new Set([STATIONS_API_URL]);
+const fetchText=url=>PROTECTED_URLS.has(url)
+  ? fetchProtectedText(url)
+  : fetch(url,{method:'GET',cache:'no-store',redirect:'follow'})
+      .then(r=>{ if(!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); });
 async function loadData(){
   const setStatus=t=>{ if($('statusText')) $('statusText').textContent=t; };
   if($('refreshBtn')) $('refreshBtn').disabled=true;
