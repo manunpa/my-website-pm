@@ -62,24 +62,34 @@ function parseLatLng(text){
   return {lat,lng};
 }
 
+let accuracyCircle = null;
 function clearSearchMarker(){
   if(searchMarker){ map.removeLayer(searchMarker); searchMarker=null; }
+  if(accuracyCircle){ map.removeLayer(accuracyCircle); accuracyCircle=null; }
+  document.querySelector('.locatebtn')?.classList.remove('on');
   searchPoint=null;
   nearestLines.clearLayers();
 }
 
-function showSearchMarker(lat,lng){
+// opts.accuracy (เมตร) = มาจากปุ่มตำแหน่งของฉัน → แสดงเป็นจุดสีฟ้า + วงความแม่นยำ
+function showSearchMarker(lat,lng,opts={}){
   clearSearchMarker();
+  const isGps=opts.accuracy!==undefined;
   const icon = L.divIcon({
     className:'',
-    html:'<div style="width:22px;height:22px;border-radius:50%;background:#e05260;border:3px solid #fff;box-shadow:0 0 0 4px #e0526055,0 3px 10px #0006"></div>',
+    html:isGps
+      ?'<div class="mypos"></div>'
+      :'<div style="width:22px;height:22px;border-radius:50%;background:#e05260;border:3px solid #fff;box-shadow:0 0 0 4px #e0526055,0 3px 10px #0006"></div>',
     iconSize:[22,22], iconAnchor:[11,11]
   });
   searchPoint={lat,lng};
   const near=nearestPoints(lat,lng);
   const nearText=near.length?`<br><br>ใกล้ที่สุด: <b>${esc(near[0].p.name)}</b><br>ระยะ ${formatKm(near[0].km)} กม.`:'';
+  if(isGps) accuracyCircle=L.circle([lat,lng],{radius:opts.accuracy,color:'#1a73e8',weight:1,opacity:.5,fillColor:'#1a73e8',fillOpacity:.12,interactive:false}).addTo(map);
   searchMarker = L.marker([lat,lng],{icon,zIndexOffset:1000}).addTo(map);
-  searchMarker.bindPopup(`<div class="popup-title">พิกัดที่ค้นหา</div><div class="popup-coord">Latitude: ${lat}<br>Longitude: ${lng}${nearText}</div>${popupActions(lat,lng)}`);
+  const title=isGps?'ตำแหน่งของฉัน':'พิกัดที่ค้นหา';
+  const accText=isGps?`<br>ความแม่นยำ: ±${Math.round(opts.accuracy).toLocaleString('th-TH')} ม.`:'';
+  searchMarker.bindPopup(`<div class="popup-title">${title}</div><div class="popup-coord">Latitude: ${lat}<br>Longitude: ${lng}${accText}${nearText}</div>${popupActions(lat,lng)}`);
   drawNearestLines();
   // ซูมให้เห็นทั้งหมุดที่ค้นหาและจุดที่ใกล้ที่สุดในจอเดียว
   if(near.length) map.flyToBounds(L.latLngBounds([[lat,lng],...near.map(n=>[n.p.lat,n.p.lng])]),{padding:[70,70],maxZoom:16,duration:.8});
@@ -397,6 +407,45 @@ map.on('mousemove',e=>{
   if(cursorCoords) cursorCoords.textContent=`LAT ${e.latlng.lat.toFixed(5)} · LNG ${e.latlng.lng.toFixed(5)}`;
 });
 map.on('click',e=>{if(e.originalEvent.target===map.getContainer()&&selectedId!==null){ selectPoint(null); renderList(); }});
+
+// ===== ปุ่มตำแหน่งของฉัน (มุมขวาล่าง เหนือปุ่มซูม) =====
+// ใช้ Geolocation ของเบราว์เซอร์ ตำแหน่งอยู่ในเครื่องผู้ใช้เท่านั้น ไม่ได้ส่งไปเก็บที่ไหน
+const LocateControl = L.Control.extend({
+  options:{position:'bottomright'},
+  onAdd(){
+    const btn=L.DomUtil.create('button','locatebtn');
+    btn.type='button'; btn.title='ตำแหน่งของฉัน'; btn.setAttribute('aria-label','ตำแหน่งของฉัน');
+    btn.innerHTML='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>';
+    L.DomEvent.disableClickPropagation(btn);
+    L.DomEvent.on(btn,'click',()=>locateMe(btn));
+    return btn;
+  }
+});
+map.addControl(new LocateControl());
+
+function locateMe(btn){
+  if(!('geolocation' in navigator)){ toast('อุปกรณ์หรือเบราว์เซอร์นี้ไม่รองรับการหาตำแหน่ง'); return; }
+  if(btn.classList.contains('busy')) return;
+  btn.classList.add('busy');
+  toast('กำลังหาตำแหน่งของคุณ...',10000);
+  navigator.geolocation.getCurrentPosition(pos=>{
+    btn.classList.remove('busy');
+    const lat=Number(pos.coords.latitude.toFixed(6)), lng=Number(pos.coords.longitude.toFixed(6));
+    const inp=$('searchInput');
+    // ใส่พิกัดในช่องค้นหา เพื่อให้รายการด้านซ้ายแสดง Geofence ใกล้สุด 5 อันดับ (ลบช่องค้นหา = ล้างตำแหน่ง)
+    if(inp) inp.value=`${lat}, ${lng}`;
+    showSearchMarker(lat,lng,{accuracy:pos.coords.accuracy||0});
+    btn.classList.add('on');
+    const near=nearestPoints(lat,lng,1)[0];
+    toast(near?`ใกล้ที่สุด: ${near.p.name} (${formatKm(near.km)} กม.) · แม่นยำ ±${Math.round(pos.coords.accuracy)} ม.`:`พบตำแหน่งแล้ว · แม่นยำ ±${Math.round(pos.coords.accuracy)} ม.`,4500);
+  },err=>{
+    btn.classList.remove('busy','on');
+    const msg = err.code===1 ? 'ไม่ได้รับอนุญาตให้ใช้ตำแหน่ง — เปิดสิทธิ์ "ตำแหน่ง" ให้เว็บนี้ในการตั้งค่าเบราว์เซอร์ แล้วลองใหม่'
+      : err.code===3 ? 'หาตำแหน่งนานเกินไป ลองใหม่อีกครั้ง หรือออกไปที่โล่ง'
+      : 'หาตำแหน่งไม่สำเร็จ ตรวจสอบว่าเปิด GPS / Location ในมือถือแล้ว';
+    toast(msg,6000);
+  },{enableHighAccuracy:true,timeout:15000,maximumAge:10000});
+}
 
 // ===== Firebase: ตรวจสิทธิ์ / Logout / ตัด Session (ดู firebase-guard.js) =====
 // โหลดข้อมูลหลังยืนยันตัวตนแล้วเท่านั้น
