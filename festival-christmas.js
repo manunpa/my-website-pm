@@ -16,6 +16,9 @@
   var forced = window.XM_FORCE === true || /[?&]festival=christmas\b/.test(location.search);
   var now = Date.now();
   if (!forced && (now < Date.parse(FESTIVAL.start) || now >= Date.parse(FESTIVAL.end))) return;
+  // หยุดชั่วคราวช่วงที่มีธีมอื่นแทรกคิว: 19–20 ธ.ค. งานวิ่ง Bangsaen21 (festival-bangsaen21.js)
+  var SKIP = [["2026-12-19T00:00:00+07:00", "2026-12-21T00:00:00+07:00"]];
+  if (!forced && SKIP.some(function (s) { return now >= Date.parse(s[0]) && now < Date.parse(s[1]); })) return;
 
   var HIDE_KEY = "festival-christmas-2569-hidden";
   try { if (!forced && sessionStorage.getItem(HIDE_KEY) === "1") return; } catch (e) {}
