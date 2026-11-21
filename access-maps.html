@@ -109,6 +109,14 @@ button,input{font:inherit}button{cursor:pointer}
 @media(max-width:850px){.nearbar{top:70px;font-size:12px;padding:9px 12px}.nearbar .nb-dist{font-size:15px}}
 .recenter{position:absolute;bottom:72px;left:50%;transform:translateX(-50%);z-index:450;height:42px;padding:0 18px;border-radius:21px;border:0;background:#1a73e8;color:#fff;font-weight:700;font-size:13px;box-shadow:0 6px 18px #1a73e855;cursor:pointer;white-space:nowrap}
 .recenter[hidden]{display:none}
+.suppin{background:none;border:0}
+.suppin svg{display:block;filter:drop-shadow(0 2px 3px #0005)}
+.legend .floating-card{flex-wrap:wrap;row-gap:7px;max-width:min(640px,calc(100vw - 120px))}
+.suplegend{display:contents}
+.legend-item.sup{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer}
+.legend-item.sup:hover{color:var(--text)}
+.legend-item.sup.on{color:var(--text);font-weight:700}
+.legend-item.sup.dim{opacity:.4}
 .selpin{background:none;border:0}
 .selpin svg{position:relative;display:block;filter:drop-shadow(0 3px 6px #0006);animation:selbounce .6s ease-out 2}
 .selpin-pulse{position:absolute;left:50%;bottom:-2px;width:22px;height:22px;margin-left:-11px;border-radius:50%;background:#e0526066;animation:selpulse 1.6s ease-out infinite}
@@ -180,7 +188,7 @@ button,input{font:inherit}button{cursor:pointer}
         </div>
       </div>
       <div class="mapbottom">
-        <div class="legend"><div class="floating-card"><span class="legend-item"><span class="legend-dot"></span>จุดพิกัด</span><span class="legend-item"><span class="legend-dot cluster"></span>กลุ่มจุด</span></div></div>
+        <div class="legend"><div class="floating-card"><span id="supplierLegend" class="suplegend"><span class="legend-item"><span class="legend-dot"></span>จุดพิกัด</span></span><span class="legend-item"><span class="legend-dot cluster"></span>กลุ่มจุด</span></div></div>
         <div class="floating-card coordinates" id="cursorCoords">LAT — · LNG —</div>
       </div>
       <button type="button" class="nearbar" id="nearBar" hidden title="กดเพื่อไปที่จุดนี้"></button>

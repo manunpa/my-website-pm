@@ -196,8 +196,54 @@ function esc(s){
   const ent={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
   return String(s).replace(/[&<>"']/g,c=>ent[c]);
 }
+// ===== สีหมุดแยกตาม Supplier =====
+// กำหนดสีให้ Supplier ที่รู้จัก ถ้ามี Supplier ใหม่ในชีต จะได้สีจากชุดสำรองอัตโนมัติ
+const SUPPLIER_COLORS = {
+  'DTC':'#4776ff',
+  'SONGDEE':'#f59f00',
+  'SCA DTC':'#0ca678',
+  'Smart Logistics':'#8b5cf6',
+  'LEO System':'#e64980',
+  'PMS':'#495057'
+};
+const EXTRA_COLORS = ['#1098ad','#d9480f','#5c940d','#9c36b5','#364fc7','#c92a2a'];
+const NO_SUPPLIER_COLOR = '#adb5bd';
+const supplierColorCache = new Map();
+function supplierColor(name){
+  if(name===NO_SUPPLIER) return NO_SUPPLIER_COLOR;
+  if(SUPPLIER_COLORS[name]) return SUPPLIER_COLORS[name];
+  if(!supplierColorCache.has(name)) supplierColorCache.set(name,EXTRA_COLORS[supplierColorCache.size%EXTRA_COLORS.length]);
+  return supplierColorCache.get(name);
+}
+const pinIconCache = new Map();
+function pinIcon(color){
+  if(!pinIconCache.has(color)) pinIconCache.set(color,L.divIcon({
+    className:'suppin',
+    html:`<svg viewBox="0 0 32 44" width="25" height="34"><path d="M16 1C7.7 1 1 7.6 1 15.9 1 27 16 43 16 43s15-16 15-27.1C31 7.6 24.3 1 16 1z" fill="${color}" stroke="#fff" stroke-width="2.5"/><circle cx="16" cy="16" r="5.5" fill="#fff"/></svg>`,
+    iconSize:[25,34], iconAnchor:[12.5,33], popupAnchor:[0,-30]
+  }));
+  return pinIconCache.get(color);
+}
+function renderLegend(){
+  const box=$('supplierLegend');
+  if(!box) return;
+  const counts=new Map();
+  allRows.forEach(p=>{ if(validPoint(p)) counts.set(p.supplier,(counts.get(p.supplier)||0)+1); });
+  const names=[...counts.keys()].sort((a,b)=>counts.get(b)-counts.get(a));
+  box.innerHTML=names.map(n=>`<button type="button" class="legend-item sup${activeSupplier===n?' on':''}${activeSupplier!=='all'&&activeSupplier!==n?' dim':''}" data-sup="${esc(n)}" title="กดเพื่อกรองเฉพาะ ${esc(n)}"><span class="legend-dot" style="background:${supplierColor(n)}"></span>${esc(n)}</button>`).join('');
+}
+// กดชื่อ Supplier ในคำอธิบายสัญลักษณ์ → กรองเฉพาะ Supplier นั้น (กดซ้ำ = แสดงทั้งหมด)
+$('supplierLegend')?.addEventListener('click',e=>{
+  const item=e.target.closest('[data-sup]');
+  const sel=$('supplierSelect');
+  if(!item||!sel) return;
+  sel.value = activeSupplier===item.dataset.sup ? 'all' : item.dataset.sup;
+  sel.dispatchEvent(new Event('change'));
+});
+
 function buildMarker(p){
-  const marker=L.marker([p.lat,p.lng],{title:p.name});
+  const marker=L.marker([p.lat,p.lng],{title:p.name,icon:pinIcon(supplierColor(p.supplier))});
+  marker.supplierIcon=marker.options.icon;
   marker.bindPopup(`<div class="popup-title">${esc(p.name)}</div><div class="popup-coord">Supplier: ${esc(p.supplier)}<br>Latitude: ${p.lat}<br>Longitude: ${p.lng}</div>${popupActions(p.lat,p.lng)}`);
   marker.on('click',()=>{ selectPoint(p.id); renderList(); scrollRowIntoView(p.id); });
   markerById.set(p.id,marker);
@@ -212,7 +258,7 @@ const selectedIcon = L.divIcon({
 });
 let selectedMarker = null;
 function selectPoint(id){
-  if(selectedMarker){ selectedMarker.setIcon(new L.Icon.Default()); selectedMarker.setZIndexOffset(0); selectedMarker=null; }
+  if(selectedMarker){ selectedMarker.setIcon(selectedMarker.supplierIcon); selectedMarker.setZIndexOffset(0); selectedMarker=null; }
   selectedId=id;
   const m=id===null?null:markerById.get(id);
   if(m){ m.setIcon(selectedIcon); m.setZIndexOffset(1000); selectedMarker=m; }
@@ -250,6 +296,7 @@ function renderMap(){
   const markers=valid.map(buildMarker);
   clusters.addLayers(markers);
   selectedMarker=null; selectPoint(selectedId);
+  renderLegend();
   drawNearestLines();
   if($('statTotal')) $('statTotal').textContent=bySupplier.length.toLocaleString('th-TH');
   if($('statValid')) $('statValid').textContent=valid.length.toLocaleString('th-TH');
@@ -296,8 +343,8 @@ function renderList(){
   pointList.innerHTML=hint+filteredRows.map(p=>{
     const valid=validPoint(p), selected=selectedId===p.id;
     return `<div class="pointrow ${selected?'selected':''}" data-id="${p.id}">
-      <div class="pin">${valid?'⌖':'!'}</div>
-      <div class="pointinfo"><div class="pointname">${esc(p.name)}</div><div class="pointcoord">${valid?`${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`:'ไม่พบ Latitude / Longitude'}${p.supplier!==NO_SUPPLIER?` · <span class="pointsup">${esc(p.supplier)}</span>`:''}</div></div>
+      <div class="pin"${valid?` style="color:${supplierColor(p.supplier)};background:${supplierColor(p.supplier)}1f"`:''}>${valid?'⌖':'!'}</div>
+      <div class="pointinfo"><div class="pointname">${esc(p.name)}</div><div class="pointcoord">${valid?`${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`:'ไม่พบ Latitude / Longitude'}${p.supplier!==NO_SUPPLIER?` · <span class="pointsup" style="color:${supplierColor(p.supplier)}">${esc(p.supplier)}</span>`:''}</div></div>
       <div class="pointarrow">${valid?'›':'·'}</div>
     </div>`;
   }).join('');
@@ -316,7 +363,7 @@ function renderNearest(pointList,pointCount){
     const selected=selectedId===p.id;
     return `<div class="pointrow ${selected?'selected':''} ${i===0?'nearest':''}" data-id="${p.id}">
       <div class="pin rank">${i+1}</div>
-      <div class="pointinfo"><div class="pointname">${esc(p.name)}</div><div class="pointcoord">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}${p.supplier!==NO_SUPPLIER?` · <span class="pointsup">${esc(p.supplier)}</span>`:''}</div></div>
+      <div class="pointinfo"><div class="pointname">${esc(p.name)}</div><div class="pointcoord">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}${p.supplier!==NO_SUPPLIER?` · <span class="pointsup" style="color:${supplierColor(p.supplier)}">${esc(p.supplier)}</span>`:''}</div></div>
       <div class="dist"><b>${formatKm(km)}</b><span>กม.</span></div>
     </div>`;
   }).join('');
