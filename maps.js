@@ -1,11 +1,14 @@
 import { requireLogin } from './firebase-guard.js';
 /* ใช้ URL Web App ที่เชื่อมต่อ Google Sheets */
 const API_URL = 'https://script.google.com/macros/s/AKfycbxGxDaEkB1IVbzSbMFkMJ08zfx9n9qIRDReGx9Mb-bg2n5C0jh8KuiwDnGjdjTvuVCF/exec';
-/* API ชุดที่ 2: สถานี PTT (มีรายละเอียดสถานี) — โค้ดอยู่ที่ apps-script/ptt-stations.gs เว้นว่างไว้ = ไม่โหลด */
-const PTT_API_URL = 'https://script.google.com/macros/s/AKfycbyaSWY0vXvJyR8BO0bJo88Wirj_akGX6-uRMb-k-KqVFfxsZQHnY7_qp3fkzahaG4Rz/exec';
-const PTT_SUPPLIER = 'PTT Station';
+/* API ชุดที่ 2: ปั๊มน้ำมันทุกแบรนด์ (แท็บละแบรนด์ มีรายละเอียดสถานี) — โค้ดอยู่ที่ apps-script/stations.gs เว้นว่างไว้ = ไม่โหลด */
+const STATIONS_API_URL = 'https://script.google.com/macros/s/AKfycbx2TJEkaUdHu5gYck2T5YRsqCdfxFob8pTq78ehlhYgXsEV7oxEkYc5Dz3h3AQ1r40zNQ/exec';
 const $ = id => document.getElementById(id);
 let allRows = [], filteredRows = [], activeFilter = 'all', activeSupplier = 'all', selectedId = null, currentLayer = 'street';
+// ชั้นข้อมูล: Geofence (Supplier) กับ ปั๊มน้ำมัน (แบรนด์) เปิด/ปิดแยกกัน และกรองแยกกัน — จำค่าที่เลือกไว้ในเครื่อง
+let showGeo = true, showStations = false, activeBrand = 'all';
+try{ const s=JSON.parse(localStorage.getItem('accessMapsLayers')||'null'); if(s){ showGeo=s.geo!==false; showStations=!!s.st; } }catch{}
+function saveLayers(){ try{ localStorage.setItem('accessMapsLayers',JSON.stringify({geo:showGeo,st:showStations})); }catch{} }
 const NO_SUPPLIER = '(ไม่ระบุ Supplier)';
 let markerById = new Map();
 
@@ -21,6 +24,12 @@ const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/
 streetLayer.addTo(map);
 const clusters = L.markerClusterGroup({chunkedLoading:true,chunkInterval:100,chunkDelay:25,maxClusterRadius:55,showCoverageOnHover:false,removeOutsideVisibleBounds:true,spiderfyOnMaxZoom:true});
 map.addLayer(clusters);
+// กลุ่มหมุดของปั๊มน้ำมันแยกจาก Geofence: วงกลุ่มคนละแบบ นับแยกกัน
+const stationClusters = L.markerClusterGroup({chunkedLoading:true,chunkInterval:100,chunkDelay:25,maxClusterRadius:50,showCoverageOnHover:false,removeOutsideVisibleBounds:true,spiderfyOnMaxZoom:true,
+  iconCreateFunction:c=>{
+    const n=c.getChildCount(), size=n<10?30:n<100?36:n<1000?42:46;
+    return L.divIcon({className:'stcluster',html:`<div style="width:${size}px;height:${size}px"><b>⛽</b>${n.toLocaleString('th-TH')}</div>`,iconSize:[size,size]});
+  }});
 
 let searchMarker = null;
 // พิกัดที่ค้นหาล่าสุด (กด Enter) ใช้คำนวณ Geofence ที่ใกล้ที่สุด
@@ -41,10 +50,18 @@ function formatKm(km){
   if(km<10) return km.toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2});
   return km.toLocaleString('th-TH',{minimumFractionDigits:1,maximumFractionDigits:1});
 }
-// จุดที่ใกล้ที่สุด N อันดับ (เฉพาะจุดที่มีพิกัด และตาม Supplier ที่เลือกอยู่)
+// Geofence ที่ใกล้ที่สุด N อันดับ (เฉพาะ Geofence ที่มีพิกัด และตาม Supplier ที่เลือกอยู่ — ไม่นับปั๊มน้ำมัน)
 function nearestPoints(lat,lng,n=NEAREST_COUNT){
   return allRows
-    .filter(p=>validPoint(p)&&(activeSupplier==='all'||p.supplier===activeSupplier))
+    .filter(p=>p.kind==='geo'&&validPoint(p)&&(activeSupplier==='all'||p.supplier===activeSupplier))
+    .map(p=>({p,km:distanceKm(lat,lng,p.lat,p.lng)}))
+    .sort((a,b)=>a.km-b.km)
+    .slice(0,n);
+}
+// ปั๊มน้ำมันที่ใกล้ที่สุด (ตามแบรนด์ที่เลือกอยู่) — ใช้เมื่อเปิดชั้นปั๊มน้ำมัน
+function nearestStations(lat,lng,n=1){
+  return allRows
+    .filter(p=>p.kind==='station'&&validPoint(p)&&(activeBrand==='all'||p.supplier===activeBrand))
     .map(p=>({p,km:distanceKm(lat,lng,p.lat,p.lng)}))
     .sort((a,b)=>a.km-b.km)
     .slice(0,n);
@@ -165,7 +182,10 @@ function updateNearBar(){
   bar.hidden=false;
   bar.dataset.id=near.p.id;
   bar.classList.toggle('following',followWatchId!==null);
-  bar.innerHTML=`<span class="nb-dot"></span><span class="nb-label">ใกล้สุด</span><span class="nb-name">${esc(near.p.name)}</span><span class="nb-dist">${formatDist(near.km)}</span>`;
+  const st=showStations?nearestStations(searchPoint.lat,searchPoint.lng,1)[0]:null;
+  const stColor=st?supplierColor(st.p.supplier):'';
+  bar.innerHTML=`<span class="nb-row" data-go="${near.p.id}"><span class="nb-dot"></span><span class="nb-label">ใกล้สุด</span><span class="nb-name">${esc(near.p.name)}</span><span class="nb-dist">${formatDist(near.km)}</span></span>`+
+    (st?`<span class="nb-row nb-st" data-go="${st.p.id}"><span class="nb-fuel" style="background:${stColor};color:${fuelInk(stColor)}">⛽</span><span class="nb-label">ปั๊มใกล้สุด</span><span class="nb-name">${esc(st.p.station.brand)} · ${esc(st.p.name)}</span><span class="nb-dist">${formatDist(st.km)}</span></span>`:'');
 }
 
 // opts.accuracy (เมตร) = มาจากปุ่มตำแหน่งของฉัน → แสดงเป็นจุดสีฟ้า + วงความแม่นยำ
@@ -181,7 +201,9 @@ function showSearchMarker(lat,lng,opts={}){
   });
   searchPoint={lat,lng}; gpsActive=isGps;
   const near=nearestPoints(lat,lng);
-  const nearText=near.length?`<br><br>ใกล้ที่สุด: <b>${esc(near[0].p.name)}</b><br>ระยะ ${formatKm(near[0].km)} กม.`:'';
+  const st=showStations?nearestStations(lat,lng,1)[0]:null;
+  const nearText=(near.length?`<br><br>ใกล้ที่สุด: <b>${esc(near[0].p.name)}</b><br>ระยะ ${formatKm(near[0].km)} กม.`:'')+
+    (st?`<br><br>⛽ ปั๊มใกล้สุด: <b>${esc(st.p.station.brand)} · ${esc(st.p.name)}</b><br>ระยะ ${formatKm(st.km)} กม.`:'');
   if(isGps) accuracyCircle=L.circle([lat,lng],{radius:opts.accuracy,color:'#1a73e8',weight:1,opacity:.5,fillColor:'#1a73e8',fillOpacity:.12,interactive:false}).addTo(map);
   searchMarker = L.marker([lat,lng],{icon,zIndexOffset:1000}).addTo(map);
   const title=isGps?'ตำแหน่งของฉัน':'พิกัดที่ค้นหา';
@@ -263,44 +285,83 @@ function normalizeRows(payload){
     rows=rows.slice(1).map(r=>Object.fromEntries(headers.map((h,i)=>[h,r[i]])));
   }
   return rows.map((r,i)=>{
-    if(Array.isArray(r)) return {id:i,name:String(r[0]??`จุดที่ ${i+1}`),lat:asNumber(r[1]),lng:asNumber(r[2]),supplier:String(r[3]??'').trim()||NO_SUPPLIER,raw:r};
+    if(Array.isArray(r)) return {id:i,name:String(r[0]??`จุดที่ ${i+1}`),lat:asNumber(r[1]),lng:asNumber(r[2]),supplier:String(r[3]??'').trim()||NO_SUPPLIER,kind:'geo',raw:r};
     const name=findValue(r,['Geofence']) || `จุดที่ ${i+1}`;
     const lat=asNumber(findValue(r,['Latitude','Lat']));
     const lng=asNumber(findValue(r,['Longitude','Long','Lng','Lon']));
     const supplier=String(findValue(r,['Supplier','ซัพพลายเออร์','ผู้จัดหา'])??'').trim()||NO_SUPPLIER;
-    return {id:i,name:String(name).trim(),lat,lng,supplier,raw:r};
+    return {id:i,name:String(name).trim(),lat,lng,supplier,kind:'geo',raw:r};
   });
 }
-// แปลงข้อมูลสถานี PTT ให้เป็นจุดแบบเดียวกับชุดหลัก แต่เก็บรายละเอียดสถานีไว้ใน p.ptt
-function normalizePttRows(payload,startId){
+// ===== ปั๊มน้ำมันทุกแบรนด์ (API ชุดที่ 2) =====
+// Apps Script ส่งทุกแท็บมาในรายการเดียว แต่ละแถวมี _sheet = ชื่อแท็บ = แบรนด์ (ข้อมูลเก่าไม่มี _sheet ถือเป็น PTT)
+// แต่ละแบรนด์ใช้ชื่อคอลัมน์ต่างกันได้ — ด้านล่างรวบไว้ให้อ่านได้ทุกแบบ
+function stationSupplier(sheet){ return `${sheet||'PTT'} Station`; }
+// รหัสสิ่งอำนวยความสะดวกภาษาอังกฤษ (Shell) → ภาษาไทย; '' = ไม่ต้องแสดง
+const AMENITY_TH = {
+  air_and_water:'เติมลม/น้ำ', twenty_four_hour:'เปิด 24 ชม.', full_service:'มีพนักงานเติมน้ำมัน',
+  standard_toilet:'ห้องน้ำ', disabled_facilities:'ห้องน้ำผู้พิการ', carwash:'ล้างรถ', service_bay:'ช่องบริการรถ',
+  quick_lubes:'เปลี่ยนน้ำมันเครื่อง', high_speed_diesel_pump:'หัวจ่ายดีเซลความเร็วสูง', motorway_service:'จุดพักทางหลวง',
+  selectshop:'Shell Select', stop_and_shop:'ร้านสะดวกซื้อ', clubsmart_shop:'ร้านค้า ClubSmart', city_market:'ร้านค้า',
+  food_offerings:'อาหาร', fast_food:'อาหาร', snack_food:'อาหาร', deli_cafe:'คาเฟ่', cafe:'คาเฟ่',
+  atm:'ATM', atm_in:'ATM', atm_out:'ATM',
+  clubsmart_card:'บัตร ClubSmart', go_plus:'Shell GO+', loyalty_cards:'บัตรสะสมแต้ม', partner_loyalty_accepted:'บัตรสะสมแต้มพันธมิตร',
+  fuel_card:'บัตรน้ำมัน', shell_card:'Shell Card', fleet_card_general:'บัตร Fleet',
+  credit_card:'บัตรเครดิต', credit_card_general:'บัตรเครดิต', credit_card_visa:'Visa', credit_card_mastercard:'Mastercard', credit_card_american_express:'Amex',
+  manned:'', manual:'', loyalty_program:'', other_loyalty_cards:'', parking_lanes:'', type_of_parking:''
+};
+function amenityList(v){
+  const seen=new Set();
+  return String(v||'').split(/\s*,\s*/).filter(Boolean).map(a=>{
+    const k=a.trim();
+    return /^[a-z0-9_]+$/.test(k) ? (k in AMENITY_TH ? AMENITY_TH[k] : k.replace(/_/g,' ')) : k;
+  }).filter(a=>a&&!seen.has(a)&&seen.add(a));
+}
+function normalizeStationRows(payload,startId){
   const rows=Array.isArray(payload)?payload:(payload?.data??payload?.rows??[]);
-  if(!Array.isArray(rows)) throw new Error('รูปแบบข้อมูล PTT ไม่ถูกต้อง');
+  if(!Array.isArray(rows)) throw new Error('รูปแบบข้อมูลปั๊มน้ำมันไม่ถูกต้อง');
   const txt=v=>String(v??'').trim();
   return rows.map((r,i)=>{
-    const ptt={
-      type:txt(findValue(r,['type'])), province:txt(findValue(r,['province_name','province'])),
-      address:txt(findValue(r,['address'])), phone:txt(findValue(r,['phone'])),
-      products:txt(findValue(r,['products'])), services:txt(findValue(r,['services'])),
-      cards:txt(findValue(r,['card_type'])), link:txt(findValue(r,['link']))
+    const sheet=txt(r._sheet)||'PTT';
+    const cat=txt(findValue(r,['category','site_category']));
+    const d={
+      brand:sheet,
+      type:txt(findValue(r,['type'])),
+      ev:/ev/i.test(cat),
+      region:txt(findValue(r,['region'])),
+      province:txt(findValue(r,['province_name','province'])),
+      district:txt(findValue(r,['district','city'])),
+      address:[txt(findValue(r,['address'])),txt(findValue(r,['postcode']))].filter(Boolean).join(' '),
+      phone:txt(findValue(r,['phone'])),
+      hours:txt(findValue(r,['hours'])),
+      products:txt(findValue(r,['products','fuels'])),
+      services:amenityList(findValue(r,['services','amenities'])),
+      cards:txt(findValue(r,['card_type'])),
+      link:txt(findValue(r,['link']))
     };
     return {
-      id:startId+i, name:txt(findValue(r,['name']))||`สถานี PTT ${i+1}`,
+      id:startId+i, name:txt(findValue(r,['name']))||`ปั๊ม ${sheet} ${i+1}`,
       lat:asNumber(findValue(r,['lat','Latitude'])), lng:asNumber(findValue(r,['lng','Longitude'])),
-      supplier:PTT_SUPPLIER, ptt, searchText:`${ptt.province} ${ptt.address}`, raw:r
+      supplier:stationSupplier(sheet), station:d, kind:'station',
+      searchText:`${d.region} ${d.province} ${d.district} ${d.address}`, raw:r
     };
   });
 }
-function pttDetailsHtml(d){
+function stationDetailsHtml(d){
   const line=(label,val)=>val?`<div class="ptt-line"><b>${label}</b> ${esc(val)}</div>`:'';
-  const chips=val=>val?`<div class="ptt-chips">${val.split(/\s*,\s*/).filter(Boolean).map(x=>`<span>${esc(x)}</span>`).join('')}</div>`:'';
+  const chips=list=>list.length?`<div class="ptt-chips">${list.map(x=>`<span>${esc(x)}</span>`).join('')}</div>`:'';
+  const split=v=>String(v||'').split(/\s*,\s*/).filter(Boolean);
   const tel=d.phone?`<div class="ptt-line"><b>โทร</b> ${d.phone.split(/\s*[,/]\s*/).filter(Boolean).map(n=>`<a href="tel:${esc(n.replace(/[^\d+]/g,''))}">${esc(n)}</a>`).join(', ')}</div>`:'';
+  const bc=supplierColor(stationSupplier(d.brand));
+  const where=[d.district,d.province,d.region].filter(Boolean).join(' · ');
+  let host=''; try{ host=/^https?:\/\//.test(d.link)?new URL(d.link).hostname.replace(/^www\./,''):''; }catch{}
   return `<div class="ptt-detail">
-    ${d.type?`<span class="ptt-type">${esc(d.type)}</span>`:''}${d.province?`<span class="ptt-prov">${esc(d.province)}</span>`:''}
-    ${line('ที่อยู่',d.address)}${tel}
-    ${d.products?`<div class="ptt-sec">น้ำมัน / ผลิตภัณฑ์</div>${chips(d.products)}`:''}
-    ${d.services?`<div class="ptt-sec">บริการในสถานี</div>${chips(d.services)}`:''}
+    <span class="ptt-type" style="background:${bc};color:${bc==='#f7c600'?'#3d2e00':'#fff'}">${esc(d.brand)}</span>${d.type?`<span class="ptt-prov">${esc(d.type)}</span>`:''}${d.ev?'<span class="ptt-prov">⚡ ที่ชาร์จ EV</span>':''}
+    ${line('พื้นที่',where)}${line('ที่อยู่',d.address)}${tel}${line('เวลาเปิด',d.hours)}
+    ${d.products?`<div class="ptt-sec">น้ำมัน / ผลิตภัณฑ์</div>${chips(split(d.products))}`:''}
+    ${d.services.length?`<div class="ptt-sec">บริการในสถานี</div>${chips(d.services)}`:''}
     ${line('บัตรที่รับ',d.cards)}
-    ${/^https?:\/\//.test(d.link)?`<a class="ptt-link" href="${esc(d.link)}" target="_blank" rel="noopener">ดูหน้าสถานีบน pttstation.com ↗</a>`:''}
+    ${host?`<a class="ptt-link" href="${esc(d.link)}" target="_blank" rel="noopener">ดูหน้าสถานีบน ${esc(host)} ↗</a>`:''}
   </div>`;
 }
 function validPoint(p){return p.lat!==null&&p.lng!==null&&p.lat>=-90&&p.lat<=90&&p.lng>=-180&&p.lng<=180}
@@ -317,7 +378,10 @@ const SUPPLIER_COLORS = {
   'Smart Logistics':'#8b5cf6',
   'LEO System':'#e64980',
   'PMS':'#495057',
-  [PTT_SUPPLIER]:'#00a3e0'
+  'PTT Station':'#00a3e0',
+  'PT Station':'#66a80f',
+  'Shell Station':'#f7c600',
+  'Caltex Station':'#b02a37'
 };
 const EXTRA_COLORS = ['#1098ad','#d9480f','#5c940d','#9c36b5','#364fc7','#c92a2a'];
 const NO_SUPPLIER_COLOR = '#adb5bd';
@@ -337,30 +401,53 @@ function pinIcon(color){
   }));
   return pinIconCache.get(color);
 }
+// หมุดปั๊มน้ำมัน: วงกลมสีแบรนด์ + ไอคอนหัวจ่าย (ต่างจากหมุดหยดน้ำของ Geofence ชัดเจน)
+const fuelInk = color => color==='#f7c600' ? '#3d2e00' : '#fff';
+const FUEL_SVG = '<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M5 3h8a1 1 0 0 1 1 1v7h1.5a2 2 0 0 1 2 2v4.5a1 1 0 0 0 2 0V9.2L17.3 7l1.4-1.4 2.6 2.6c.2.2.3.4.3.7v8.6a3 3 0 0 1-6 0V13H14v8H4V4a1 1 0 0 1 1-1zm1 2v5h6V5H6z"/></svg>';
+const stationIconCache = new Map();
+function stationIcon(color){
+  if(!stationIconCache.has(color)) stationIconCache.set(color,L.divIcon({
+    className:'stpin',
+    html:`<div style="background:${color};color:${fuelInk(color)}">${FUEL_SVG}</div>`,
+    iconSize:[24,24], iconAnchor:[12,12], popupAnchor:[0,-12]
+  }));
+  return stationIconCache.get(color);
+}
+// คำอธิบายสัญลักษณ์: แถว Geofence (Supplier) กับแถวปั๊มน้ำมัน (แบรนด์) แยกกัน แสดงเฉพาะชั้นที่เปิดอยู่
 function renderLegend(){
   const box=$('supplierLegend');
   if(!box) return;
-  const counts=new Map();
-  allRows.forEach(p=>{ if(validPoint(p)) counts.set(p.supplier,(counts.get(p.supplier)||0)+1); });
-  const names=[...counts.keys()].sort((a,b)=>counts.get(b)-counts.get(a));
-  box.innerHTML=names.map(n=>`<button type="button" class="legend-item sup${activeSupplier===n?' on':''}${activeSupplier!=='all'&&activeSupplier!==n?' dim':''}" data-sup="${esc(n)}" title="กดเพื่อกรองเฉพาะ ${esc(n)}"><span class="legend-dot" style="background:${supplierColor(n)}"></span>${esc(n)}</button>`).join('');
+  const row=(kind,active,attr,head)=>{
+    const counts=new Map();
+    allRows.forEach(p=>{ if(p.kind===kind&&validPoint(p)) counts.set(p.supplier,(counts.get(p.supplier)||0)+1); });
+    if(!counts.size) return '';
+    const names=[...counts.keys()].sort((a,b)=>counts.get(b)-counts.get(a));
+    const label=n=>kind==='station'?n.replace(/ Station$/,''):n;
+    const dot=n=>`<span class="legend-dot${kind==='station'?' fuel':' drop'}" style="background:${supplierColor(n)}"></span>`;
+    return `<div class="legrow"><span class="leghead">${head}</span>`+names.map(n=>`<button type="button" class="legend-item sup${active===n?' on':''}${active!=='all'&&active!==n?' dim':''}" ${attr}="${esc(n)}" title="กดเพื่อกรองเฉพาะ ${esc(label(n))}">${dot(n)}${esc(label(n))}</button>`).join('')+'</div>';
+  };
+  box.innerHTML=(showGeo?row('geo',activeSupplier,'data-sup','Geofence'):'')+(showStations?row('station',activeBrand,'data-brand','⛽ ปั๊มน้ำมัน'):'');
+  box.closest('.legend')?.toggleAttribute('hidden',!box.innerHTML);
 }
-// กดชื่อ Supplier ในคำอธิบายสัญลักษณ์ → กรองเฉพาะ Supplier นั้น (กดซ้ำ = แสดงทั้งหมด)
+// กดชื่อในคำอธิบายสัญลักษณ์ → กรองเฉพาะ Supplier/แบรนด์นั้น (กดซ้ำ = แสดงทั้งหมด)
 $('supplierLegend')?.addEventListener('click',e=>{
-  const item=e.target.closest('[data-sup]');
-  const sel=$('supplierSelect');
-  if(!item||!sel) return;
-  sel.value = activeSupplier===item.dataset.sup ? 'all' : item.dataset.sup;
+  const sup=e.target.closest('[data-sup]'), brand=e.target.closest('[data-brand]');
+  const sel=sup?$('supplierSelect'):brand?$('brandSelect'):null;
+  if(!sel) return;
+  const v=sup?sup.dataset.sup:brand.dataset.brand, cur=sup?activeSupplier:activeBrand;
+  sel.value = cur===v ? 'all' : v;
   sel.dispatchEvent(new Event('change'));
 });
 
-function buildMarker(p){
-  const marker=L.marker([p.lat,p.lng],{title:p.name,icon:pinIcon(supplierColor(p.supplier))});
+function buildMarker(p,group){
+  const color=supplierColor(p.supplier);
+  const marker=L.marker([p.lat,p.lng],{title:p.name,icon:p.kind==='station'?stationIcon(color):pinIcon(color)});
+  marker.__grp=group;
   marker.supplierIcon=marker.options.icon;
-  marker.bindPopup(p.ptt
-    ? `<div class="popup-title">${esc(p.name)}</div>${pttDetailsHtml(p.ptt)}<div class="popup-coord">Latitude: ${p.lat}<br>Longitude: ${p.lng}</div>${popupActions(p.lat,p.lng)}`
+  marker.bindPopup(p.station
+    ? `<div class="popup-title">${esc(p.name)}</div>${stationDetailsHtml(p.station)}<div class="popup-coord">Latitude: ${p.lat}<br>Longitude: ${p.lng}</div>${popupActions(p.lat,p.lng)}`
     : `<div class="popup-title">${esc(p.name)}</div><div class="popup-coord">Supplier: ${esc(p.supplier)}<br>Latitude: ${p.lat}<br>Longitude: ${p.lng}</div>${popupActions(p.lat,p.lng)}`,
-    p.ptt?{maxWidth:300,minWidth:240}:undefined);
+    p.station?{maxWidth:300,minWidth:240}:undefined);
   marker.on('click',()=>{ selectPoint(p.id); scrollRowIntoView(p.id); });
   markerById.set(p.id,marker);
   return marker;
@@ -386,7 +473,7 @@ function revealMarker(id){
   if(!m) return;
   unlockFollow(); // กำลังติดตามอยู่ → หยุดล็อกกลางจอ ไม่งั้นแผนที่จะถูกดึงกลับมาหาตัวเรา
   const ll=m.getLatLng();
-  const hidden=()=>{ const vp=clusters.getVisibleParent(m); return vp&&vp!==m ? vp : null; };
+  const hidden=()=>{ const vp=(m.__grp||clusters).getVisibleParent(m); return vp&&vp!==m ? vp : null; };
   // ขั้นสุดท้าย: ถ้ายังอยู่ในกลุ่ม (หมุดซ้อนที่เดียวกัน) ให้กางกลุ่มออกแล้วเปิดป๊อปอัป
   const finish=()=>{
     const c=hidden();
@@ -409,23 +496,62 @@ function scrollRowIntoView(id){
   const row=document.querySelector(`.pointrow[data-id="${id}"]`);
   if(row) row.scrollIntoView({block:'nearest',behavior:'smooth'});
 }
-function renderMap(){
-  clusters.clearLayers();markerById.clear();
-  const bySupplier=allRows.filter(p=>activeSupplier==='all'||p.supplier===activeSupplier);
-  const valid=bySupplier.filter(validPoint);
-  const markers=valid.map(buildMarker);
-  clusters.addLayers(markers);
+// แถวที่อยู่ในชั้น/ตัวกรองปัจจุบัน
+const geoRows = () => allRows.filter(p=>p.kind==='geo'&&(activeSupplier==='all'||p.supplier===activeSupplier));
+const stationRows = () => allRows.filter(p=>p.kind==='station'&&(activeBrand==='all'||p.supplier===activeBrand));
+// วาดหมุดใหม่เฉพาะชั้นที่เปลี่ยน (อีกชั้นไม่ต้องวาดใหม่ เปิด/ปิดชั้นจึงเร็ว)
+function renderLayer(group,rows,on){
+  group.clearLayers();
+  markerById.forEach((m,id)=>{ if(m.__grp===group) markerById.delete(id); });
+  if(on){ group.addLayers(rows.filter(validPoint).map(p=>buildMarker(p,group))); if(!map.hasLayer(group)) map.addLayer(group); }
+  else if(map.hasLayer(group)) map.removeLayer(group);
+}
+const renderGeoLayer = () => renderLayer(clusters,geoRows(),showGeo);
+const renderStationLayer = () => renderLayer(stationClusters,stationRows(),showStations);
+function afterLayerChange(){
   selectedMarker=null; selectPoint(selectedId);
-  renderLegend();
-  drawNearestLines();
-  if($('statTotal')) $('statTotal').textContent=bySupplier.length.toLocaleString('th-TH');
-  if($('statValid')) $('statValid').textContent=valid.length.toLocaleString('th-TH');
-  if(valid.length===1) map.setView([valid[0].lat,valid[0].lng],13);
-  else if(valid.length>1) map.fitBounds(L.latLngBounds(valid.map(p=>[p.lat,p.lng])),{padding:[45,45],maxZoom:12});
+  renderLegend(); renderLayerCards();
+  drawNearestLines(); updateNearBar();
+}
+function renderLayerCards(){
+  const set=(cardId,valId,on,n)=>{
+    const card=$(cardId); if(!card) return;
+    card.classList.toggle('on',on); card.setAttribute('aria-pressed',on);
+    $(valId).innerHTML=on?n.toLocaleString('th-TH'):'<small>ปิดอยู่</small>';
+  };
+  set('layerGeo','statGeo',showGeo,geoRows().length);
+  set('layerStations','statStations',showStations,stationRows().length);
+  if($('supplierSelect')) $('supplierSelect').hidden=!showGeo;
+  if($('brandSelect')) $('brandSelect').hidden=!showStations;
+  const t=$('sideTitleText');
+  if(t) t.textContent=showGeo&&showStations?'รายการ Geofence + ปั๊ม':showStations?'รายการปั๊มน้ำมัน':'รายการ Geofence';
+}
+function fitToVisible(){
+  const pts=(showGeo?geoRows():showStations?stationRows():[]).filter(validPoint);
+  if(pts.length===1) map.setView([pts[0].lat,pts[0].lng],13);
+  else if(pts.length>1) map.fitBounds(L.latLngBounds(pts.map(p=>[p.lat,p.lng])),{padding:[45,45],maxZoom:12});
+}
+function renderMap(opts={}){
+  renderGeoLayer(); renderStationLayer();
+  afterLayerChange();
+  if(opts.fit!==false) fitToVisible();
+}
+function buildBrandOptions(){
+  const counts=new Map(); let total=0;
+  allRows.forEach(p=>{ if(p.kind==='station'){ counts.set(p.supplier,(counts.get(p.supplier)||0)+1); total++; } });
+  if(activeBrand!=='all'&&!counts.has(activeBrand)) activeBrand='all';
+  const sel=$('brandSelect');
+  if(!sel) return;
+  const names=[...counts.keys()].sort((a,b)=>counts.get(b)-counts.get(a));
+  sel.innerHTML=`<option value="all">⛽ ปั๊ม: ทุกแบรนด์ (${total.toLocaleString('th-TH')})</option>`+
+    names.map(n=>`<option value="${esc(n)}">⛽ ${esc(n.replace(/ Station$/,''))} (${counts.get(n).toLocaleString('th-TH')})</option>`).join('');
+  sel.value=activeBrand;
+  sel.classList.toggle('on',activeBrand!=='all');
 }
 function buildSupplierOptions(){
+  buildBrandOptions();
   const counts=new Map();
-  allRows.forEach(p=>counts.set(p.supplier,(counts.get(p.supplier)||0)+1));
+  allRows.forEach(p=>{ if(p.kind==='geo') counts.set(p.supplier,(counts.get(p.supplier)||0)+1); });
   const names=[...counts.keys()].sort((a,b)=>{
     if(a===NO_SUPPLIER) return 1; if(b===NO_SUPPLIER) return -1;
     return a.localeCompare(b,'th');
@@ -433,7 +559,8 @@ function buildSupplierOptions(){
   if(activeSupplier!=='all'&&!counts.has(activeSupplier)) activeSupplier='all';
   const sel=$('supplierSelect');
   if(!sel) return;
-  sel.innerHTML=`<option value="all">Supplier: ทั้งหมด (${allRows.length.toLocaleString('th-TH')})</option>`+
+  const geoTotal=[...counts.values()].reduce((a,b)=>a+b,0);
+  sel.innerHTML=`<option value="all">Supplier: ทั้งหมด (${geoTotal.toLocaleString('th-TH')})</option>`+
     names.map(n=>`<option value="${esc(n)}">${esc(n)} (${counts.get(n).toLocaleString('th-TH')})</option>`).join('');
   sel.value=activeSupplier;
   sel.classList.toggle('on',activeSupplier!=='all');
@@ -444,7 +571,7 @@ let listShown = 0;
 function rowHtml(p){
   const valid=validPoint(p), selected=selectedId===p.id;
   return `<div class="pointrow ${selected?'selected':''}" data-id="${p.id}">
-      <div class="pin"${valid?` style="color:${supplierColor(p.supplier)};background:${supplierColor(p.supplier)}1f"`:''}>${valid?'⌖':'!'}</div>
+      <div class="pin${p.kind==='station'?' fuel':''}"${valid?` style="color:${supplierColor(p.supplier)};background:${supplierColor(p.supplier)}1f"`:''}>${!valid?'!':p.kind==='station'?FUEL_SVG:'⌖'}</div>
       <div class="pointinfo"><div class="pointname">${esc(p.name)}</div><div class="pointcoord">${valid?`${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`:'ไม่พบ Latitude / Longitude'}${p.supplier!==NO_SUPPLIER?` · <span class="pointsup" style="color:${supplierColor(p.supplier)}">${esc(p.supplier)}</span>`:''}</div></div>
       <div class="pointarrow">${valid?'›':'·'}</div>
     </div>`;
@@ -492,7 +619,8 @@ function renderList(){
   }
   filteredRows=allRows.filter(p=>{
     const matches = !!coordQ || (p.name+' '+p.supplier+(p.searchText?' '+p.searchText:'')).toLocaleLowerCase().includes(q);
-    if(activeSupplier!=='all'&&p.supplier!==activeSupplier) return false;
+    if(p.kind==='station'){ if(!showStations||(activeBrand!=='all'&&p.supplier!==activeBrand)) return false; }
+    else if(!showGeo||(activeSupplier!=='all'&&p.supplier!==activeSupplier)) return false;
     const valid=validPoint(p);
     return matches&&(activeFilter==='all'||(activeFilter==='valid'&&valid)||(activeFilter==='invalid'&&!valid));
   });
@@ -513,7 +641,19 @@ function renderNearest(pointList,pointCount){
   const supNote=activeSupplier!=='all'?`<div class="nearsub">เฉพาะ Supplier: ${esc(activeSupplier)}</div>`:'';
   const head=`<div class="nearhead"><div class="neartitle">Geofence ที่ใกล้ที่สุด</div>
     <div class="nearsub">จาก ${searchPoint.lat}, ${searchPoint.lng} · ระยะเส้นตรง</div>${supNote}</div>`;
-  if(!near.length){pointList.innerHTML=head+'<div class="empty">ไม่มี Geofence ที่มีพิกัดให้เทียบระยะ</div>';return}
+  // เปิดชั้นปั๊มน้ำมันอยู่ → แสดงปั๊มที่ใกล้ที่สุด 3 อันดับต่อท้าย (แยกจาก 5 อันดับ Geofence)
+  const sts=showStations?nearestStations(searchPoint.lat,searchPoint.lng,3):[];
+  filteredRows=filteredRows.concat(sts.map(n=>n.p)); listShown=filteredRows.length;
+  const brandNote=activeBrand!=='all'?` · ${esc(activeBrand.replace(/ Station$/,''))}`:'';
+  const stHtml=sts.length?`<div class="nearhead st"><div class="neartitle">⛽ ปั๊มน้ำมันที่ใกล้ที่สุด</div><div class="nearsub">3 อันดับ${brandNote}</div></div>`+sts.map(({p,km})=>{
+    const c=supplierColor(p.supplier);
+    return `<div class="pointrow ${selectedId===p.id?'selected':''}" data-id="${p.id}">
+      <div class="pin fuel" style="color:${c};background:${c}1f">${FUEL_SVG}</div>
+      <div class="pointinfo"><div class="pointname">${esc(p.name)}</div><div class="pointcoord"><span class="pointsup" style="color:${c}">${esc(p.station.brand)}</span>${p.station.province?` · ${esc(p.station.province)}`:''}</div></div>
+      <div class="dist"><b>${formatKm(km)}</b><span>กม.</span></div>
+    </div>`;
+  }).join(''):'';
+  if(!near.length){pointList.innerHTML=head+'<div class="empty">ไม่มี Geofence ที่มีพิกัดให้เทียบระยะ</div>'+stHtml;return}
   pointList.innerHTML=head+near.map(({p,km},i)=>{
     const selected=selectedId===p.id;
     return `<div class="pointrow ${selected?'selected':''} ${i===0?'nearest':i===1?'second':''}" data-id="${p.id}">
@@ -521,7 +661,7 @@ function renderNearest(pointList,pointCount){
       <div class="pointinfo"><div class="pointname">${esc(p.name)}</div><div class="pointcoord">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}${p.supplier!==NO_SUPPLIER?` · <span class="pointsup" style="color:${supplierColor(p.supplier)}">${esc(p.supplier)}</span>`:''}</div></div>
       <div class="dist"><b>${formatKm(km)}</b><span>กม.</span></div>
     </div>`;
-  }).join('');
+  }).join('')+stHtml;
 }
 
 // คลิกในรายการ: ผูก event ครั้งเดียวที่กล่องรายการ (แถวที่โหลดเพิ่มภายหลังก็ใช้ได้)
@@ -550,16 +690,16 @@ async function loadData(){
   if($('pointList')) $('pointList').innerHTML='<div class="empty"><span class="loading"></span>กำลังโหลดรายการพิกัด</div>';
   if($('refreshBtn')) $('refreshBtn').disabled=true;
   try{
-    // โหลด 2 ชุดพร้อมกัน — ถ้าชุด PTT ล้มเหลว ชุดหลักยังแสดงได้ตามปกติ
+    // โหลด 2 ชุดพร้อมกัน — ถ้าชุดปั๊มน้ำมันล้มเหลว ชุดหลักยังแสดงได้ตามปกติ
     const getJson=url=>fetch(url,{method:'GET',cache:'no-store',redirect:'follow'})
       .then(r=>{ if(!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); });
-    const [mainRes,pttRes]=await Promise.allSettled([getJson(API_URL), PTT_API_URL?getJson(PTT_API_URL):Promise.resolve(null)]);
+    const [mainRes,pttRes]=await Promise.allSettled([getJson(API_URL), STATIONS_API_URL?getJson(STATIONS_API_URL):Promise.resolve(null)]);
     if(mainRes.status==='rejected') throw mainRes.reason;
     allRows=normalizeRows(mainRes.value);
     if(pttRes.status==='fulfilled'&&pttRes.value){
-      try{ allRows=allRows.concat(normalizePttRows(pttRes.value,allRows.length)); }
-      catch(e){ console.error(e); toast('โหลดข้อมูลสถานี PTT ไม่สำเร็จ',4000); }
-    }else if(pttRes.status==='rejected'){ console.error(pttRes.reason); toast('โหลดข้อมูลสถานี PTT ไม่สำเร็จ',4000); }
+      try{ allRows=allRows.concat(normalizeStationRows(pttRes.value,allRows.length)); }
+      catch(e){ console.error(e); toast('โหลดข้อมูลปั๊มน้ำมันไม่สำเร็จ',4000); }
+    }else if(pttRes.status==='rejected'){ console.error(pttRes.reason); toast('โหลดข้อมูลปั๊มน้ำมันไม่สำเร็จ',4000); }
     buildSupplierOptions();
     renderMap();renderList();
     if($('statusText')) $('statusText').textContent='เชื่อมต่อข้อมูลแล้ว';
@@ -609,9 +749,23 @@ if(supplierSelectEl){
     activeSupplier=e.target.value;
     e.target.classList.toggle('on',activeSupplier!=='all');
     selectedId=null;
-    renderMap();renderList();
+    renderGeoLayer(); afterLayerChange(); renderList();
+    if(showGeo) fitToVisible();
   });
 }
+$('brandSelect')?.addEventListener('change',e=>{
+  activeBrand=e.target.value;
+  e.target.classList.toggle('on',activeBrand!=='all');
+  selectedId=null;
+  renderStationLayer(); afterLayerChange(); renderList();
+  if(!showGeo) fitToVisible();
+});
+// การ์ดมุมขวาบน = ปุ่มเปิด/ปิดชั้นข้อมูล
+$('layerGeo')?.addEventListener('click',()=>{ showGeo=!showGeo; saveLayers(); renderGeoLayer(); afterLayerChange(); renderList(); });
+$('layerStations')?.addEventListener('click',()=>{
+  showStations=!showStations; saveLayers(); renderStationLayer(); afterLayerChange(); renderList();
+  if(showStations) toast(`แสดงปั๊มน้ำมัน ${stationRows().length.toLocaleString('th-TH')} แห่ง`,2500);
+});
 
 document.querySelectorAll('.chip').forEach(btn=>btn.addEventListener('click',()=>{
   document.querySelectorAll('.chip').forEach(b=>b.classList.remove('active'));
@@ -839,8 +993,8 @@ function followFrame(){
   followRaf=requestAnimationFrame(followFrame);
 }
 // กดแถบลอย → พาไปที่ Geofence ที่ใกล้ที่สุด
-$('nearBar')?.addEventListener('click',()=>{
-  const id=Number($('nearBar').dataset.id);
+$('nearBar')?.addEventListener('click',e=>{
+  const id=Number(e.target.closest('[data-go]')?.dataset.go ?? $('nearBar').dataset.id);
   if(!Number.isFinite(id)) return;
   selectPoint(id);
   const p=allRows.find(x=>x.id===id);

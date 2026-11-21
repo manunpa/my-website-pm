@@ -152,6 +152,37 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 .legend-item.sup:hover{color:var(--text)}
 .legend-item.sup.on{color:var(--text);font-weight:700}
 .legend-item.sup.dim{opacity:.4}
+/* ===== แยก Geofence กับปั๊มน้ำมัน ===== */
+.legend[hidden]{display:none}
+.legend .floating-card:has(.legrow){flex-direction:column;align-items:stretch;gap:7px}
+.legrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.legrow+.legrow{padding-top:7px;border-top:1px solid var(--border)}
+.leghead{font-weight:700;color:var(--text);min-width:64px}
+.legend-dot.drop{border-radius:50% 50% 50% 0;transform:rotate(-45deg);width:9px;height:9px}
+.legend-dot.fuel{width:11px;height:11px;box-shadow:0 0 0 1.5px #fff,0 0 0 2.5px #0002}
+.stpin{background:none;border:0}
+.stpin div{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;border:2px solid #fff;box-shadow:0 2px 4px #0005;box-sizing:border-box}
+.stpin svg{display:block}
+.stcluster{background:none;border:0}
+.stcluster div{display:flex;align-items:center;justify-content:center;gap:2px;border-radius:50%;background:#0f2f3d;color:#fff;font:700 11px/1 Inter,Kanit,sans-serif;border:3px solid #00a3e0;box-shadow:0 0 0 4px #00a3e033,0 2px 6px #0005;box-sizing:border-box}
+.stcluster b{font-size:10px;font-weight:400}
+.layercard{text-align:left;cursor:pointer;font:inherit;color:inherit;transition:.15s;border-width:1.5px}
+.layercard:hover{border-color:var(--accent)}
+.layercard.on{border-color:var(--accent)}
+.layercard.st.on{border-color:#00a3e0}
+.layercard:not(.on){opacity:.6}
+.layercard .statvalue small{font-size:12px;font-weight:600;color:var(--muted)}
+.lc-check{display:inline-grid;place-items:center;width:12px;height:12px;border-radius:4px;border:1.5px solid var(--muted);margin-right:5px;vertical-align:-2px;font-size:9px;line-height:1;color:#fff}
+.layercard.on .lc-check{background:var(--accent);border-color:var(--accent)}
+.layercard.st.on .lc-check{background:#00a3e0;border-color:#00a3e0}
+.layercard.on .lc-check::after{content:"✓"}
+.pin.fuel svg{width:17px;height:17px}
+.nearhead.st{margin-top:12px;border-top:1px solid var(--border);padding-top:12px}
+.nearbar{flex-direction:column;align-items:stretch;gap:6px}
+.nb-row{display:flex;align-items:center;gap:9px;min-width:0}
+.nb-row.nb-st{padding-top:6px;border-top:1px solid var(--border)}
+.nb-fuel{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:10px;flex-shrink:0;margin:0 -4px}
+.nearbar .nb-st .nb-dist{color:#00a3e0;font-size:14px}
 .listmore{display:block;width:100%;margin:6px 0 10px;padding:11px;border:1px dashed var(--border);border-radius:11px;background:transparent;color:var(--muted);font-size:11px;cursor:pointer}
 .listmore:hover{border-color:var(--accent);color:var(--accent)}
 /* มือถือ: ตอนแถบรายการเปิด ทำให้แผนที่ด้านข้างมืดลง บอกว่าแตะเพื่อปิดได้ */
@@ -184,7 +215,7 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 .loading{display:inline-block;width:13px;height:13px;border:2px solid #4776ff30;border-top-color:#4776ff;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:7px}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:850px){.topbar{padding:0 13px;height:68px;flex-basis:68px;gap:10px}.brand{min-width:0}.brandmark{width:38px;height:38px}.brand h1{font-size:21px}.brand small{font-size:8px}.top-status{display:none}.sidebar{position:absolute;top:0;bottom:0;left:0;box-shadow:var(--shadow);width:min(325px,86vw);min-width:min(325px,86vw)}.sidebar.collapsed{transform:translateX(-100%);width:min(325px,86vw);min-width:min(325px,86vw)}.sidehead,.pointlist,.sidefoot{min-width:0}.mapstats .floating-card{min-width:78px;padding:9px}.statvalue{font-size:16px}.mapstats .statlabel{font-size:9px}.mapcontrols{top:10px;left:10px;right:10px}.mapbottom{left:10px;right:10px;bottom:10px}.legend .floating-card{gap:8px}.coordinates{display:none}.mapbtn{padding:0 9px}.actions{gap:5px}.logout span{display:none}}
-@media(max-width:470px){.mapstats .floating-card:nth-child(2){display:none}.brand small{letter-spacing:1px}.brand{gap:8px}.actions .iconbtn{padding:0 9px}.map-switcher{gap:1px}.mapbtn{font-size:10px;padding:0 7px}.legend .floating-card{font-size:9px;gap:7px}.legend-item{gap:4px}}
+@media(max-width:470px){.mapstats{gap:5px}.mapstats .floating-card{min-width:0;padding:7px 9px}.statvalue{font-size:15px}.brand small{letter-spacing:1px}.brand{gap:8px}.actions .iconbtn{padding:0 9px}.map-switcher{gap:1px}.mapbtn{font-size:10px;padding:0 7px}.legend .floating-card{font-size:9px;gap:7px}.legend-item{gap:4px}}
 </style>
 </head>
 <body>
@@ -206,9 +237,9 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
   <main class="main">
     <aside class="sidebar" id="sidebar">
       <div class="sidehead">
-        <div class="side-title"><h2>รายการ Geofence</h2><span class="count" id="pointCount">0 จุด</span></div>
+        <div class="side-title"><h2 id="sideTitleText">รายการ Geofence</h2><span class="count" id="pointCount">0 จุด</span></div>
         <div class="searchwrap"><span>⌕</span><input id="searchInput" placeholder="ค้นหาชื่อ หรือวางพิกัด เช่น 13.75, 100.50" autocomplete="off" enterkeyhint="search"><button type="button" class="searchclear" id="searchClear" title="ล้างการค้นหา" aria-label="ล้างการค้นหา" hidden>✕</button></div>
-        <div class="filterline"><button class="chip active" data-filter="all">ทั้งหมด</button><button class="chip" data-filter="valid">มีพิกัด</button><button class="chip" data-filter="invalid">พิกัดไม่ครบ</button><select class="supplierselect" id="supplierSelect" title="กรองตาม Supplier"><option value="all">Supplier: ทั้งหมด</option></select></div>
+        <div class="filterline"><button class="chip active" data-filter="all">ทั้งหมด</button><button class="chip" data-filter="valid">มีพิกัด</button><button class="chip" data-filter="invalid">พิกัดไม่ครบ</button><select class="supplierselect" id="supplierSelect" title="กรองตาม Supplier"><option value="all">Supplier: ทั้งหมด</option></select><select class="supplierselect" id="brandSelect" title="กรองแบรนด์ปั๊มน้ำมัน" hidden><option value="all">⛽ ปั๊ม: ทุกแบรนด์</option></select></div>
       </div>
       <div class="pointlist" id="pointList"><div class="empty"><span class="loading"></span>กำลังโหลดรายการพิกัด</div></div>
       <div class="sidefoot"><span id="sourceLabel">Google Sheets API</span><span id="lastUpdated">—</span></div>
@@ -222,13 +253,14 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
         </div>
         <div class="mapright">
           <div class="mapstats">
-            <div class="floating-card"><div class="statlabel">สถานที่ทั้งหมด</div><div class="statvalue" id="statTotal">—</div></div>
-            <div class="floating-card"><div class="statlabel">พิกัดพร้อมใช้งาน</div><div class="statvalue" id="statValid"><em>—</em></div></div>
+            <!-- การ์ดตัวเลข = ปุ่มเปิด/ปิดชั้นข้อมูล (maps.js) -->
+            <button type="button" class="floating-card layercard on" id="layerGeo" aria-pressed="true" title="เปิด/ปิด Geofence บนแผนที่"><div class="statlabel"><span class="lc-check"></span>Geofence</div><div class="statvalue" id="statGeo">—</div></button>
+            <button type="button" class="floating-card layercard st" id="layerStations" aria-pressed="false" title="เปิด/ปิดปั๊มน้ำมันบนแผนที่"><div class="statlabel"><span class="lc-check"></span>⛽ ปั๊มน้ำมัน</div><div class="statvalue" id="statStations">—</div></button>
           </div>
         </div>
       </div>
       <div class="mapbottom">
-        <div class="legend"><div class="floating-card"><span id="supplierLegend" class="suplegend"><span class="legend-item"><span class="legend-dot"></span>จุดพิกัด</span></span><span class="legend-item"><span class="legend-dot cluster"></span>กลุ่มจุด</span></div></div>
+        <div class="legend"><div class="floating-card"><span id="supplierLegend" class="suplegend"><span class="legend-item"><span class="legend-dot"></span>จุดพิกัด</span></span></div></div>
         <div class="floating-card coordinates" id="cursorCoords">LAT — · LNG —</div>
       </div>
       <button type="button" class="nearbar" id="nearBar" hidden title="กดเพื่อไปที่จุดนี้"></button>
