@@ -50,8 +50,15 @@ function formatKm(km){
   if(km<10) return km.toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2});
   return km.toLocaleString('th-TH',{minimumFractionDigits:1,maximumFractionDigits:1});
 }
-// Geofence ที่ใกล้ที่สุด N อันดับ (เฉพาะ Geofence ที่มีพิกัด และตาม Supplier ที่เลือกอยู่ — ไม่นับปั๊มน้ำมัน)
+// "ใกล้ที่สุด 5 อันดับ" ตามชั้นที่เปิดอยู่: เปิด Geofence → นับ Geofence (ตาม Supplier)
+// ปิด Geofence แต่เปิดปั๊ม → นับปั๊ม (ตามแบรนด์) · ปิดทั้งคู่ → ไม่มี (เส้นประ/แถบลอย/รายการหายไป)
+const nearestKind = () => showGeo ? 'geo' : showStations ? 'station' : null;
+// เปิดทั้ง 2 ชั้น → แสดงปั๊มใกล้สุดเพิ่มต่อท้ายแยกออกมา
+const showPumpExtra = () => showGeo && showStations;
 function nearestPoints(lat,lng,n=NEAREST_COUNT){
+  const kind=nearestKind();
+  if(!kind) return [];
+  if(kind==='station') return nearestStations(lat,lng,n);
   return allRows
     .filter(p=>p.kind==='geo'&&validPoint(p)&&(activeSupplier==='all'||p.supplier===activeSupplier))
     .map(p=>({p,km:distanceKm(lat,lng,p.lat,p.lng)}))
@@ -182,9 +189,10 @@ function updateNearBar(){
   bar.hidden=false;
   bar.dataset.id=near.p.id;
   bar.classList.toggle('following',followWatchId!==null);
-  const st=showStations?nearestStations(searchPoint.lat,searchPoint.lng,1)[0]:null;
+  const st=showPumpExtra()?nearestStations(searchPoint.lat,searchPoint.lng,1)[0]:null;
+  const isPump=nearestKind()==='station';
   const stColor=st?supplierColor(st.p.supplier):'';
-  bar.innerHTML=`<span class="nb-row" data-go="${near.p.id}"><span class="nb-dot"></span><span class="nb-label">ใกล้สุด</span><span class="nb-name">${esc(near.p.name)}</span><span class="nb-dist">${formatDist(near.km)}</span></span>`+
+  bar.innerHTML=`<span class="nb-row" data-go="${near.p.id}"><span class="nb-dot"></span><span class="nb-label">${isPump?'⛽ ปั๊มใกล้สุด':'ใกล้สุด'}</span><span class="nb-name">${isPump?esc(near.p.station.brand)+' · ':''}${esc(near.p.name)}</span><span class="nb-dist">${formatDist(near.km)}</span></span>`+
     (st?`<span class="nb-row nb-st" data-go="${st.p.id}"><span class="nb-fuel" style="background:${stColor};color:${fuelInk(stColor)}">⛽</span><span class="nb-label">ปั๊มใกล้สุด</span><span class="nb-name">${esc(st.p.station.brand)} · ${esc(st.p.name)}</span><span class="nb-dist">${formatDist(st.km)}</span></span>`:'');
 }
 
@@ -201,7 +209,7 @@ function showSearchMarker(lat,lng,opts={}){
   });
   searchPoint={lat,lng}; gpsActive=isGps;
   const near=nearestPoints(lat,lng);
-  const st=showStations?nearestStations(lat,lng,1)[0]:null;
+  const st=showPumpExtra()?nearestStations(lat,lng,1)[0]:null;
   const nearText=(near.length?`<br><br>ใกล้ที่สุด: <b>${esc(near[0].p.name)}</b><br>ระยะ ${formatKm(near[0].km)} กม.`:'')+
     (st?`<br><br>⛽ ปั๊มใกล้สุด: <b>${esc(st.p.station.brand)} · ${esc(st.p.name)}</b><br>ระยะ ${formatKm(st.km)} กม.`:'');
   if(isGps) accuracyCircle=L.circle([lat,lng],{radius:opts.accuracy,color:'#1a73e8',weight:1,opacity:.5,fillColor:'#1a73e8',fillOpacity:.12,interactive:false}).addTo(map);
@@ -638,11 +646,13 @@ function renderNearest(pointList,pointCount){
   filteredRows=near.map(n=>n.p);
   listShown=filteredRows.length;
   if(pointCount) pointCount.textContent=`ใกล้สุด ${near.length} จุด`;
-  const supNote=activeSupplier!=='all'?`<div class="nearsub">เฉพาะ Supplier: ${esc(activeSupplier)}</div>`:'';
-  const head=`<div class="nearhead"><div class="neartitle">Geofence ที่ใกล้ที่สุด</div>
+  const kind=nearestKind();
+  const supNote=kind==='geo'&&activeSupplier!=='all'?`<div class="nearsub">เฉพาะ Supplier: ${esc(activeSupplier)}</div>`
+    :kind==='station'&&activeBrand!=='all'?`<div class="nearsub">เฉพาะแบรนด์: ${esc(activeBrand.replace(/ Station$/,''))}</div>`:'';
+  const head=`<div class="nearhead"><div class="neartitle">${kind==='station'?'⛽ ปั๊มน้ำมันที่ใกล้ที่สุด':kind==='geo'?'Geofence ที่ใกล้ที่สุด':'จุดที่ใกล้ที่สุด'}</div>
     <div class="nearsub">จาก ${searchPoint.lat}, ${searchPoint.lng} · ระยะเส้นตรง</div>${supNote}</div>`;
   // เปิดชั้นปั๊มน้ำมันอยู่ → แสดงปั๊มที่ใกล้ที่สุด 3 อันดับต่อท้าย (แยกจาก 5 อันดับ Geofence)
-  const sts=showStations?nearestStations(searchPoint.lat,searchPoint.lng,3):[];
+  const sts=showPumpExtra()?nearestStations(searchPoint.lat,searchPoint.lng,3):[];
   filteredRows=filteredRows.concat(sts.map(n=>n.p)); listShown=filteredRows.length;
   const brandNote=activeBrand!=='all'?` · ${esc(activeBrand.replace(/ Station$/,''))}`:'';
   const stHtml=sts.length?`<div class="nearhead st"><div class="neartitle">⛽ ปั๊มน้ำมันที่ใกล้ที่สุด</div><div class="nearsub">3 อันดับ${brandNote}</div></div>`+sts.map(({p,km})=>{
@@ -653,7 +663,7 @@ function renderNearest(pointList,pointCount){
       <div class="dist"><b>${formatKm(km)}</b><span>กม.</span></div>
     </div>`;
   }).join(''):'';
-  if(!near.length){pointList.innerHTML=head+'<div class="empty">ไม่มี Geofence ที่มีพิกัดให้เทียบระยะ</div>'+stHtml;return}
+  if(!near.length){pointList.innerHTML=head+`<div class="empty">${kind?'ไม่มีจุดที่มีพิกัดให้เทียบระยะ':'ปิดทั้ง Geofence และปั๊มน้ำมันอยู่<br>กดการ์ดมุมขวาบนเพื่อเปิดชั้นข้อมูล'}</div>`+stHtml;return}
   pointList.innerHTML=head+near.map(({p,km},i)=>{
     const selected=selectedId===p.id;
     return `<div class="pointrow ${selected?'selected':''} ${i===0?'nearest':i===1?'second':''}" data-id="${p.id}">
