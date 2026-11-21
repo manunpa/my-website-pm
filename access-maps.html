@@ -46,7 +46,10 @@ button,input{font:inherit}button{cursor:pointer}
 .count{font-size:11px;color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);padding:5px 9px;border-radius:8px;font-weight:700}
 .searchwrap{position:relative}
 .searchwrap span{position:absolute;left:12px;top:10px;color:var(--muted)}
-.searchwrap input{width:100%;height:39px;padding:0 12px 0 36px;border:1px solid var(--border);background:var(--panel2);border-radius:11px;color:var(--text);outline:none;font-size:12px}
+.searchwrap .searchclear{position:absolute;right:5px;top:5px;width:29px;height:29px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-size:13px;display:grid;place-items:center;padding:0}
+.searchwrap .searchclear:hover{background:var(--border);color:var(--text)}
+.searchwrap .searchclear[hidden]{display:none}
+.searchwrap input{width:100%;height:39px;padding:0 36px 0 36px;border:1px solid var(--border);background:var(--panel2);border-radius:11px;color:var(--text);outline:none;font-size:12px}
 .searchwrap input:focus{border-color:var(--accent);box-shadow:0 0 0 3px #4776ff18}
 .filterline{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px}
 .supplierselect{flex:1 1 100%;width:100%;height:33px;padding:0 10px;border:1px solid var(--border);background:var(--panel2);color:var(--text);border-radius:8px;font-size:11px;outline:none;cursor:pointer}
@@ -86,14 +89,14 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 .statvalue em{font-style:normal;color:var(--accent)}
 .mapstats{display:flex;gap:8px}
 .mapstats .floating-card{min-width:104px}
-.mapbottom{position:absolute;bottom:20px;left:17px;right:17px;display:flex;justify-content:space-between;align-items:flex-end;z-index:400;pointer-events:none}
+.mapbottom{position:absolute;bottom:20px;left:17px;right:68px;/* เว้นที่ด้านขวาให้ปุ่มซูม/ตำแหน่งของฉัน ไม่ให้กล่องพิกัดทับ */display:flex;justify-content:space-between;align-items:flex-end;z-index:400;pointer-events:none}
 .mapbottom>*{pointer-events:auto}
 .legend{display:flex;gap:15px;align-items:center;font-size:10px;color:var(--muted)}
 .legend .floating-card{display:flex;gap:13px;align-items:center;padding:11px 13px}
 .legend-item{display:flex;align-items:center;gap:6px;white-space:nowrap}
 .legend-dot{width:8px;height:8px;border-radius:50%;background:#4776ff}
 .legend-dot.cluster{background:#8b5cf6}
-.coordinates{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
+.coordinates{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;flex-shrink:0}
 .leaflet-container{font-family:Inter,Kanit,sans-serif}
 .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--panel);color:var(--text)}
 .leaflet-popup-content{font-family:Inter,Kanit,sans-serif;font-size:12px}
@@ -126,6 +129,8 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 .legend-item.sup.dim{opacity:.4}
 .listmore{display:block;width:100%;margin:6px 0 10px;padding:11px;border:1px dashed var(--border);border-radius:11px;background:transparent;color:var(--muted);font-size:11px;cursor:pointer}
 .listmore:hover{border-color:var(--accent);color:var(--accent)}
+/* มือถือ: ตอนแถบรายการเปิด ทำให้แผนที่ด้านข้างมืดลง บอกว่าแตะเพื่อปิดได้ */
+@media(max-width:850px){.maparea::after{content:"";position:absolute;inset:0;background:#0b122066;z-index:1200;opacity:0;pointer-events:none;transition:opacity .25s}.main:has(.sidebar:not(.collapsed)) .maparea::after{opacity:1;pointer-events:auto}.sidebar{z-index:1300}}
 .selpin{background:none;border:0}
 .selpin svg{position:relative;display:block;filter:drop-shadow(0 3px 6px #0006);animation:selbounce .6s ease-out 2}
 .selpin-pulse{position:absolute;left:50%;bottom:-2px;width:22px;height:22px;margin-left:-11px;border-radius:50%;background:#e0526066;animation:selpulse 1.6s ease-out infinite}
@@ -176,7 +181,7 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
     <aside class="sidebar" id="sidebar">
       <div class="sidehead">
         <div class="side-title"><h2>รายการ Geofence</h2><span class="count" id="pointCount">0 จุด</span></div>
-        <div class="searchwrap"><span>⌕</span><input id="searchInput" placeholder="ค้นหาชื่อ Geofence..." autocomplete="off"></div>
+        <div class="searchwrap"><span>⌕</span><input id="searchInput" placeholder="ค้นหาชื่อ หรือวางพิกัด เช่น 13.75, 100.50" autocomplete="off" enterkeyhint="search"><button type="button" class="searchclear" id="searchClear" title="ล้างการค้นหา" aria-label="ล้างการค้นหา" hidden>✕</button></div>
         <div class="filterline"><button class="chip active" data-filter="all">ทั้งหมด</button><button class="chip" data-filter="valid">มีพิกัด</button><button class="chip" data-filter="invalid">พิกัดไม่ครบ</button><select class="supplierselect" id="supplierSelect" title="กรองตาม Supplier"><option value="all">Supplier: ทั้งหมด</option></select></div>
       </div>
       <div class="pointlist" id="pointList"><div class="empty"><span class="loading"></span>กำลังโหลดรายการพิกัด</div></div>

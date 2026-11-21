@@ -355,10 +355,14 @@ function markSelectedRow(){
 }
 // รอให้หยุดพิมพ์ 0.25 วินาทีก่อนค้นหา
 let searchTimer = null;
+// แสดงปุ่ม ✕ เฉพาะตอนมีข้อความในช่องค้นหา
+function syncSearchClear(){ const b=$('searchClear'), i=$('searchInput'); if(b&&i) b.hidden=!i.value; }
+const isMobileWidth=()=>window.innerWidth<=850;
 function scheduleRenderList(){ clearTimeout(searchTimer); searchTimer=setTimeout(renderList,250); }
 
 function renderList(){
   clearTimeout(searchTimer);
+  syncSearchClear();
   const searchInput = $('searchInput');
   const pointList = $('pointList');
   const pointCount = $('pointCount');
@@ -451,6 +455,14 @@ async function loadData(){
 const searchInputEl = $('searchInput');
 if(searchInputEl){
   searchInputEl.addEventListener('input',scheduleRenderList);
+  searchInputEl.addEventListener('input',syncSearchClear);
+  // ปุ่ม ✕ ล้างช่องค้นหาทีเดียว (ล้างหมุดค้นหา/ตำแหน่งของฉันด้วย เหมือนลบข้อความจนหมด)
+  $('searchClear')?.addEventListener('click',()=>{
+    searchInputEl.value='';
+    searchInputEl.dispatchEvent(new Event('input'));
+    renderList();
+    if(!isMobileWidth()) searchInputEl.focus();
+  });
   searchInputEl.addEventListener('keydown',e=>{
     if(e.key!=='Enter') return;
     const text=e.target.value.trim();
@@ -490,9 +502,21 @@ if(sidebarToggleEl){
   sidebarToggleEl.addEventListener('click',()=>{ 
     const sidebar = $('sidebar');
     if(sidebar) sidebar.classList.toggle('collapsed');
-    setTimeout(()=>map.invalidateSize(),280); 
+    setTimeout(()=>map.invalidateSize(),280);
   });
 }
+
+// ===== มือถือ: แถบรายการลอยทับแผนที่ =====
+const isMobile=()=>window.innerWidth<=850;
+// เปิดหน้ามาบนมือถือ → เห็นแผนที่ก่อน (กด ☰ รายการ เพื่อเปิด)
+if(isMobile()) $('sidebar')?.classList.add('collapsed');
+// แตะแผนที่ข้างแถบรายการ → ปิดแถบรายการ (แตะครั้งนั้นใช้ปิดอย่างเดียว ไม่ไปกดหมุด/ปุ่มบนแผนที่)
+document.querySelector('.maparea')?.addEventListener('click',e=>{
+  const sidebar=$('sidebar');
+  if(!isMobile()||!sidebar||sidebar.classList.contains('collapsed')) return;
+  e.preventDefault(); e.stopPropagation();
+  sidebar.classList.add('collapsed');
+},true);
 
 const themeToggleEl = $('themeToggle');
 if(themeToggleEl){
