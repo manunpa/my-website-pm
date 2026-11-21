@@ -79,7 +79,7 @@ function showSearchMarker(lat,lng){
   const near=nearestPoints(lat,lng);
   const nearText=near.length?`<br><br>ใกล้ที่สุด: <b>${esc(near[0].p.name)}</b><br>ระยะ ${formatKm(near[0].km)} กม.`:'';
   searchMarker = L.marker([lat,lng],{icon,zIndexOffset:1000}).addTo(map);
-  searchMarker.bindPopup(`<div class="popup-title">พิกัดที่ค้นหา</div><div class="popup-coord">Latitude: ${lat}<br>Longitude: ${lng}${nearText}</div>`);
+  searchMarker.bindPopup(`<div class="popup-title">พิกัดที่ค้นหา</div><div class="popup-coord">Latitude: ${lat}<br>Longitude: ${lng}${nearText}</div>${popupActions(lat,lng)}`);
   drawNearestLines();
   // ซูมให้เห็นทั้งหมุดที่ค้นหาและจุดที่ใกล้ที่สุดในจอเดียว
   if(near.length) map.flyToBounds(L.latLngBounds([[lat,lng],...near.map(n=>[n.p.lat,n.p.lng])]),{padding:[70,70],maxZoom:16,duration:.8});
@@ -90,6 +90,34 @@ function showSearchMarker(lat,lng){
   if(sidebar&&sidebar.classList.contains('collapsed')){ sidebar.classList.remove('collapsed'); setTimeout(()=>map.invalidateSize(),280); }
   renderList();
 }
+
+// ===== ปุ่มในป๊อปอัป: คัดลอกพิกัด / นำทางด้วย Google Maps =====
+function popupActions(lat,lng){
+  const nav=`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+  return `<div class="popactions">
+    <button type="button" class="popbtn" data-copy="${lat}, ${lng}">⧉ คัดลอกพิกัด</button>
+    <a class="popbtn primary" href="${nav}" target="_blank" rel="noopener">➤ นำทาง</a>
+  </div>`;
+}
+async function copyText(text){
+  try{ await navigator.clipboard.writeText(text); return true; }
+  catch{
+    // สำรองสำหรับเบราว์เซอร์ที่ไม่อนุญาต clipboard API
+    const ta=document.createElement('textarea');
+    ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select();
+    let ok=false; try{ ok=document.execCommand('copy'); }catch{}
+    ta.remove(); return ok;
+  }
+}
+document.addEventListener('click',async e=>{
+  const btn=e.target.closest('.popbtn[data-copy]');
+  if(!btn) return;
+  e.preventDefault(); e.stopPropagation();
+  const ok=await copyText(btn.dataset.copy);
+  toast(ok?`คัดลอกพิกัดแล้ว: ${btn.dataset.copy}`:'คัดลอกไม่สำเร็จ ลองกดค้างที่พิกัดเพื่อคัดลอกเอง',2500);
+  if(ok){ const old=btn.textContent; btn.textContent='✓ คัดลอกแล้ว'; setTimeout(()=>btn.textContent=old,1500); }
+});
 
 function toast(message, duration=3500){
   const el=$('toast');
@@ -140,7 +168,7 @@ function esc(s){
 }
 function buildMarker(p){
   const marker=L.marker([p.lat,p.lng],{title:p.name});
-  marker.bindPopup(`<div class="popup-title">${esc(p.name)}</div><div class="popup-coord">Supplier: ${esc(p.supplier)}<br>Latitude: ${p.lat}<br>Longitude: ${p.lng}</div>`);
+  marker.bindPopup(`<div class="popup-title">${esc(p.name)}</div><div class="popup-coord">Supplier: ${esc(p.supplier)}<br>Latitude: ${p.lat}<br>Longitude: ${p.lng}</div>${popupActions(p.lat,p.lng)}`);
   marker.on('click',()=>{selectedId=p.id;renderList();});
   markerById.set(p.id,marker);
   return marker;
