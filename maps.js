@@ -24,6 +24,8 @@ let searchMarker = null;
 let searchPoint = null;
 const NEAREST_COUNT = 5;
 const nearestLines = L.layerGroup().addTo(map);
+// เส้นประวาดด้วย SVG แยกจากหมุดอื่น (แผนที่หลักใช้ canvas) เพื่อให้ทำเส้นประไหลด้วย CSS ได้
+const nearestLineRenderer = L.svg({padding:0.5});
 
 // ระยะทางเป็นกิโลเมตรแบบเส้นตรงบนผิวโลก (Haversine)
 function distanceKm(lat1,lng1,lat2,lng2){
@@ -44,9 +46,22 @@ function nearestPoints(lat,lng,n=NEAREST_COUNT){
     .sort((a,b)=>a.km-b.km)
     .slice(0,n);
 }
-// เส้นประจากจุดค้นหา/ตำแหน่งของฉัน ไปยัง 5 จุดที่ใกล้ที่สุด พร้อมป้ายระยะทางเล็ก ๆ กลางเส้น
+// เส้นประจากจุดค้นหา/ตำแหน่งของฉัน ไปยัง 5 จุดที่ใกล้ที่สุด พร้อมป้ายระยะทางเล็ก ๆ บนเส้น
 let nearestPairs = [];   // [{line,label,to:[lat,lng]}] ใช้ขยับต้นเส้น/ป้ายตามจุดสีฟ้าทุกเฟรม
-function midLatLng(a,b){ return [(a[0]+b[0])/2,(a[1]+b[1])/2]; }
+// ตำแหน่งป้าย: ห่างจากจุดสีฟ้า LABEL_PX พิกเซลบนจอตามแนวเส้น (ซูมแค่ไหนป้ายก็อยู่ใกล้ตัวเรา ไม่หลุดขอบจอ)
+// ถ้าเส้นสั้นกว่า 2 เท่าของระยะนี้ → วางกลางเส้นแทน
+const LABEL_PX = 70;
+function labelLatLng(from,to,px=LABEL_PX){
+  if(map._animatingZoom) return null;
+  const a=map.latLngToContainerPoint(from), b=map.latLngToContainerPoint(to);
+  const len=a.distanceTo(b);
+  const t=len<=px*2?0.5:px/len;
+  const ll=map.containerPointToLatLng(a.add(b.subtract(a).multiplyBy(t)));
+  return [ll.lat,ll.lng];
+}
+function placeDistLabels(from){
+  nearestPairs.forEach(pr=>{ const ll=labelLatLng(from,pr.to,pr.px||LABEL_PX); if(ll) pr.label.setLatLng(ll); });
+}
 function drawNearestLines(){
   nearestLines.clearLayers();
   nearestPairs=[];
@@ -55,30 +70,49 @@ function drawNearestLines(){
   nearestPoints(searchPoint.lat,searchPoint.lng).forEach(({p,km},i)=>{
     const to=[p.lat,p.lng];
     const line=L.polyline([from,to],{
-      color:i===0?'#e05260':'#4776ff',weight:i===0?3:2,opacity:i===0?.9:.55,dashArray:'6 6',interactive:false
+      color:i===0?'#e05260':i===1?'#f2b705':'#4776ff',weight:i<=1?3:2,opacity:i===0?.9:i===1?.95:.55,dashArray:'6 6',interactive:false,
+      renderer:nearestLineRenderer,className:'nearline'+(i===0?' first':i===1?' second':'')
     }).addTo(nearestLines);
-    const label=L.marker(midLatLng(from,to),{
-      icon:L.divIcon({className:'distlabel-wrap',html:`<span class="distlabel${i===0?' first':''}">${formatDist(km)}</span>`,iconSize:null}),
-      interactive:false,keyboard:false,zIndexOffset:i===0?900:800
+    const label=L.marker(labelLatLng(from,to)||from,{
+      icon:L.divIcon({className:'distlabel-wrap',html:`<span class="distlabel${i===0?' first':i===1?' second':''}">${formatDist(km)}</span>`,iconSize:null}),
+      interactive:false,keyboard:false,zIndexOffset:i===0?900:i===1?850:800
     }).addTo(nearestLines);
     nearestPairs.push({line,label,to});
   });
+  // วาดเส้นอันดับ 2 (เหลือง) และอันดับ 1 (แดง) ทับเส้นสีน้ำเงิน
+  nearestPairs[1]?.line.bringToFront(); nearestPairs[0]?.line.bringToFront();
   layoutDistLabels();
   updateNearBar();
 }
-// ป้ายซ้อนกัน (จุดอยู่ใกล้กันมาก/ซูมออกไกล) → ซ่อนป้ายของจุดที่ไกลกว่า ให้ป้ายที่ใกล้กว่าอ่านออก (ป้ายสีแดงอันดับ 1 แสดงเสมอ)
+// ป้ายซ้อนกัน → เลื่อนป้ายของจุดที่ไกลกว่าออกไปตามเส้นของมันก่อน (70 → 105 → 140 → 175 px)
+// ถ้ายังทับอยู่ค่อยซ่อน (ป้ายแดงอันดับ 1 แสดงเสมอ ที่ 70 px)
+const LABEL_STEPS=[LABEL_PX,105,140,175];
 function layoutDistLabels(){
+  if(map._animatingZoom||!nearestPairs.length) return;
+  const fl=nearestPairs[0].line.getLatLngs()[0], from=[fl.lat,fl.lng];
   const shown=[];
+  const overlaps=r=>shown.some(s=>!(r.right+2<s.left||s.right+2<r.left||r.bottom+2<s.top||s.bottom+2<r.top));
   nearestPairs.forEach((pr,i)=>{
     const el=pr.label.getElement()?.querySelector('.distlabel');
     if(!el) return;
     el.style.visibility='';
-    const r=el.getBoundingClientRect();
-    const hit=i>0&&shown.some(s=>!(r.right+2<s.left||s.right+2<r.left||r.bottom+2<s.top||s.bottom+2<r.top));
-    if(hit) el.style.visibility='hidden'; else shown.push(r);
+    let placed=false;
+    for(const px of (i===0?[LABEL_PX]:LABEL_STEPS)){
+      const ll=labelLatLng(from,pr.to,px); if(!ll) break;
+      pr.label.setLatLng(ll); pr.px=px;
+      const r=el.getBoundingClientRect();
+      if(i===0||!overlaps(r)){ shown.push(r); placed=true; break; }
+    }
+    if(!placed){ el.style.visibility='hidden'; pr.px=LABEL_PX; }
   });
 }
-map.on('zoomend',layoutDistLabels);
+// ซูมแล้ว: วางป้ายใหม่ให้ห่างจากจุดเท่าเดิมบนจอ แล้วจัดป้ายที่ซ้อนกัน
+map.on('zoomend',()=>{
+  if(!nearestPairs.length) return;
+  const ll=nearestPairs[0].line.getLatLngs()[0];
+  placeDistLabels([ll.lat,ll.lng]);
+  layoutDistLabels();
+});
 
 function parseLatLng(text){
   const m = String(text).trim().match(/^(-?\d+(?:[.,]\d+)?)\s*[,\s;/]\s*(-?\d+(?:[.,]\d+)?)$/);
@@ -142,8 +176,10 @@ function showSearchMarker(lat,lng,opts={}){
   // ตำแหน่งของฉัน: ไม่เปิดป๊อปอัปเอง เพราะแถบลอยด้านบนแสดงข้อมูลเดียวกันอยู่แล้ว (กดจุดสีฟ้าเพื่อเปิดได้)
   if(!isGps) setTimeout(()=>searchMarker&&searchMarker.openPopup(),850);
   // เปิดรายการด้านข้างเพื่อให้เห็นผล 5 อันดับ
+  // ยกเว้นปุ่มตำแหน่งของฉันบนมือถือ: รายการจะบังแผนที่และการแตะครั้งถัดไปจะแค่ปิดรายการ (แถบใกล้สุดแสดงข้อมูลให้แล้ว)
   const sidebar=$('sidebar');
-  if(sidebar&&sidebar.classList.contains('collapsed')){ sidebar.classList.remove('collapsed'); setTimeout(()=>map.invalidateSize(),280); }
+  const skipOpen=isGps&&window.innerWidth<=850;
+  if(!skipOpen&&sidebar&&sidebar.classList.contains('collapsed')){ sidebar.classList.remove('collapsed'); setTimeout(()=>map.invalidateSize(),280); }
   renderList();
 }
 
@@ -426,7 +462,7 @@ function renderNearest(pointList,pointCount){
   if(!near.length){pointList.innerHTML=head+'<div class="empty">ไม่มี Geofence ที่มีพิกัดให้เทียบระยะ</div>';return}
   pointList.innerHTML=head+near.map(({p,km},i)=>{
     const selected=selectedId===p.id;
-    return `<div class="pointrow ${selected?'selected':''} ${i===0?'nearest':''}" data-id="${p.id}">
+    return `<div class="pointrow ${selected?'selected':''} ${i===0?'nearest':i===1?'second':''}" data-id="${p.id}">
       <div class="pin rank">${i+1}</div>
       <div class="pointinfo"><div class="pointname">${esc(p.name)}</div><div class="pointcoord">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}${p.supplier!==NO_SUPPLIER?` · <span class="pointsup" style="color:${supplierColor(p.supplier)}">${esc(p.supplier)}</span>`:''}</div></div>
       <div class="dist"><b>${formatKm(km)}</b><span>กม.</span></div>
@@ -721,7 +757,9 @@ function followFrame(){
   if(d&&!document.hidden){
     searchMarker.setLatLng([d.lat,d.lng]);
     if(accuracyCircle) accuracyCircle.setLatLng([d.lat,d.lng]);
-    nearestPairs.forEach(pr=>{ const from=[d.lat,d.lng]; pr.line.setLatLngs([from,pr.to]); pr.label.setLatLng(midLatLng(from,pr.to)); });
+    const from=[d.lat,d.lng];
+    nearestPairs.forEach(pr=>pr.line.setLatLngs([from,pr.to]));
+    placeDistLabels(from);
     if(now-lastLabelLayout>250){ lastLabelLayout=now; layoutDistLabels(); }
     const el=searchMarker.getElement()?.querySelector('.mypos');
     if(el){ const moving=!!(fix&&fix.v&&fix.heading!==null); el.classList.toggle('moving',moving); if(moving) el.style.setProperty('--hd',fix.heading+'deg'); }

@@ -109,11 +109,18 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 .locatebtn.follow{background:#1a73e8;color:#fff;border-color:#1a73e8;box-shadow:0 0 0 4px #1a73e833,var(--shadow)}
 .locatebtn.busy svg{animation:spin 1s linear infinite;color:var(--accent)}
 .mypos{width:22px;height:22px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 0 0 #1a73e855,0 2px 8px #0005;animation:mypulse 2s ease-out infinite}
-/* ป้ายระยะทางกลางเส้นประ (5 จุดที่ใกล้ที่สุด) */
+/* เส้นประไหลจากตัวเรา → ไปหา Geofence (บอกให้รู้ว่าเส้นยังทำงานอยู่) */
+.nearline{animation:nearflow 1s linear infinite}
+.nearline.first{animation-duration:.7s}
+@keyframes nearflow{to{stroke-dashoffset:-12}}
+@media(prefers-reduced-motion:reduce){.nearline{animation:none}}
+/* ป้ายระยะทางบนเส้นประ (5 จุดที่ใกล้ที่สุด) */
 .distlabel-wrap{background:none;border:0;width:0!important;height:0!important}
 .distlabel{position:absolute;left:0;top:0;transform:translate(-50%,-50%);white-space:nowrap;padding:1px 6px;border-radius:8px;
   font:600 10px/1.5 Inter,Kanit,sans-serif;font-variant-numeric:tabular-nums;color:#4776ff;background:var(--panel);border:1px solid #4776ff66;box-shadow:0 1px 4px #0002;pointer-events:none}
 .distlabel.first{color:#fff;background:#e05260;border-color:#e05260;font-size:11px}
+/* อันดับ 2 = สีเหลือง (ตัวอักษรเข้มให้อ่านง่ายบนพื้นเหลือง) */
+.distlabel.second{color:#3d2e00;background:#f2b705;border-color:#d9a300;font-size:10.5px}
 /* ลูกศรทิศทางบนจุดสีฟ้า (แสดงเฉพาะตอนรถวิ่งและ GPS ส่งทิศทางมา) */
 .mypos{position:relative}
 .mypos-arrow{position:absolute;left:50%;top:50%;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:9px solid #1a73e8;transform:translate(-50%,-50%) rotate(var(--hd,0deg)) translateY(-16px);opacity:0;transition:opacity .3s;filter:drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 1px #fff)}
@@ -158,6 +165,7 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 .nearsub{font-size:10px;color:var(--muted);margin-top:4px;font-variant-numeric:tabular-nums}
 .pin.rank{font-weight:800;font-size:14px;font-family:Inter,sans-serif}
 .pointrow.nearest .pin.rank{background:#e05260;color:#fff}
+.pointrow.second .pin.rank{background:#f2b705;color:#3d2e00}
 .dist{display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0;font-variant-numeric:tabular-nums;line-height:1.1}
 .dist b{font-size:15px;font-weight:800}
 .dist span{font-size:9px;color:var(--muted)}
