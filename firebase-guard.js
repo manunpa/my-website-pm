@@ -34,24 +34,73 @@ export const auth = getAuth(app);
 // Firebase จำการล็อกอินไว้ในเบราว์เซอร์ตลอด ปิดแท็บแล้วเปิดใหม่ก็ยังเข้าได้
 // จึงจดเวลาที่ใช้งานล่าสุดไว้ ถ้าเปิดมาใหม่แล้วห่างเกิน INACTIVITY_LIMIT → ให้ล็อกอินใหม่
 const LAST_ACTIVE_KEY = "hub-last-active";
+const LOGIN_AT_KEY = "hub-login-at";
+
+// ===== ตัดรอบบังคับออกจากระบบทุกวัน (เวลาไทย) =====
+// ล็อกอินก่อนเวลาตัดรอบ → พอถึงเวลาตัดรอบต้องล็อกอินใหม่ ไม่ว่าจะใช้งานอยู่หรือไม่
+export const CUTOFF_HOURS = [0, 6]; // 00:00 และ 06:00 น.
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
+const TH_OFFSET = 7 * HOUR; // เวลาไทย UTC+7 (ไม่มีปรับเวลาฤดูร้อน) ไม่ขึ้นกับโซนเวลาของเครื่อง
+
+/** เวลาตัดรอบล่าสุดที่ผ่านมาแล้ว (ms) */
+function lastCutoff(now = Date.now()) {
+  const th = now + TH_OFFSET;
+  const dayStart = Math.floor(th / DAY) * DAY;
+  const hours = [...CUTOFF_HOURS].sort((a, b) => b - a);
+  for (const h of hours) {
+    if (th >= dayStart + h * HOUR) return dayStart + h * HOUR - TH_OFFSET;
+  }
+  return dayStart - DAY + hours[0] * HOUR - TH_OFFSET; // รอบสุดท้ายของเมื่อวาน
+}
+
+/** เวลาตัดรอบถัดไป (ms) */
+function nextCutoff(now = Date.now()) {
+  const th = now + TH_OFFSET;
+  const dayStart = Math.floor(th / DAY) * DAY;
+  const hours = [...CUTOFF_HOURS].sort((a, b) => a - b);
+  for (const h of hours) {
+    if (th < dayStart + h * HOUR) return dayStart + h * HOUR - TH_OFFSET;
+  }
+  return dayStart + DAY + hours[0] * HOUR - TH_OFFSET; // รอบแรกของพรุ่งนี้
+}
 
 export function markActive() {
   try { localStorage.setItem(LAST_ACTIVE_KEY, String(Date.now())); } catch {}
 }
 
-/** true = ไม่ได้ใช้งานนานเกินกำหนด (หรือไม่เคยจดเวลาไว้) ต้องล็อกอินใหม่ */
+/** เรียกตอนกดเข้าสู่ระบบ: จดเวลาล็อกอิน + เวลาใช้งานล่าสุด */
+export function markLogin() {
+  try { localStorage.setItem(LOGIN_AT_KEY, String(Date.now())); } catch {}
+  markActive();
+}
+
+/**
+ * เหตุที่ต้องล็อกอินใหม่: "cutoff" = ผ่านเวลาตัดรอบมาแล้วหลังล็อกอิน,
+ * "idle" = ไม่ได้ใช้งานนานเกินกำหนด, null = ยังใช้ได้
+ * ไม่เคยจดเวลาไว้ (ล็อกอินจากเวอร์ชันเก่า) ถือว่าต้องล็อกอินใหม่
+ */
+export function sessionEndReason() {
+  let loginAt, last;
+  try {
+    loginAt = Number(localStorage.getItem(LOGIN_AT_KEY));
+    last = Number(localStorage.getItem(LAST_ACTIVE_KEY));
+  } catch { return null; } // เบราว์เซอร์บล็อกที่เก็บข้อมูล → ตรวจไม่ได้ ใช้ตัวจับเวลาในหน้าแทน
+  const now = Date.now();
+  if (!loginAt || loginAt < lastCutoff(now)) return "cutoff";
+  if (!last || now - last > INACTIVITY_LIMIT) return "idle";
+  return null;
+}
+
 export function isSessionStale() {
-  let last;
-  try { last = Number(localStorage.getItem(LAST_ACTIVE_KEY)); }
-  catch { return false; } // เบราว์เซอร์บล็อกที่เก็บข้อมูล → ตรวจไม่ได้ ใช้ตัวจับเวลาในหน้าแทน
-  return !last || Date.now() - last > INACTIVITY_LIMIT;
+  return sessionEndReason() !== null;
 }
 
 /** ออกจากระบบและลบข้อมูลที่จำไว้ โดยไม่เปลี่ยนหน้า */
 export async function endSession() {
   try { await signOut(auth); }
   catch (error) { console.error("Logout Error:", error); }
-  try { localStorage.removeItem(LAST_ACTIVE_KEY); } catch {}
+  try { localStorage.removeItem(LAST_ACTIVE_KEY); localStorage.removeItem(LOGIN_AT_KEY); } catch {}
   // ลบข้อมูลแผนที่ที่จำไว้ในเครื่อง (maps.js) — คนถัดไปที่ใช้เครื่องนี้จะไม่เห็นข้อมูลถ้ายังไม่ล็อกอิน
   try { if (window.caches) await caches.delete("access-maps-data-v1"); } catch {}
 }
@@ -104,15 +153,37 @@ function startInactivityTimer() {
   inactivityStarted = true;
   let timer;
   let lastWrite = 0;
+  let leaving = false;
+  async function expire(reason) {
+    if (leaving) return;
+    leaving = true;
+    alert(reason === "cutoff"
+      ? "ถึงเวลาตัดรอบ (00:00 / 06:00 น.) ระบบออกจากระบบอัตโนมัติ กรุณาล็อกอินใหม่อีกครั้ง"
+      : "หมดเวลาการใช้งานเนื่องจากไม่มีการเคลื่อนไหว กรุณาล็อกอินใหม่อีกครั้ง");
+    await doLogout();
+  }
   function schedule(delay) {
     clearTimeout(timer);
-    timer = setTimeout(async () => {
+    timer = setTimeout(() => {
       // อีกแท็บอาจยังใช้งานอยู่ (เวลาล่าสุดใช้ร่วมกันทุกแท็บ) → นับต่อ ไม่ต้องออก
-      if (!isSessionStale()) { schedule(INACTIVITY_LIMIT); return; }
-      alert("หมดเวลาการใช้งานเนื่องจากไม่มีการเคลื่อนไหว กรุณาล็อกอินใหม่อีกครั้ง");
-      await doLogout();
+      const reason = sessionEndReason();
+      if (!reason) { schedule(INACTIVITY_LIMIT); return; }
+      expire(reason);
     }, delay);
   }
+  // ตัดรอบ 00:00 / 06:00: ตั้งเวลาไว้ตอนถึงรอบถัดไป (เลยไป 1 วินาทีกันคลาดเคลื่อน)
+  (function scheduleCutoff() {
+    setTimeout(() => {
+      const reason = sessionEndReason();
+      if (reason) expire(reason); else scheduleCutoff();
+    }, nextCutoff() - Date.now() + 1000);
+  })();
+  // เครื่องหลับ / สลับแอปนานๆ ตัวจับเวลาอาจไม่ทำงาน → เช็กอีกครั้งตอนกลับมาที่หน้า
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    const reason = sessionEndReason();
+    if (reason) expire(reason);
+  });
   function reset() {
     const now = Date.now();
     if (now - lastWrite > 30000) { lastWrite = now; markActive(); } // จดไม่เกินทุก 30 วินาที
@@ -145,7 +216,7 @@ export function requireLogin(onReady, { logoutButtonId = "logout-btn" } = {}) {
       window.location.replace(LOGIN_URL);
       return;
     }
-    // เปิดหน้าใหม่หลังไม่ได้ใช้งานนานเกินกำหนด → ออกจากระบบ ให้ล็อกอินใหม่
+    // เปิดหน้าใหม่หลังไม่ได้ใช้งานนานเกินกำหนด หรือผ่านเวลาตัดรอบมาแล้ว → ออกจากระบบ ให้ล็อกอินใหม่
     if (!started && isSessionStale()) {
       doLogout();
       return;

@@ -1,4 +1,4 @@
-import { requireLogin } from "./firebase-guard.js?v=20261122-idle";
+import { requireLogin } from "./firebase-guard.js?v=20261122-cut";
 var initCards; // ตั้งค่าในฟังก์ชันด้านล่าง เรียกหลังรู้ว่าใครล็อกอิน
 (function () {
   var root = document.documentElement;

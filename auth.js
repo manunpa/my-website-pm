@@ -6,10 +6,10 @@ import {
     sendPasswordResetEmail,
     setPersistence,
     browserLocalPersistence,
-    markActive,
+    markLogin,
     isSessionStale,
     endSession
-} from "./firebase-guard.js?v=20261122-idle";
+} from "./firebase-guard.js?v=20261122-cut";
 
 const form = document.getElementById("login-form");
 const emailInput = document.getElementById("email");
@@ -81,7 +81,7 @@ form.addEventListener("submit", async (e) => {
     submitBtn.textContent = "กำลังเข้าสู่ระบบ...";
     try {
         loggingIn = true;
-        markActive(); // เริ่มนับเวลาใช้งานใหม่จากตอนล็อกอิน
+        markLogin(); // จดเวลาล็อกอิน (ใช้ตัดรอบ 00:00 / 06:00) และเริ่มนับเวลาใช้งานใหม่
         await setPersistence(auth, browserLocalPersistence);
         await signInWithEmailAndPassword(auth, email, password);
         // onAuthStateChanged จะพาไปหน้า Hub ให้เอง
