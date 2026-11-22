@@ -610,7 +610,9 @@ export function createWorld(host, api) {
   function makeMU(gp, len, kind, cab, panto) {
     const dmu = kind === "dmu", y0 = 1.12, y1 = 4.05;
     const base = dmu ? 0xeef2f5 : 0xf2f3f4, baseS = dmu ? "#eef2f5" : "#f2f3f4";
-    const bands = dmu ? [[1.35, 1.8, 0x1f5fa8], [1.83, 1.92, 0xf2c230], [2.28, 3.25, 0x1c2633], [3.9, 9, 0xc9cdd2]] : [[1.45, 1.85, 0xc8102e], [2.28, 3.3, 0x20252d], [3.5, 3.58, 0xc8102e], [3.9, 9, 0xc4c8cd]];
+    const bands = dmu
+      ? [[1.35, 1.8, 0x1f5fa8], [1.83, 1.92, 0xf2c230], [2.28, 3.25, 0x1c2633], [3.9, 9, 0xc9cdd2]]
+      : [[1.42, 1.78, 0x0a9f9a], [1.83, 1.91, 0xd7b66b], [2.28, 3.3, 0x10243a], [3.5, 3.58, 0x20c7bb], [3.9, 9, 0xe3e9ef]];
     const noseL = dmu ? 1.6 : 2.2;
     const prof = (s) => {
       s.moveTo(-len / 2, y0);
@@ -628,7 +630,24 @@ export function createWorld(host, api) {
     };
     const geo = bodyGeo(kind + len + (cab ? "c" : ""), 2.9, 0.3, prof, zs, wallC);
     const tex = livery(kind + len, len, y0, y1, (L) => {
-      L.band(y0, y1, baseS); bands.forEach(([a, b, c]) => L.band(a, Math.min(b, y1), "#" + c.toString(16).padStart(6, "0")));
+      L.band(y0, y1, dmu ? baseS : "#edf1f4");
+      bands.forEach(([a, b, c]) => L.band(a, Math.min(b, y1), "#" + c.toString(16).padStart(6, "0")));
+      if (!dmu) {
+        // Premium teal sweep with a fine champagne pinstripe along the lower body.
+        const { g, X, Y } = L;
+        const sweep = g.createLinearGradient(X(-len / 2), 0, X(len / 2), 0);
+        sweep.addColorStop(0, "#13b8ad"); sweep.addColorStop(0.55, "#087f8a"); sweep.addColorStop(1, "#19c9b9");
+        g.beginPath();
+        g.moveTo(X(-len / 2), Y(2.03));
+        g.bezierCurveTo(X(-len / 5), Y(2.03), X(len / 5), Y(2.24), X(len / 2), Y(2.18));
+        g.lineTo(X(len / 2), Y(2.04));
+        g.bezierCurveTo(X(len / 5), Y(2.11), X(-len / 5), Y(1.88), X(-len / 2), Y(1.89));
+        g.closePath(); g.fillStyle = sweep; g.fill();
+        g.beginPath();
+        g.moveTo(X(-len / 2), Y(1.84));
+        g.bezierCurveTo(X(-len / 5), Y(1.84), X(len / 5), Y(2.05), X(len / 2), Y(1.99));
+        g.strokeStyle = "#e4c984"; g.lineWidth = 3; g.stroke();
+      }
       const doors = dmu ? [-len / 2 + 0.9, len / 2 - 2.1] : [-len / 4 - 0.65, len / 4 - 0.65];
       const dw = dmu ? 1.2 : 1.3;
       const nW = dmu ? 7 : 8;
@@ -637,10 +656,10 @@ export function createWorld(host, api) {
         if (doors.some((d) => x > d - 0.5 && x < d + dw + 0.5)) continue;
         L.win(x - 0.55, x + 0.55, 2.4, 3.15, 0.12);
       }
-      doors.forEach((d) => L.door(d, d + dw, 1.25, 3.45, dmu ? "#dfe5ea" : "#d0d3d6", 2));
+      doors.forEach((d) => L.door(d, d + dw, 1.25, 3.45, dmu ? "#dfe5ea" : "#dfe6eb", 2));
       L.panelLines(dmu ? 2.6 : 3.4); L.dirt();
     });
-    body(gp, kind, geo, tex, { metalness: dmu ? 0.3 : 0.45, roughness: dmu ? 0.38 : 0.3 });
+    body(gp, kind, geo, tex, { metalness: dmu ? 0.3 : 0.5, roughness: dmu ? 0.38 : 0.24 });
     box(gp, under, len - 7, 0.55, 2.2, 0, 0.9, 0);
     if (dmu) { box(gp, mat(0x9ba0a6, { metalness: 0.4 }), 2.2, 0.3, 1.4, -2, y1 + 0.1, 0, true); rod(gp, mat(0x1a1a1a), new THREE.Vector3(-len / 2 + 2.2, y1, 0.7), new THREE.Vector3(-len / 2 + 2.2, y1 + 0.45, 0.7), 0.1); }
     else box(gp, mat(0xa9adb2, { metalness: 0.4 }), 3.2, 0.3, 1.6, -3, y1 + 0.1, 0, true);
