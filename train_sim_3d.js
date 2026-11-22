@@ -387,92 +387,335 @@ export function createWorld(host, api) {
     chunks.forEach((g) => { const [x, y] = toXY(g.userData.lat, g.userData.lon); g.userData.cx = x; g.userData.cy = y; placeChunk(g); });
   }
 
-  /* ---------------- ขบวนรถ ---------------- */
+  /* ---------------- ขบวนรถ ----------------
+     ตัวรถทุกคันสร้างจาก "รูปด้านข้าง" (profile) แล้วรีดออกตามความกว้าง + ลบมุมโค้ง (bevel)
+     → หลังคาโค้งมน หน้ารถลาดเอียง แล้วบีบความกว้างช่วงหัวรถ (taper) ให้เป็นทรงลู่ลมแบบ 3 มิติ
+     ลายรถ/หน้าต่าง/ประตู วาดลงพื้นผิวด้านข้าง (canvas texture) + สีบนหลังคา/หน้ารถเป็นสีต่อจุด (vertex color)
+     สะท้อนท้องฟ้าด้วย environment map ที่สร้างจากท้องฟ้าจริงของฉาก */
   const trainRoot = new THREE.Group(); scene.add(trainRoot);
   let cars = [], carsKey = "";
-  const glass = mat(0x17222e, { metalness: 0.85, roughness: 0.1 });
-  const winLit = mat(0xffe7b0, { emissive: 0xffd98a, emissiveIntensity: 0 });
-  const headL = mat(0xffffff, { emissive: 0xffffff, emissiveIntensity: 0.3 });
-  function bogies(gp, len) {
-    [len / 2 - 3.2, -len / 2 + 3.2].forEach((x) => {
-      const b = new THREE.Mesh(geoBox, M.dark); b.scale.set(2.8, 0.7, 2.0); b.position.set(x, 0.65, 0); gp.add(b);
-      [-0.9, 0.9].forEach((dx) => [0.5, -0.5].forEach((dz) => { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.46, 0.14, 18), M.steel); w.rotation.x = Math.PI / 2; w.position.set(x + dx, 0.46, dz); gp.add(w); }));
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  let envTex = null;
+  const trainMats = [], litMats = [];
+  function updateEnvMap() {
+    try {
+      const es = new THREE.Scene();
+      es.add(new THREE.Mesh(new THREE.SphereGeometry(40, 32, 16), skyMat));
+      const gnd = new THREE.Mesh(new THREE.CircleGeometry(40, 32), new THREE.MeshBasicMaterial({ color: env.tod === "night" ? 0x0a0d0a : 0x4a5a36 }));
+      gnd.rotation.x = -Math.PI / 2; gnd.position.y = -1.5; es.add(gnd);
+      const rt = pmrem.fromScene(es, 0.03, 0.1, 90);
+      if (envTex) envTex.dispose();
+      envTex = rt.texture;
+      trainMats.forEach((m) => { m.envMap = envTex; m.needsUpdate = true; });
+    } catch (e) { /* เครื่องที่ไม่รองรับ: ไม่มีเงาสะท้อน */ }
+  }
+  const lampW = new THREE.MeshBasicMaterial({ color: 0xfff6e0 }), lampR = new THREE.MeshBasicMaterial({ color: 0xff2a1a });
+  const rubber = mat(0x1a1c1f, { roughness: 0.95 }), under = mat(0x2a2d31, { roughness: 0.8, metalness: 0.3 });
+  const wheelM = mat(0x55585c, { metalness: 0.9, roughness: 0.35 }), frameM = mat(0x23262a, { roughness: 0.6, metalness: 0.4 });
+  const insul = mat(0xe8e2d0, { roughness: 0.5 }), pantoM = mat(0x9aa1a8, { metalness: 0.8, roughness: 0.3 });
+  const glassM = mat(0x0c1218, { metalness: 0.9, roughness: 0.06 });
+  [glassM, wheelM, pantoM].forEach((m) => trainMats.push(m));
+
+  // ปรับ normal ให้ผิวเรียบ แต่คงขอบคม (มุมเกิน deg องศา)
+  function smoothNormals(g, deg) {
+    const p = g.attributes.position, n = p.count, fn = new Float32Array(n * 3);
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+    for (let i = 0; i < n; i += 3) {
+      a.fromBufferAttribute(p, i); b.fromBufferAttribute(p, i + 1); c.fromBufferAttribute(p, i + 2);
+      c.sub(b); a.sub(b); c.cross(a);
+      for (let k = 0; k < 3; k++) fn.set([c.x, c.y, c.z], (i + k) * 3);
+    }
+    const groups = new Map();
+    for (let i = 0; i < n; i++) {
+      const k = Math.round(p.getX(i) * 500) + "," + Math.round(p.getY(i) * 500) + "," + Math.round(p.getZ(i) * 500);
+      let l = groups.get(k); if (!l) groups.set(k, (l = [])); l.push(i);
+    }
+    const out = new Float32Array(n * 3), cs = Math.cos(deg * Math.PI / 180);
+    groups.forEach((l) => l.forEach((i) => {
+      const ix = fn[i * 3], iy = fn[i * 3 + 1], iz = fn[i * 3 + 2], il = Math.hypot(ix, iy, iz) || 1;
+      let x = 0, y = 0, z = 0;
+      l.forEach((j) => {
+        const jx = fn[j * 3], jy = fn[j * 3 + 1], jz = fn[j * 3 + 2], jl = Math.hypot(jx, jy, jz) || 1;
+        if ((ix * jx + iy * jy + iz * jz) / (il * jl) >= cs) { x += jx; y += jy; z += jz; }
+      });
+      const L = Math.hypot(x, y, z) || 1; out[i * 3] = x / L; out[i * 3 + 1] = y / L; out[i * 3 + 2] = z / L;
+    }));
+    g.setAttribute("normal", new THREE.BufferAttribute(out, 3));
+  }
+  const hexRGB = (h) => [((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255].map((v) => Math.pow(v, 2.2));
+  // ตัวรถ: profile(shape) = รูปด้านข้าง (x ตามยาว, y สูง) · zs(x) = สัดส่วนความกว้าง · wall(x,y) = สีหลังคา/หน้ารถ
+  const geoCache = new Map();
+  function bodyGeo(key, w, bevel, profile, zs, wall) {
+    if (geoCache.has(key)) return geoCache.get(key);
+    const raw = new THREE.Shape(); profile(raw);
+    // แบ่งเส้นตรงสั้น ๆ (หน้ารถ/กระจก) ให้ละเอียด เพื่อให้สีต่อจุดเป็นแถบคมชัด ไม่ไล่เฉด
+    const src = raw.getPoints(28), pts = [];
+    src.forEach((q, i) => {
+      const nq = src[(i + 1) % src.length], d = q.distanceTo(nq);
+      pts.push(q);
+      if (i < src.length - 1 && d < 4.5 && d > 0.1) { const n = Math.ceil(d / 0.06); for (let k = 1; k < n; k++) pts.push(q.clone().lerp(nq, k / n)); }
     });
+    const shape = new THREE.Shape(pts);
+    const depth = w - 2 * bevel;
+    const g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelOffset: -bevel, bevelSegments: 5, curveSegments: 1, steps: 1 });
+    g.translate(0, 0, -depth / 2);
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) { const s = zs ? zs(p.getX(i), p.getY(i)) : 1; if (s !== 1) p.setZ(i, p.getZ(i) * s); }
+    smoothNormals(g, 50);
+    const col = new Float32Array(p.count * 3), cap = g.groups[0];
+    for (let i = 0; i < p.count; i++) {
+      const isCap = i >= cap.start && i < cap.start + cap.count;
+      col.set(isCap ? [1, 1, 1] : hexRGB(wall(p.getX(i), p.getY(i))), i * 3);
+    }
+    g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    geoCache.set(key, g); return g;
   }
-  function bodyBox(gp, len, w, h, y0, colorMat, stripes) {
-    const body = new THREE.Mesh(geoBox, colorMat); body.scale.set(len, h, w); body.position.y = y0 + h / 2; body.castShadow = body.receiveShadow = true; gp.add(body);
-    (stripes || []).forEach(([yy, hh, m]) => { [w / 2 + 0.01, -w / 2 - 0.01].forEach((z) => { const s = new THREE.Mesh(new THREE.PlaneGeometry(len - 0.4, hh), m); s.position.set(0, y0 + yy, z); s.rotation.y = z > 0 ? 0 : Math.PI; gp.add(s); }); });
-    return body;
+  // ลายด้านข้าง: วาดเป็นเมตร (x: −len/2..len/2, y: y0..y1) → texture สี + texture ไฟหน้าต่างตอนกลางคืน
+  const texCache = new Map();
+  function livery(key, len, y0, y1, draw) {
+    if (texCache.has(key)) return texCache.get(key);
+    const PX = 64, W = Math.round(len * PX), H = Math.round((y1 - y0) * PX);
+    const c = document.createElement("canvas"); c.width = W; c.height = H; const g = c.getContext("2d");
+    const m = document.createElement("canvas"); m.width = W; m.height = H; const k = m.getContext("2d");
+    k.fillStyle = "#000"; k.fillRect(0, 0, W, H);
+    const X = (x) => (x + len / 2) * PX, Y = (y) => H - (y - y0) * PX;
+    const api = {
+      g, X, Y,
+      band(ya, yb, col) { g.fillStyle = col; g.fillRect(0, Y(yb), W, Y(ya) - Y(yb)); },
+      rect(x0, x1, ya, yb, col) { g.fillStyle = col; g.fillRect(X(x0), Y(yb), X(x1) - X(x0), Y(ya) - Y(yb)); },
+      win(x0, x1, ya, yb, r = 0.12, lit = true) {
+        const x = X(x0), y = Y(yb), w = X(x1) - X(x0), h = Y(ya) - Y(yb), rr = r * PX;
+        const gr = g.createLinearGradient(x, y, x + w * 0.6, y + h);
+        gr.addColorStop(0, "#5d7286"); gr.addColorStop(0.35, "#1a2633"); gr.addColorStop(1, "#0b1118");
+        g.fillStyle = "#2b2f35"; g.beginPath(); g.roundRect(x - 3, y - 3, w + 6, h + 6, rr + 3); g.fill();
+        g.fillStyle = gr; g.beginPath(); g.roundRect(x, y, w, h, rr); g.fill();
+        g.fillStyle = "rgba(255,255,255,.10)"; g.beginPath(); g.moveTo(x + w * 0.15, y); g.lineTo(x + w * 0.42, y); g.lineTo(x + w * 0.12, y + h); g.lineTo(x - w * 0.15 + w * 0.15, y + h); g.fill();
+        if (lit) { k.fillStyle = "#fff"; k.beginPath(); k.roundRect(x, y, w, h, rr); k.fill(); }
+      },
+      door(x0, x1, ya, yb, col, leaves = 1) {
+        g.fillStyle = col; g.fillRect(X(x0), Y(yb), X(x1) - X(x0), Y(ya) - Y(yb));
+        g.strokeStyle = "rgba(0,0,0,.55)"; g.lineWidth = 3; g.strokeRect(X(x0), Y(yb), X(x1) - X(x0), Y(ya) - Y(yb));
+        if (leaves === 2) { g.beginPath(); g.moveTo((X(x0) + X(x1)) / 2, Y(yb)); g.lineTo((X(x0) + X(x1)) / 2, Y(ya)); g.stroke(); }
+        const n = leaves, ww = (x1 - x0) / n;
+        for (let i = 0; i < n; i++) api.win(x0 + ww * i + ww * 0.2, x0 + ww * (i + 1) - ww * 0.2, yb - 0.95, yb - 0.25, 0.08);
+      },
+      louvre(x0, x1, ya, yb) { g.fillStyle = "rgba(0,0,0,.18)"; g.fillRect(X(x0), Y(yb), X(x1) - X(x0), Y(ya) - Y(yb)); g.strokeStyle = "rgba(0,0,0,.35)"; g.lineWidth = 2; for (let x = X(x0) + 4; x < X(x1); x += 7) { g.beginPath(); g.moveTo(x, Y(yb) + 3); g.lineTo(x, Y(ya) - 3); g.stroke(); } },
+      dirt() { const gr = g.createLinearGradient(0, H * 0.6, 0, H); gr.addColorStop(0, "rgba(60,45,30,0)"); gr.addColorStop(1, "rgba(60,45,30,.28)"); g.fillStyle = gr; g.fillRect(0, 0, W, H); },
+      panelLines(step) { g.strokeStyle = "rgba(0,0,0,.10)"; g.lineWidth = 2; for (let x = -len / 2 + step; x < len / 2; x += step) { g.beginPath(); g.moveTo(X(x), 0); g.lineTo(X(x), H); g.stroke(); } }
+    };
+    draw(api);
+    const mk = (cv) => { const t = new THREE.CanvasTexture(cv); t.anisotropy = renderer.capabilities.getMaxAnisotropy(); t.repeat.set(1 / len, 1 / (y1 - y0)); t.offset.set(0.5, -y0 / (y1 - y0)); return t; };
+    const map = mk(c); map.colorSpace = THREE.SRGBColorSpace;
+    const r = { map, mask: mk(m) }; texCache.set(key, r); return r;
   }
-  function windowsRow(gp, len, w, y, h, n) {
-    [w / 2 + 0.015, -w / 2 - 0.015].forEach((z) => {
-      for (let i = 0; i < n; i++) { const x = -len / 2 + 1.6 + (i + 0.5) * (len - 3.2) / n; const p = new THREE.Mesh(new THREE.PlaneGeometry((len - 3.2) / n * 0.72, h), winLit); p.position.set(x, y, z); p.rotation.y = z > 0 ? 0 : Math.PI; gp.add(p); }
+  function bodyMats(key, tex, o) {
+    const capM = new THREE.MeshStandardMaterial(Object.assign({ map: tex.map, emissiveMap: tex.mask, emissive: 0xffd99a, emissiveIntensity: 0, vertexColors: true, envMap: envTex, envMapIntensity: 0.9 }, o));
+    const wallM = new THREE.MeshStandardMaterial(Object.assign({ vertexColors: true, envMap: envTex, envMapIntensity: 0.9 }, o));
+    trainMats.push(capM, wallM); litMats.push(capM);
+    return [capM, wallM];
+  }
+  const matCache = new Map();
+  function body(gp, key, geo, tex, o) {
+    if (!matCache.has(key)) matCache.set(key, bodyMats(key, tex, o));
+    const m = new THREE.Mesh(geo, matCache.get(key)); m.castShadow = true; m.receiveShadow = true; gp.add(m); return m;
+  }
+  const box = (gp, m, sx, sy, sz, x, y, z, shadow = false) => { const b = new THREE.Mesh(geoBox, m); b.scale.set(sx, sy, sz); b.position.set(x, y, z); b.castShadow = shadow; gp.add(b); return b; };
+  const cylG = new THREE.CylinderGeometry(1, 1, 1, 16);
+  function rod(gp, m, a, b, r) {   // ท่อกลมจากจุด a ไป b
+    const v = new THREE.Vector3().subVectors(b, a), c = new THREE.Mesh(cylG, m);
+    c.scale.set(r, v.length(), r); c.position.copy(a).addScaledVector(v, 0.5);
+    c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), v.normalize()); gp.add(c); return c;
+  }
+  function lamp(gp, m, x, y, z, r = 0.14) { const l = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), m); l.scale.set(0.5, 1, 1); l.position.set(x, y, z); gp.add(l); return l; }
+  const wheelG = new THREE.CylinderGeometry(0.43, 0.43, 0.12, 22), hubG = new THREE.CylinderGeometry(0.2, 0.2, 0.16, 12);
+  function bogie(gp, x, skirt) {
+    const b = new THREE.Group(); b.position.set(x, 0, 0); gp.add(b);
+    [-0.78, 0.78].forEach((z) => {
+      box(b, frameM, 2.7, 0.32, 0.14, 0, 0.62, z);                       // โครงข้าง
+      box(b, frameM, 0.5, 0.5, 0.16, 0, 0.75, z);                        // แป้นรับสปริง
+      [-1.05, 1.05].forEach((dx) => { box(b, mat(0x3a3d41), 0.34, 0.3, 0.2, dx, 0.45, z * 1.08); });   // กล่องเพลา
+      rod(b, mat(0x8a5a2a, { metalness: 0.5 }), new THREE.Vector3(-0.45, 0.82, z), new THREE.Vector3(-0.45, 1.08, z), 0.09);
+      rod(b, mat(0x8a5a2a, { metalness: 0.5 }), new THREE.Vector3(0.45, 0.82, z), new THREE.Vector3(0.45, 1.08, z), 0.09);
     });
+    box(b, frameM, 0.5, 0.26, 1.5, 0, 0.72, 0);                          // คานกลาง
+    [-1.05, 1.05].forEach((dx) => {
+      [-0.5, 0.5].forEach((z) => { const w = new THREE.Mesh(wheelG, wheelM); w.rotation.x = Math.PI / 2; w.position.set(dx, 0.43, z); b.add(w); const h = new THREE.Mesh(hubG, frameM); h.rotation.x = Math.PI / 2; h.position.set(dx, 0.43, z * 1.25); b.add(h); });
+      rod(b, frameM, new THREE.Vector3(dx, 0.43, -0.6), new THREE.Vector3(dx, 0.43, 0.6), 0.07).rotation.order = "XYZ";
+    });
+    if (skirt) { box(b, skirt, 3.2, 0.42, 0.05, 0, 0.92, 1.42); box(b, skirt, 3.2, 0.42, 0.05, 0, 0.92, -1.42); }
   }
-  function cabFront(gp, len, w, y0, h, colorMat) {
-    const ws = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.82, h * 0.32), glass); ws.position.set(len / 2 + 0.02, y0 + h * 0.72, 0); ws.rotation.y = Math.PI / 2; gp.add(ws);
-    [0.75, -0.75].forEach((z) => { const l = new THREE.Mesh(new THREE.CircleGeometry(0.18, 16), headL); l.position.set(len / 2 + 0.03, y0 + h * 0.25, z); l.rotation.y = Math.PI / 2; gp.add(l); });
+  function gangway(gp, x) { box(gp, rubber, 0.42, 2.45, 1.9, x, 2.45, 0); }
+  function pantograph(gp, x, y) {
+    const p = new THREE.Group(); p.position.set(x, y, 0); gp.add(p);
+    [[-0.7, -0.5], [-0.7, 0.5], [0.7, -0.5], [0.7, 0.5]].forEach(([a, b]) => rod(p, insul, new THREE.Vector3(a, 0, b), new THREE.Vector3(a, 0.28, b), 0.07));
+    box(p, frameM, 1.7, 0.1, 1.2, 0, 0.32, 0);
+    [-0.35, 0.35].forEach((z) => {
+      rod(p, pantoM, new THREE.Vector3(-0.6, 0.38, z * 0.9), new THREE.Vector3(0.55, 1.05, z * 0.5), 0.035);
+      rod(p, pantoM, new THREE.Vector3(0.55, 1.05, z * 0.5), new THREE.Vector3(-0.25, 1.7, z * 0.2), 0.03);
+    });
+    box(p, pantoM, 0.28, 0.05, 1.7, -0.25, 1.74, 0);
+    [-0.85, 0.85].forEach((z) => rod(p, pantoM, new THREE.Vector3(-0.25, 1.74, z), new THREE.Vector3(-0.25, 1.6, z * 1.12), 0.025));
   }
-  const LIV = {
-    loco: mat(0xd97a1f, { metalness: 0.3, roughness: 0.45 }), locoBand: mat(0x22356b), coach: mat(0xe9e2cf, { roughness: 0.5 }), coachBand: mat(0x8a2a2a),
-    dmu: mat(0xe8eef3, { roughness: 0.45 }), dmuBand: mat(0x1f5fa8), emu: mat(0xf4f5f6, { metalness: 0.4, roughness: 0.3 }), emuBand: mat(0xc8102e),
-    hsr: mat(0xf7f8f9, { metalness: 0.35, roughness: 0.25 }), hsrBand: mat(0x0f7a5f), hsrBand2: mat(0xd8a32b)
-  };
+
+  /* ----- ลาย / รูปร่างแต่ละแบบ ----- */
+  const STRIPE = (bands, base) => (x, y) => { for (const [a, b, c] of bands) if (y >= a && y <= b) return c; return base; };
+  function makeCoach(gp, len) {
+    const y0 = 1.15, y1 = 4.05;
+    const wallC = STRIPE([[0, 1.42, 0x8d9196], [2.1, 2.2, 0xb3262e], [2.25, 3.32, 0x1e3f7a], [3.88, 9, 0xbfc3c8]], 0xece7dc);
+    const geo = bodyGeo("coach" + len, 2.9, 0.32, (s) => { s.moveTo(-len / 2, y0); s.lineTo(len / 2, y0); s.lineTo(len / 2, y1); s.lineTo(-len / 2, y1); s.closePath(); }, null, wallC);
+    const tex = livery("coach" + len, len, y0, y1, (L) => {
+      L.band(y0, y1, "#ece7dc"); L.band(y0, 1.42, "#8d9196"); L.band(2.1, 2.2, "#b3262e"); L.band(2.25, 3.32, "#1e3f7a"); L.band(3.88, y1, "#bfc3c8");
+      for (let i = 0; i < 9; i++) { const x = -len / 2 + 2.35 + i * (len - 4.7) / 9; L.win(x + 0.12, x + (len - 4.7) / 9 - 0.12, 2.42, 3.16, 0.14); }
+      [-len / 2 + 0.75, len / 2 - 1.75].forEach((x) => L.door(x, x + 1.0, 1.3, 3.45, "#ddd7ca"));
+      L.panelLines(2.2); L.dirt();
+    });
+    body(gp, "coach", geo, tex, { metalness: 0.25, roughness: 0.42 });
+    box(gp, mat(0xa9adb2, { metalness: 0.4, roughness: 0.5 }), 2.6, 0.32, 1.5, 0, y1 + 0.12, 0, true);     // แอร์บนหลังคา
+    box(gp, under, len - 7.5, 0.5, 2.1, 0, 0.92, 0);                                                    // อุปกรณ์ใต้ท้อง
+    bogie(gp, len / 2 - 2.6); bogie(gp, -len / 2 + 2.6);
+    gangway(gp, len / 2 + 0.2); gangway(gp, -len / 2 - 0.2);
+  }
+  function makeLoco(gp, len) {
+    const y0 = 1.25, cabX = len / 2 - 3.6;
+    const prof = (s) => { s.moveTo(-len / 2, y0); s.lineTo(len / 2 - 0.15, y0); s.lineTo(len / 2, y0 + 0.25); s.lineTo(len / 2, 2.85); s.lineTo(len / 2 - 0.5, 3.85); s.quadraticCurveTo(len / 2 - 0.7, 4.15, len / 2 - 1.1, 4.15); s.lineTo(cabX, 4.15); s.lineTo(cabX, 3.72); s.lineTo(-len / 2 + 0.5, 3.72); s.quadraticCurveTo(-len / 2, 3.72, -len / 2, 3.3); s.closePath(); };
+    const zs = (x) => (x < cabX - 0.25 ? 0.76 : x < cabX ? 0.76 + 0.24 * (x - cabX + 0.25) / 0.25 : x > len / 2 - 0.5 ? 1 - 0.1 * (x - len / 2 + 0.5) / 0.5 : 1);
+    const wallC = (x, y) => (x > len / 2 - 0.55 && y > 2.95 && y < 3.8 && Math.abs(0) === 0 ? 0x0e141a : y < 1.75 && y > 1.35 ? 0x1b2f6b : y > 1.8 && y < 1.97 ? 0xf1e3c0 : y > 4.1 ? 0x3a3d42 : 0xd9541e);
+    const geo = bodyGeo("loco" + len, 2.95, 0.16, prof, zs, wallC);
+    const tex = livery("loco" + len, len, y0, 4.15, (L) => {
+      L.band(y0, 4.15, "#d9541e"); L.band(1.35, 1.75, "#1b2f6b"); L.band(1.8, 1.97, "#f1e3c0");
+      for (let x = -len / 2 + 1.2; x < cabX - 1.5; x += 2.6) L.louvre(x, x + 1.9, 2.3, 3.4);
+      L.win(len / 2 - 2.95, len / 2 - 1.35, 2.95, 3.72, 0.12, false);
+      L.door(cabX + 0.12, cabX + 0.82, 1.45, 3.75, "#c94a17"); L.dirt();
+    });
+    body(gp, "loco", geo, tex, { metalness: 0.3, roughness: 0.38 });
+    // ทางเดินรอบตัวรถ + ราวกันตก
+    box(gp, frameM, len - 0.2, 0.16, 2.95, 0, y0 - 0.02, 0, true);
+    box(gp, mat(0xf2c230), len - 0.2, 0.08, 0.04, 0, y0 - 0.02, 1.5); box(gp, mat(0xf2c230), len - 0.2, 0.08, 0.04, 0, y0 - 0.02, -1.5);
+    [1.38, -1.38].forEach((z) => {
+      rod(gp, M.pole, new THREE.Vector3(-len / 2 + 0.6, 2.3, z), new THREE.Vector3(cabX - 0.3, 2.3, z), 0.025);
+      for (let x = -len / 2 + 0.6; x < cabX; x += 2.2) rod(gp, M.pole, new THREE.Vector3(x, y0, z), new THREE.Vector3(x, 2.3, z), 0.022);
+    });
+    // พัดลมระบายความร้อน + ท่อไอเสีย + แตร
+    for (let k = 0; k < 3; k++) { const f = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.1, 24), mat(0x23262a)); f.position.set(-len / 2 + 2 + k * 1.6, 3.78, 0); gp.add(f); const gr = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.04, 6, 24), pantoM); gr.rotation.x = Math.PI / 2; gr.position.copy(f.position); gp.add(gr); }
+    rod(gp, mat(0x1a1a1a), new THREE.Vector3(1.2, 3.7, 0), new THREE.Vector3(1.2, 4.1, 0), 0.16);
+    rod(gp, pantoM, new THREE.Vector3(len / 2 - 2, 4.15, 0.3), new THREE.Vector3(len / 2 - 1.4, 4.3, 0.3), 0.06);
+    // ถังน้ำมันใต้ท้อง + โบกี้ 3 เพลา (ดูหนักแบบรถจักร)
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 5.5, 20), mat(0x2c2f33, { metalness: 0.4, roughness: 0.5 })); tank.rotation.z = Math.PI / 2; tank.position.set(0, 0.75, 0); tank.scale.set(1, 1, 1.5); gp.add(tank);
+    bogie(gp, len / 2 - 3.2); bogie(gp, -len / 2 + 3.2);
+    // ไฟหน้า + กันชน
+    lamp(gp, lampW, len / 2 + 0.01, 2.15, 0.95, 0.15); lamp(gp, lampW, len / 2 + 0.01, 2.15, -0.95, 0.15); lamp(gp, lampW, len / 2 - 0.62, 3.98, 0, 0.17);
+    box(gp, mat(0xf2c230), 0.12, 0.3, 2.6, len / 2 + 0.06, y0 + 0.05, 0);
+    box(gp, frameM, 0.5, 0.35, 0.4, len / 2 + 0.2, 1.05, 0); box(gp, frameM, 0.5, 0.35, 0.4, -len / 2 - 0.2, 1.05, 0);
+  }
+  function makeMU(gp, len, kind, cab, panto) {
+    const dmu = kind === "dmu", y0 = 1.12, y1 = 4.05;
+    const base = dmu ? 0xeef2f5 : 0xf2f3f4, baseS = dmu ? "#eef2f5" : "#f2f3f4";
+    const bands = dmu ? [[1.35, 1.8, 0x1f5fa8], [1.83, 1.92, 0xf2c230], [2.28, 3.25, 0x1c2633], [3.9, 9, 0xc9cdd2]] : [[1.45, 1.85, 0xc8102e], [2.28, 3.3, 0x20252d], [3.5, 3.58, 0xc8102e], [3.9, 9, 0xc4c8cd]];
+    const noseL = dmu ? 1.6 : 2.2;
+    const prof = (s) => {
+      s.moveTo(-len / 2, y0);
+      if (!cab) { s.lineTo(len / 2, y0); s.lineTo(len / 2, y1); }
+      else if (dmu) { s.lineTo(len / 2 - 0.25, y0); s.quadraticCurveTo(len / 2, y0 + 0.05, len / 2, y0 + 0.45); s.lineTo(len / 2, 2.5); s.lineTo(len / 2 - 0.62, 3.78); s.quadraticCurveTo(len / 2 - 0.85, y1, len / 2 - 1.3, y1); }
+      else { s.lineTo(len / 2 - 0.4, y0); s.quadraticCurveTo(len / 2, y0 + 0.05, len / 2, y0 + 0.55); s.lineTo(len / 2, 2.25); s.bezierCurveTo(len / 2 - 0.1, 3.0, len / 2 - 0.9, 3.95, len / 2 - 1.9, y1); }
+      s.lineTo(-len / 2, y1); s.closePath();
+    };
+    const zs = cab ? (x, y) => { if (x <= len / 2 - noseL) return 1; const t = (x - len / 2 + noseL) / noseL, h = Math.max(0, (y - y0) / (y1 - y0)); return (1 - (dmu ? 0.1 : 0.16) * t * t) * (1 - (dmu ? 0.08 : 0.14) * t * h * h); } : null;
+    const stripe = STRIPE(bands, base);
+    const wallC = (x, y) => {
+      if (cab && x > len / 2 - (dmu ? 0.72 : 1.45) && y > (dmu ? 2.6 : 2.32) && y < (dmu ? 3.76 : 3.9)) return 0x0b1015;
+      if (cab && dmu && x > len / 2 - 0.3 && y < 2.5 && y > 1.95) return 0xf2c230;
+      return stripe(x, y);
+    };
+    const geo = bodyGeo(kind + len + (cab ? "c" : ""), 2.9, 0.3, prof, zs, wallC);
+    const tex = livery(kind + len, len, y0, y1, (L) => {
+      L.band(y0, y1, baseS); bands.forEach(([a, b, c]) => L.band(a, Math.min(b, y1), "#" + c.toString(16).padStart(6, "0")));
+      const doors = dmu ? [-len / 2 + 0.9, len / 2 - 2.1] : [-len / 4 - 0.65, len / 4 - 0.65];
+      const dw = dmu ? 1.2 : 1.3;
+      const nW = dmu ? 7 : 8;
+      for (let i = 0; i < nW; i++) {
+        const x = -len / 2 + 1.0 + (i + 0.5) * (len - 2.0) / nW;
+        if (doors.some((d) => x > d - 0.5 && x < d + dw + 0.5)) continue;
+        L.win(x - 0.55, x + 0.55, 2.4, 3.15, 0.12);
+      }
+      doors.forEach((d) => L.door(d, d + dw, 1.25, 3.45, dmu ? "#dfe5ea" : "#d0d3d6", 2));
+      L.panelLines(dmu ? 2.6 : 3.4); L.dirt();
+    });
+    body(gp, kind, geo, tex, { metalness: dmu ? 0.3 : 0.45, roughness: dmu ? 0.38 : 0.3 });
+    box(gp, under, len - 7, 0.55, 2.2, 0, 0.9, 0);
+    if (dmu) { box(gp, mat(0x9ba0a6, { metalness: 0.4 }), 2.2, 0.3, 1.4, -2, y1 + 0.1, 0, true); rod(gp, mat(0x1a1a1a), new THREE.Vector3(-len / 2 + 2.2, y1, 0.7), new THREE.Vector3(-len / 2 + 2.2, y1 + 0.45, 0.7), 0.1); }
+    else box(gp, mat(0xa9adb2, { metalness: 0.4 }), 3.2, 0.3, 1.6, -3, y1 + 0.1, 0, true);
+    if (panto) pantograph(gp, 3, y1);
+    bogie(gp, len / 2 - 2.5, null); bogie(gp, -len / 2 + 2.5, null);
+    if (cab) {
+      lamp(gp, lampW, len / 2 + 0.005, 1.95, 0.9); lamp(gp, lampW, len / 2 + 0.005, 1.95, -0.9);
+      box(gp, frameM, 0.4, 0.3, 2.4, len / 2 - 0.1, y0 - 0.12, 0);
+      gangway(gp, -len / 2 - 0.2);
+    } else { gangway(gp, len / 2 + 0.2); gangway(gp, -len / 2 - 0.2); }
+  }
+  function makeHSR(gp, len, nose, panto) {
+    const y0 = 1.0, y1 = 4.0, NL = 11;
+    const xn = len / 2 - NL;
+    const prof = (s) => {
+      s.moveTo(-len / 2, y0);
+      if (!nose) { s.lineTo(len / 2, y0); s.lineTo(len / 2, y1); }
+      else { s.lineTo(len / 2 - 1.2, y0); s.quadraticCurveTo(len / 2, y0 + 0.02, len / 2, 1.55); s.bezierCurveTo(len / 2 - 2.2, 2.1, len / 2 - 6.5, 3.75, xn, y1); }
+      s.lineTo(-len / 2, y1); s.closePath();
+    };
+    const zs = nose ? (x, y) => { if (x <= xn) return 1; const t = (x - xn) / NL, h = Math.max(0, (y - y0) / (y1 - y0)); return (1 - 0.6 * Math.pow(t, 1.55)) * (1 - 0.42 * Math.pow(t, 0.8) * h * h); } : null;
+    const stripe = STRIPE([[0, 1.3, 0xc9ccd0], [1.72, 2.0, 0x0e7a5c], [2.04, 2.11, 0xd8a32b], [3.86, 9, 0xe3e5e7]], 0xf6f7f8);
+    const wallC = (x, y) => (nose && x > len / 2 - 8.8 && x < len / 2 - 4.8 && y > 3.0 ? 0x0a0f14 : stripe(x, y));
+    const geo = bodyGeo("hsr" + len + (nose ? "n" : ""), 3.05, 0.5, prof, zs, wallC);
+    const tex = livery("hsr" + len + (nose ? "n" : ""), len, y0, y1, (L) => {
+      L.band(y0, y1, "#f6f7f8"); L.band(y0, 1.3, "#c9ccd0"); L.band(1.72, 2.0, "#0e7a5c"); L.band(2.04, 2.11, "#d8a32b"); L.band(3.86, y1, "#e3e5e7");
+      const xe = nose ? xn - 0.6 : len / 2 - 2.2;
+      for (let x = -len / 2 + 2.4; x + 0.8 < xe; x += 1.12) L.win(x, x + 0.8, 2.55, 3.2, 0.16);
+      L.door(-len / 2 + 0.7, -len / 2 + 1.55, 1.3, 3.4, "#eceef0");
+      if (!nose) L.door(len / 2 - 1.55, len / 2 - 0.7, 1.3, 3.4, "#eceef0");
+      else L.win(len / 2 - 9.4, len / 2 - 7.7, 3.02, 3.5, 0.2, false);
+      L.panelLines(5);
+    });
+    body(gp, "hsr", geo, tex, { metalness: 0.42, roughness: 0.22 });
+    box(gp, mat(0xc9ccd0, { metalness: 0.3 }), nose ? len - NL - 1 : len - 2, 0.55, 2.7, nose ? -NL / 2 - 0.5 : 0, 0.95, 0);   // แผงปิดใต้ท้อง (ลู่ลม)
+    if (panto) { pantograph(gp, 2, y1); box(gp, mat(0xd8dbde, { metalness: 0.3 }), 4.2, 0.35, 2.0, 2, y1 + 0.1, 0, true); }
+    bogie(gp, len / 2 - (nose ? 4 : 2.7), null); bogie(gp, -len / 2 + 2.7, null);
+    if (nose) {
+      lamp(gp, lampW, len / 2 - 1.05, 1.5, 0.52, 0.12); lamp(gp, lampW, len / 2 - 1.05, 1.5, -0.52, 0.12);
+      // แผงปิดโบกี้หน้าใต้จมูก (ไม่ให้เห็นล้อโผล่)
+      [1, -1].forEach((sd) => { const sk = box(gp, mat(0xc9ccd0, { metalness: 0.3 }), 6.5, 0.6, 0.06, len / 2 - 4.4, 0.95, sd * 1.05); sk.rotation.y = sd * 0.07; });
+      box(gp, mat(0x9aa0a6, { metalness: 0.3 }), 1.6, 0.35, 1.6, len / 2 - 1.2, 0.85, 0);
+      gangway(gp, -len / 2 - 0.2);
+    } else { gangway(gp, len / 2 + 0.2); gangway(gp, -len / 2 - 0.2); }
+  }
+  const headSpot = new THREE.SpotLight(0xfff3d6, 0, 400, 0.22, 0.4, 1.2);
   function buildTrain(tr) {
     trainRoot.clear(); cars = [];
     tr.cars.forEach((c, i) => {
-      const gp = new THREE.Group(), len = c.len, w = 2.8;
-      if (c.type === "loco") {
-        bodyBox(gp, len, w, 2.9, 1.1, LIV.loco, [[1.0, 0.35, LIV.locoBand]]);
-        const hood = new THREE.Mesh(geoBox, LIV.loco); hood.scale.set(len - 2, 0.5, w - 0.6); hood.position.y = 4.25; gp.add(hood);
-        for (let k = 0; k < 4; k++) { const fan = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.12, 20), M.dark); fan.position.set(-5 + k * 2.6, 4.55, 0); gp.add(fan); }
-        cabFront(gp, len, w, 1.1, 3.2, LIV.loco);
-        const rear = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.7, 0.9), glass); rear.position.set(-len / 2 - 0.02, 3.4, 0); rear.rotation.y = -Math.PI / 2; gp.add(rear);
-      } else if (c.type === "coach") {
-        bodyBox(gp, len, w, 2.9, 1.1, LIV.coach, [[0.55, 0.3, LIV.coachBand], [2.75, 0.12, LIV.coachBand]]);
-        const roof = new THREE.Mesh(new THREE.CylinderGeometry(1.45, 1.45, len, 16, 1, false, 0, Math.PI), LIV.coach); roof.rotation.z = Math.PI / 2; roof.rotation.x = Math.PI / 2; roof.scale.set(1, 1, 0.25); roof.position.y = 4.0; gp.add(roof);
-        windowsRow(gp, len, w, 2.4, 0.9, 9);
-      } else if (c.type === "dmu" || c.type === "emu") {
-        const L = c.type === "dmu" ? LIV.dmu : LIV.emu, B = c.type === "dmu" ? LIV.dmuBand : LIV.emuBand;
-        bodyBox(gp, len, w, 3.0, 1.05, L, [[0.5, 0.35, B], [2.9, 0.1, B]]);
-        windowsRow(gp, len, w, 2.35, 1.0, 7);
-        if (c.cab) cabFront(gp, len, w, 1.05, 3.0, L);
-        if (c.cabRear) { const g2 = new THREE.Group(); cabFront(g2, len, w, 1.05, 3.0, L); g2.rotation.y = Math.PI; gp.add(g2); }
-        if (c.panto) {
-          const base = new THREE.Mesh(geoBox, M.dark); base.scale.set(2.2, 0.2, 1.2); base.position.y = 4.15; gp.add(base);
-          [[-0.5, 0.6], [0.5, -0.6]].forEach(([x, a]) => { const arm = new THREE.Mesh(geoBox, M.pole); arm.scale.set(0.08, 1.6, 0.08); arm.position.set(x, 4.9, 0); arm.rotation.z = a; gp.add(arm); });
-          const head = new THREE.Mesh(geoBox, M.pole); head.scale.set(0.3, 0.06, 1.6); head.position.y = 5.55; gp.add(head);
-        }
-        if (c.type === "dmu") { const ex = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.6, 10), M.dark); ex.position.set(-len / 2 + 2, 4.35, 0.6); gp.add(ex); }
-      } else if (c.type === "hsr" || c.type === "hsrNose") {
-        bodyBox(gp, c.type === "hsrNose" ? len - 8 : len, w + 0.2, 2.95, 1.0, LIV.hsr, [[1.0, 0.22, LIV.hsrBand], [1.32, 0.06, LIV.hsrBand2]]).position.x = c.type === "hsrNose" ? -4 : 0;
-        windowsRow(gp, c.type === "hsrNose" ? len - 10 : len, w + 0.2, 2.45, 0.6, 12);
-        if (c.type === "hsrNose") {
-          // จมูกยาวทรงลู่ลม
-          const nose = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 18, 0, Math.PI * 2, 0, Math.PI / 2), LIV.hsr);
-          nose.scale.set(1.55, 8.6, 1.5); nose.rotation.z = -Math.PI / 2; nose.position.set(len / 2 - 8, 2.3, 0); nose.castShadow = true; gp.add(nose);
-          const cw = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), glass); cw.scale.set(0.8, 2.6, 0.9); cw.rotation.z = -Math.PI / 2; cw.position.set(len / 2 - 7.4, 3.1, 0); gp.add(cw);
-          [0.65, -0.65].forEach((z) => { const l = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 8), headL); l.position.set(len / 2 - 1.2, 1.9, z); gp.add(l); });
-        }
-        if (c.panto) { const base = new THREE.Mesh(geoBox, M.dark); base.scale.set(2.2, 0.2, 1.2); base.position.y = 4.1; gp.add(base); const head = new THREE.Mesh(geoBox, M.pole); head.scale.set(0.3, 0.06, 1.6); head.position.y = 5.55; gp.add(head); const arm = new THREE.Mesh(geoBox, M.pole); arm.scale.set(0.08, 1.6, 0.08); arm.position.set(0, 4.9, 0); arm.rotation.z = 0.6; gp.add(arm); }
-      }
-      bogies(gp, len);
-      // ข้อต่อระหว่างคัน
-      const cp = new THREE.Mesh(geoBox, M.dark); cp.scale.set(0.8, 0.4, 0.4); cp.position.set(-len / 2 - 0.3, 1.1, 0); gp.add(cp);
-      gp.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+      const gp = new THREE.Group(), len = c.len;
+      const flip = !!(c.flip || c.cabRear);
+      if (c.type === "loco") makeLoco(gp, len);
+      else if (c.type === "coach") makeCoach(gp, len);
+      else if (c.type === "dmu" || c.type === "emu") makeMU(gp, len, c.type, !!(c.cab || c.cabRear), !!c.panto);
+      else makeHSR(gp, len, c.type === "hsrNose", !!c.panto);
+      // คันท้าย: ไฟหน้ากลายเป็นไฟท้ายสีแดง
+      if (flip) gp.traverse((o) => { if (o.material === lampW) o.material = lampR; });
       let outer = gp;
-      if (c.flip) { outer = new THREE.Group(); gp.rotation.y = Math.PI; outer.add(gp); }
+      if (flip) { outer = new THREE.Group(); gp.rotation.y = Math.PI; outer.add(gp); }
       trainRoot.add(outer); cars.push({ g: outer, len: c.len, off: c.off });
     });
     // ไฟหน้าส่องทาง (กลางคืน)
     headSpot.target.position.set(60, 0, 0); cars[0].g.add(headSpot, headSpot.target); headSpot.position.set(cars[0].len / 2 + 0.5, 2.0, 0);
-    // ห้องคนขับ: คอนโซล + เสาหน้าต่าง (เห็นเฉพาะมุมห้องคนขับ)
+    // ห้องคนขับ: คอนโซล (เห็นเฉพาะมุมห้องคนขับ)
     cab.clear();
     const con = new THREE.Mesh(geoBox, M.dark); con.scale.set(0.9, 1.0, 2.3); con.position.set(-0.3, -1.05, 0); cab.add(con);
     const gauge = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.35), mat(0x0b1016, { emissive: 0x2a6fdb, emissiveIntensity: 0.6 })); gauge.position.set(-0.05, -0.2, -0.35); gauge.rotation.set(-0.6, Math.PI / 2, 0, "YXZ"); cab.add(gauge);
     const sill = new THREE.Mesh(geoBox, M.dark); sill.scale.set(0.2, 0.25, 2.6); sill.position.set(0.55, -0.62, 0); cab.add(sill);
+    setLights();
   }
-  const headSpot = new THREE.SpotLight(0xfff3d6, 0, 400, 0.22, 0.4, 1.2);
+  function setLights() {
+    const night = env.tod === "night", dim = night || env.tod === "dusk";
+    litMats.forEach((m) => { m.emissiveIntensity = dim ? 1.1 : 0; });
+    lampW.color.setHex(night || env.wx !== "clear" ? 0xffffff : 0xe8e4d6);
+  }
   const cab = new THREE.Group(); scene.add(cab);
 
   /* ---------------- ฝน ---------------- */
@@ -494,9 +737,8 @@ export function createWorld(host, api) {
     renderer.toneMappingExposure = k.exp;
     rain.visible = env.wx === "rain";
     const night = env.tod === "night";
-    winLit.emissiveIntensity = night || env.tod === "dusk" ? 1.4 : 0;
     M.lamp.emissiveIntensity = night ? 3 : 1.2;
-    headL.emissiveIntensity = night || wet ? 3 : 0.5;
+    setLights(); updateEnvMap();
     headSpot.intensity = night ? 260 : env.tod === "dusk" || wet ? 90 : 0;
     M.rail.roughness = wet ? 0.12 : 0.28;
   }
@@ -513,7 +755,7 @@ export function createWorld(host, api) {
   });
   el.addEventListener("pointerup", () => { drag = null; });
   el.addEventListener("wheel", (e) => { e.preventDefault(); if (view.mode === "cab") cam.fov = Math.max(30, Math.min(95, cam.fov + e.deltaY * 0.03)); else view.dist = Math.max(15, Math.min(900, view.dist * Math.exp(e.deltaY * 0.0012))); }, { passive: false });
-  function setCam(m) { view.mode = m; view.pos = null; view.trackSpot = null; view.yaw = 0; view.pitch = 0; cam.fov = m === "cab" ? 62 : 55; view.dist = m === "drone" ? 160 : m === "side" ? 24 : 55; }
+  function setCam(m) { view.mode = m; view.pos = null; view.th = undefined; view.trackSpot = null; view.yaw = 0; view.pitch = 0; cam.fov = m === "cab" ? 62 : 55; view.dist = m === "drone" ? 160 : m === "side" ? 24 : 55; }
 
   /* ---------------- เฟรม ---------------- */
   let W = 1, H = 1;
@@ -524,7 +766,14 @@ export function createWorld(host, api) {
     // จุดอ้างอิงตามรถ
     const front = geo.at(st.s);
     const [fx, fy] = toXY(front.lat, front.lon);
-    if (O.k === 1 || Math.hypot(fx, fy) > 2500) recenter(front.lat, front.lon);
+    if (O.k === 1 || Math.hypot(fx, fy) > 2500) {
+      // ย้ายจุดอ้างอิง: ทุกอย่างเลื่อนไป (−fx, +fy) → เลื่อนตำแหน่งกล้องที่จำไว้ตามด้วย ไม่งั้นกล้องจะพุ่ง/เด้ง
+      if (O.k !== 1) {
+        if (view.pos) { view.pos.x -= fx; view.pos.z += fy; }
+        if (view.trackSpot) { view.trackSpot.p.x -= fx; view.trackSpot.p.z += fy; }
+      }
+      recenter(front.lat, front.lon);
+    }
     const newChunks = refreshChunks(st.s);
     if (carsKey !== st.trainKey) { carsKey = st.trainKey; buildTrain(st.train); }
     // วางรถแต่ละคันตามราง: ตำแหน่ง = กลางระหว่างโบกี้หน้า/หลัง
@@ -563,11 +812,15 @@ export function createWorld(host, api) {
         want = view.trackSpot.p.clone();
         cam.position.copy(want); cam.lookAt(cen.x, cen.y + 2, cen.z);
       } else {
-        const ang = t0.th + Math.PI + view.orbit + (view.mode === "side" ? -Math.PI / 2 - 0.6 : 0);
+        // ทิศของราง: หน่วงเฉพาะ "มุม" (ให้โค้งนุ่ม) แต่ตำแหน่งยึดกับรถตลอด → กล้องไม่หลุดหลังเวลาวิ่งเร็ว
+        let dth = t0.th - (view.th === undefined ? t0.th : view.th);
+        dth = Math.atan2(Math.sin(dth), Math.cos(dth));
+        view.th = (view.th === undefined ? t0.th : view.th) + dth * Math.min(1, dt * 2.5);
+        const ang = view.th + Math.PI + view.orbit + (view.mode === "side" ? -Math.PI / 2 - 0.6 : 0);
         const tilt = view.mode === "drone" ? Math.max(view.tilt, 0.6) : view.mode === "side" ? 0.12 : view.tilt;
         const tgt = view.mode === "side" ? cars[Math.min(cars.length - 1, Math.floor(cars.length / 2))].g.position.clone() : cen;
         want = new THREE.Vector3(tgt.x + Math.cos(ang) * Math.cos(tilt) * view.dist, tgt.y + 3 + Math.sin(tilt) * view.dist, tgt.z - Math.sin(ang) * Math.cos(tilt) * view.dist);
-        view.pos = view.pos ? view.pos.lerp(want, Math.min(1, dt * 3)) : want.clone();
+        view.pos = want.clone();
         cam.position.copy(view.pos); cam.lookAt(tgt.x, tgt.y + 2, tgt.z);
       }
     }
@@ -589,5 +842,5 @@ export function createWorld(host, api) {
     return newChunks;
   }
   function warm(s) { let n = 0; while (refreshChunks(s) > 0 && n < 40) n++; }
-  return { update, resize, setCam, setEnv, warm, get mode() { return view.mode; }, recenterAt: (s) => { const p = geo.at(s); recenter(p.lat, p.lon); chunks.forEach((g) => { root.remove(g); g.traverse((o) => { if (o.geometry && o.geometry !== geoBox && !Object.values(treeGeo).includes(o.geometry)) o.geometry.dispose(); }); }); chunks.clear(); } };
+  return { camDist: () => (view.pos && cars[0] ? view.pos.distanceTo(cars[0].g.position) : -1), update, resize, setCam, setEnv, warm, get mode() { return view.mode; }, recenterAt: (s) => { const p = geo.at(s); recenter(p.lat, p.lon); view.pos = null; view.th = undefined; view.trackSpot = null; chunks.forEach((g) => { root.remove(g); g.traverse((o) => { if (o.geometry && o.geometry !== geoBox && !Object.values(treeGeo).includes(o.geometry)) o.geometry.dispose(); }); }); chunks.clear(); } };
 }

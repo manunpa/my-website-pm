@@ -597,14 +597,14 @@ function frame(now) {
 async function start() {
   buildPanel(); initMap(); updAtoBtn();
   try {
-    const mod = await import("./train_sim_3d.js?v=20261126-3");
+    const mod = await import("./train_sim_3d.js?v=20261126-5");
     world = mod.createWorld($("view"), { geo, electric: () => !!TRAINS[S.type].electric });
     window.addEventListener("resize", () => world.resize());
     world.setEnv({ tod: S.tod, wx: S.wx });
   } catch (e) { console.error(e); flash("โหลดกราฟิก 3 มิติไม่สำเร็จ — ยังขับได้จากหน้าปัดและแผนที่", "", 6000); }
   restart();
   $("loading").hidden = true;
-  if (new URLSearchParams(location.search).get("debug") === "1") window.__train = { S, geo, TRAINS, jumpTo, restart, sim(sec) { for (let t = 0; t < sec; t += 0.05) { if (S.ato) runAto(); stepPhysics(0.05); checkStops(0.05); } } };
+  if (new URLSearchParams(location.search).get("debug") === "1") window.__train = { S, geo, TRAINS, jumpTo, restart, world: () => world, sim(sec) { for (let t = 0; t < sec; t += 0.05) { if (S.ato) runAto(); stepPhysics(0.05); checkStops(0.05); } } };
   requestAnimationFrame(frame);
 }
 requireLogin(() => start());
