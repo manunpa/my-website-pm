@@ -1,4 +1,4 @@
-import { requireLogin } from "./firebase-guard.js?v=20261122-sim";
+import { requireLogin } from "./firebase-guard.js?v=20261122-idle";
 import { createAudio } from "./truck_sim_audio.js?v=20261124-2";
 import { buildMap } from "./truck_sim_maps.js?v=20261125-2";
 

@@ -1,4 +1,4 @@
-import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122-leo';
+import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122-idle';
 /* ===== ตั้งค่าการเชื่อม Google Sheets API ===== */
 const CONFIG = {
   API_URL: 'https://script.google.com/macros/s/AKfycbyWoNoFrTC1Ep3j395aio1ZP9E9qrTwubtUei2uydmoHnsIigYk7V8jN29wvl32t84W/exec',

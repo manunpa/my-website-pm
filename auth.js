@@ -5,8 +5,11 @@ import {
     signInWithEmailAndPassword,
     sendPasswordResetEmail,
     setPersistence,
-    browserLocalPersistence
-} from "./firebase-guard.js";
+    browserLocalPersistence,
+    markActive,
+    isSessionStale,
+    endSession
+} from "./firebase-guard.js?v=20261122-idle";
 
 const form = document.getElementById("login-form");
 const emailInput = document.getElementById("email");
@@ -43,7 +46,13 @@ function errorText(code) {
 }
 
 // Firebase เป็นแหล่งความจริงเดียว
-onAuthStateChanged(auth, (user) => {
+let loggingIn = false;
+onAuthStateChanged(auth, async (user) => {
+    if (user && !loggingIn && isSessionStale()) {
+        // ล็อกอินค้างไว้จากครั้งก่อน แต่ไม่ได้ใช้งานนานเกินกำหนด → ให้ล็อกอินใหม่
+        await endSession();
+        return; // onAuthStateChanged จะถูกเรียกอีกครั้งด้วย user = null แล้วแสดงฟอร์ม
+    }
     if (user) {
         window.location.replace(HUB_URL);
     } else {
@@ -71,11 +80,14 @@ form.addEventListener("submit", async (e) => {
     submitBtn.disabled = true;
     submitBtn.textContent = "กำลังเข้าสู่ระบบ...";
     try {
+        loggingIn = true;
+        markActive(); // เริ่มนับเวลาใช้งานใหม่จากตอนล็อกอิน
         await setPersistence(auth, browserLocalPersistence);
         await signInWithEmailAndPassword(auth, email, password);
         // onAuthStateChanged จะพาไปหน้า Hub ให้เอง
     } catch (error) {
         console.error("Login error:", error.code, error.message);
+        loggingIn = false;
         showMessage(errorText(error.code));
         submitBtn.disabled = false;
         submitBtn.textContent = "เข้าสู่ระบบ";

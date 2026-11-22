@@ -7,7 +7,7 @@
      · เบรกลมมีเวลาหน่วง (ลมต้องวิ่งไปตลอดขบวน), เบรกไฟฟ้า/คืนพลังงานสำหรับรถไฟฟ้า
      · โค้ง: แรงเหวี่ยงที่ไม่ถูกชดเชย a = v²/R − g·(ยกโค้ง) ถ้าเกินขีดพลิกคว่ำ g·(G/2)/h_cg นานพอ → ตกราง
    ===================================================================== */
-import { requireLogin } from "./firebase-guard.js?v=20261122-sim";
+import { requireLogin } from "./firebase-guard.js?v=20261122-idle";
 import { LINE } from "./train_line_north.js?v=20261126-1";
 
 const $ = (id) => document.getElementById(id);

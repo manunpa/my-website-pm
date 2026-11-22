@@ -25,16 +25,39 @@ const firebaseConfig = {
 
 export const LOGIN_URL = "./index.html";
 export const HUB_URL = "./Access-Hub.html";
-export const INACTIVITY_LIMIT = 6 * 60 * 60 * 1000; // 6 ชั่วโมง (ไม่มีการใช้งานครบเวลานี้ → ออกจากระบบ)
+export const INACTIVITY_LIMIT = 1 * 60 * 60 * 1000; // 1 ชั่วโมง (ไม่มีการใช้งานครบเวลานี้ → ออกจากระบบ)
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-export async function doLogout() {
+// ===== เวลาใช้งานล่าสุด (จำในเครื่องนี้) =====
+// Firebase จำการล็อกอินไว้ในเบราว์เซอร์ตลอด ปิดแท็บแล้วเปิดใหม่ก็ยังเข้าได้
+// จึงจดเวลาที่ใช้งานล่าสุดไว้ ถ้าเปิดมาใหม่แล้วห่างเกิน INACTIVITY_LIMIT → ให้ล็อกอินใหม่
+const LAST_ACTIVE_KEY = "hub-last-active";
+
+export function markActive() {
+  try { localStorage.setItem(LAST_ACTIVE_KEY, String(Date.now())); } catch {}
+}
+
+/** true = ไม่ได้ใช้งานนานเกินกำหนด (หรือไม่เคยจดเวลาไว้) ต้องล็อกอินใหม่ */
+export function isSessionStale() {
+  let last;
+  try { last = Number(localStorage.getItem(LAST_ACTIVE_KEY)); }
+  catch { return false; } // เบราว์เซอร์บล็อกที่เก็บข้อมูล → ตรวจไม่ได้ ใช้ตัวจับเวลาในหน้าแทน
+  return !last || Date.now() - last > INACTIVITY_LIMIT;
+}
+
+/** ออกจากระบบและลบข้อมูลที่จำไว้ โดยไม่เปลี่ยนหน้า */
+export async function endSession() {
   try { await signOut(auth); }
   catch (error) { console.error("Logout Error:", error); }
+  try { localStorage.removeItem(LAST_ACTIVE_KEY); } catch {}
   // ลบข้อมูลแผนที่ที่จำไว้ในเครื่อง (maps.js) — คนถัดไปที่ใช้เครื่องนี้จะไม่เห็นข้อมูลถ้ายังไม่ล็อกอิน
   try { if (window.caches) await caches.delete("access-maps-data-v1"); } catch {}
+}
+
+export async function doLogout() {
+  await endSession();
   window.location.replace(LOGIN_URL);
 }
 
@@ -80,12 +103,20 @@ function startInactivityTimer() {
   if (inactivityStarted) return;
   inactivityStarted = true;
   let timer;
-  function reset() {
+  let lastWrite = 0;
+  function schedule(delay) {
     clearTimeout(timer);
     timer = setTimeout(async () => {
+      // อีกแท็บอาจยังใช้งานอยู่ (เวลาล่าสุดใช้ร่วมกันทุกแท็บ) → นับต่อ ไม่ต้องออก
+      if (!isSessionStale()) { schedule(INACTIVITY_LIMIT); return; }
       alert("หมดเวลาการใช้งานเนื่องจากไม่มีการเคลื่อนไหว กรุณาล็อกอินใหม่อีกครั้ง");
       await doLogout();
-    }, INACTIVITY_LIMIT);
+    }, delay);
+  }
+  function reset() {
+    const now = Date.now();
+    if (now - lastWrite > 30000) { lastWrite = now; markActive(); } // จดไม่เกินทุก 30 วินาที
+    schedule(INACTIVITY_LIMIT);
   }
   ["mousemove", "keydown", "click", "scroll", "touchstart"].forEach((evt) =>
     window.addEventListener(evt, reset, { passive: true })
@@ -112,6 +143,11 @@ export function requireLogin(onReady, { logoutButtonId = "logout-btn" } = {}) {
   onAuthStateChanged(auth, (user) => {
     if (!user) {
       window.location.replace(LOGIN_URL);
+      return;
+    }
+    // เปิดหน้าใหม่หลังไม่ได้ใช้งานนานเกินกำหนด → ออกจากระบบ ให้ล็อกอินใหม่
+    if (!started && isSessionStale()) {
+      doLogout();
       return;
     }
     const emailEl = document.getElementById("user-email");

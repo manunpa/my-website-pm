@@ -1,4 +1,4 @@
-import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122-am';
+import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122-idle';
 // ====== ตั้งค่า API และโครงสร้างข้อมูล ======
 const API_URL = 'https://script.google.com/macros/s/AKfycbxdmvJAoE2PkljyNuMnDwglijx3pjwJaEx56r2j5cMMuoif8UEW0a6JReKk1AWvEkuB2w/exec';
 const COL = {
