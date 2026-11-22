@@ -58,7 +58,9 @@ const HSR_STYLES = {
   classic: { name: "ดั้งเดิม", note: "ขาว แถบเขียว–ทอง จมูก 11 ม." },
   gold: { name: "ราชพฤกษ์", note: "ขาวงาช้าง แถบเหลืองทองตัดน้ำเงิน จมูกยาว 13 ม. เรียวแหลม" },
   night: { name: "ราตรี", note: "กรมท่าเข้ม เส้นทองบาง ๆ โค้งรอบกระจก จมูกสั้น 10 ม. ทรงดุดัน" },
-  sea: { name: "อันดามัน", note: "ขาว คลื่นฟ้าครามไล่สีพาดตลอดขบวน จมูก 12 ม." }
+  sea: { name: "อันดามัน", note: "ขาว คลื่นฟ้าครามไล่สีพาดตลอดขบวน จมูก 12 ม." },
+  swan: { name: "หงส์ทอง", note: "ขาวมุก หลังคาทองแชมเปญ ปีกทองบนจมูก เส้นแดงชาด จมูกปากเป็ดยาว 15 ม. แบนต่ำ" },
+  emerald: { name: "มรกต", note: "เขียวมรกตเมทัลลิก ท้องเงิน หัวลูกศรเงิน จมูกลิ่มสั้น 9 ม. ทรงดุดัน" }
 };
 let hsrStyle = "classic";
 const CAR_RANGE = { loco: [1, 20, "ตู้โดยสาร"], lux: [2, 14, "ตู้"], dmu: [2, 6, "คัน"], emu: [3, 16, "คัน"], emuModern: [3, 16, "คัน"], hsr: [4, 16, "คัน"] };
@@ -738,7 +740,7 @@ async function start() {
   pressed("trains", "k", S.type);
   buildPanel(); initMap(); updAtoBtn();
   try {
-    const mod = await import("./train_sim_3d.js?v=20261127-6");
+    const mod = await import("./train_sim_3d.js?v=20261128-2");
     const bld = await loadBuildings();
     const branch = branchFor();
     world = mod.createWorld($("view"), { geo, bld, branch, urban: (a, b) => countBld(bld, a, b) > 25, electric: () => !!TRAINS[S.type].electric });

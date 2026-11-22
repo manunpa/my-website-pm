@@ -956,7 +956,9 @@ export function createWorld(host, api) {
   const HSR_LOOK = {
     gold: { NL: 13, tw: 0.66, tp: 1.4, hp: 0.46, base: 0xf8f6f0, bands: [[0, 1.28, 0xbdb7a8], [1.6, 1.98, 0xe2a11a], [2.02, 2.08, 0x1d3a78], [3.86, 9, 0xe9e5dc]], door: 0xefebe1, glass: [10.6, 5.8, 3.0], metal: 0.4, rough: 0.2 },
     night: { NL: 10, tw: 0.58, tp: 1.75, hp: 0.34, base: 0x1c2433, glassC: 0x4d6a86, bands: [[0, 1.3, 0x10151e], [1.74, 1.8, 0xd4af37], [2.44, 2.48, 0x9c8a4a], [3.27, 3.31, 0x9c8a4a], [3.6, 3.65, 0xd4af37], [3.86, 9, 0x283044]], door: 0x232c3c, glass: [8.2, 4.3, 2.92], metal: 0.6, rough: 0.16 },
-    sea: { NL: 12, tw: 0.64, tp: 1.5, hp: 0.44, base: 0xf4f8fa, bands: [[0, 1.3, 0x0b4f7a], [1.99, 2.05, 0x0b4f7a], [3.86, 9, 0xe2ebef]], door: 0xeef4f7, glass: [9.6, 5.2, 3.0], metal: 0.42, rough: 0.2 }
+    sea: { NL: 12, tw: 0.64, tp: 1.5, hp: 0.44, base: 0xf4f8fa, bands: [[0, 1.3, 0x0b4f7a], [1.99, 2.05, 0x0b4f7a], [3.86, 9, 0xe2ebef]], door: 0xeef4f7, glass: [9.6, 5.2, 3.0], metal: 0.42, rough: 0.2 },
+    swan: { NL: 15, tw: 0.7, tp: 1.3, hp: 0.55, tipY: 1.3, c1y: 1.72, base: 0xf7f5ef, bands: [[0, 1.28, 0xb9b2a0], [1.86, 1.92, 0xa3122a], [3.55, 3.6, 0xa3122a], [3.6, 9, 0xd9c08a]], door: 0xf2efe6, glass: [11.8, 6.4, 2.95], metal: 0.45, rough: 0.18 },
+    emerald: { NL: 9, tw: 0.55, tp: 1.9, hp: 0.3, tipY: 1.85, c1y: 2.65, base: 0x0f5c4a, glassC: 0x5b7f8f, bands: [[0, 1.3, 0xaab3b8], [1.6, 1.65, 0xf2f4f5], [1.71, 1.74, 0xf2f4f5], [3.86, 9, 0x0b4739]], door: 0x125f4d, glass: [7.4, 3.9, 2.9], metal: 0.58, rough: 0.18 }
   };
   const hex = (c) => "#" + c.toString(16).padStart(6, "0");
   function makeHSRStyled(gp, len, nose, panto, style) {
@@ -964,7 +966,7 @@ export function createWorld(host, api) {
     const prof = (s) => {
       s.moveTo(-len / 2, y0);
       if (!nose) { s.lineTo(len / 2, y0); s.lineTo(len / 2, y1); }
-      else { s.lineTo(len / 2 - 1.2, y0); s.quadraticCurveTo(len / 2, y0 + 0.02, len / 2, style === "night" ? 1.7 : 1.5); s.bezierCurveTo(len / 2 - NL * 0.2, style === "night" ? 2.35 : 2.0, len / 2 - NL * 0.6, 3.78, xn, y1); }
+      else { s.lineTo(len / 2 - 1.2, y0); s.quadraticCurveTo(len / 2, y0 + 0.02, len / 2, K.tipY || (style === "night" ? 1.7 : 1.5)); s.bezierCurveTo(len / 2 - NL * 0.2, K.c1y || (style === "night" ? 2.35 : 2.0), len / 2 - NL * 0.6, 3.78, xn, y1); }
       s.lineTo(-len / 2, y1); s.closePath();
     };
     const zs = nose ? (x, y) => { if (x <= xn) return 1; const t = (x - xn) / NL, h = Math.max(0, (y - y0) / (y1 - y0)); return (1 - K.tw * Math.pow(t, K.tp)) * (1 - K.hp * Math.pow(t, 0.8) * h * h); } : null;
@@ -992,6 +994,22 @@ export function createWorld(host, api) {
         g.strokeStyle = "#d4af37"; g.lineWidth = 4;
         if (nose) { g.beginPath(); g.moveTo(X(xn - 6), Y(1.77)); g.bezierCurveTo(X(xn), Y(1.77), X(len / 2 - K.glass[0] - 0.6), Y(2.4), X(len / 2 - K.glass[0] + 0.2), Y(3.62)); g.stroke(); }
         g.fillStyle = "rgba(212,175,55,.10)"; for (let x = -len / 2 + 1; x < (nose ? xn - 1 : len / 2 - 1); x += 1.6) { g.beginPath(); g.arc(X(x), Y(1.45), 9, Math.PI, 0); g.fill(); }
+      } else if (style === "swan") {
+        // ปีกหงส์ทอง: แถบทองโค้งจากปลายจมูกขึ้นไปรับหลังคาทอง + ขนปีกบาง ๆ
+        const gr = g.createLinearGradient(X(len / 2), 0, X(-len / 2), 0); gr.addColorStop(0, "#f0d58f"); gr.addColorStop(1, "#b8964f");
+        if (nose) {
+          g.beginPath(); g.moveTo(X(len / 2 - 1), Y(1.95)); g.bezierCurveTo(X(xn + 4), Y(2.05), X(xn - 1), Y(3.0), X(xn - 6), Y(3.6)); g.lineTo(X(xn - 2), Y(3.6)); g.bezierCurveTo(X(xn + 2), Y(3.1), X(xn + 6), Y(2.3), X(len / 2 - 1), Y(1.95)); g.closePath(); g.fillStyle = gr; g.fill();
+          g.strokeStyle = "rgba(184,150,79,.55)"; g.lineWidth = 2; for (let k = 1; k <= 4; k++) { g.beginPath(); g.moveTo(X(xn - 6 + k * 1.4), Y(3.58)); g.quadraticCurveTo(X(xn - 3 + k * 1.6), Y(3.1 - k * 0.12), X(xn + k * 1.7), Y(2.6 - k * 0.1)); g.stroke(); }
+        }
+        g.fillStyle = gr; g.fillRect(0, Y(y1), X(len / 2), Y(3.6) - Y(y1));
+      } else if (style === "emerald") {
+        // หัวลูกศรเงินบนจมูก + เส้นขาวคู่ยกขึ้นเป็นมุมรับกระจก
+        if (nose) {
+          const gr = g.createLinearGradient(X(len / 2), 0, X(xn - 3), 0); gr.addColorStop(0, "#e8ecef"); gr.addColorStop(1, "#8f9aa1");
+          g.beginPath(); g.moveTo(X(len / 2), Y(1.3)); g.lineTo(X(len / 2), Y(2.15)); g.lineTo(X(xn - 2.5), Y(1.68)); g.lineTo(X(xn - 2.5), Y(1.3)); g.closePath(); g.fillStyle = gr; g.fill();
+          g.strokeStyle = "#f2f4f5"; g.lineWidth = 3; g.beginPath(); g.moveTo(X(xn - 2.5), Y(1.74)); g.lineTo(X(len / 2 - K.glass[0] + 0.3), Y(2.25)); g.lineTo(X(len / 2 - K.glass[0] + 1.4), Y(2.9)); g.stroke();
+        }
+        g.fillStyle = "rgba(255,255,255,.05)"; for (let x = -len / 2; x < len / 2; x += 0.9) g.fillRect(X(x), Y(3.8), 2, Y(1.8) - Y(3.8));
       } else if (style === "sea") {
         // คลื่นไล่สีฟ้าคราม → น้ำเงินเข้ม พร้อมฟองคลื่นสีขาว
         const gr = g.createLinearGradient(X(len / 2), 0, X(-len / 2), 0); gr.addColorStop(0, "#19c3d8"); gr.addColorStop(1, "#0b5f96");
