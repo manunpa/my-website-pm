@@ -738,6 +738,93 @@ export function createWorld(host, api) {
     bogie(gp, len / 2 - 2.6); bogie(gp, -len / 2 + 2.6);
     gangway(gp, len / 2 + 0.2); gangway(gp, -len / 2 - 0.2);
   }
+
+  /* ---------------- ขบวนหรู "ไหมไทย" ----------------
+     สีแดงเลือดหมู–ครีม–ทองแชมเปญ · หน้าต่างบานใหญ่มีม่านและโคมไฟ (กลางคืนไฟสีอุ่น) · หลังคาโค้งสูง */
+  const LUXC = { red: 0x5a1426, redS: "#5a1426", cream: 0xefe3c8, creamS: "#efe3c8", gold: 0xc9a85c, goldS: "#c9a85c", roof: 0x2a2627 };
+  const brass = mat(0xc9a85c, { metalness: 0.9, roughness: 0.25 });
+  trainMats.push(brass);
+  function luxWin(L, x0, x1, ya, yb) {
+    L.win(x0, x1, ya, yb, 0.2);
+    const { g, X, Y } = L, w = X(x1) - X(x0), h = Y(ya) - Y(yb);
+    // ม่านสองข้าง + ระบายด้านบน + โคมไฟกลางหน้าต่าง
+    g.fillStyle = "#7a1f33"; g.fillRect(X(x0) + 2, Y(yb) + 2, w * 0.16, h - 4); g.fillRect(X(x1) - 2 - w * 0.16, Y(yb) + 2, w * 0.16, h - 4);
+    g.fillStyle = "#8f2a3f"; g.fillRect(X(x0) + 2, Y(yb) + 2, w - 4, h * 0.12);
+    g.fillStyle = "rgba(255,214,140,.85)"; g.beginPath(); g.arc((X(x0) + X(x1)) / 2, Y(ya) - h * 0.28, 4, 0, 7); g.fill();
+  }
+  function luxCrest(L, x, y) {
+    const { g, X, Y } = L;
+    g.strokeStyle = LUXC.goldS; g.lineWidth = 3; g.beginPath(); g.arc(X(x), Y(y), 18, 0, 7); g.stroke();
+    g.fillStyle = LUXC.goldS; g.beginPath(); for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, r = k % 2 ? 6 : 13; g.lineTo(X(x) + Math.cos(a) * r, Y(y) + Math.sin(a) * r); } g.closePath(); g.fill();
+  }
+  const LUX_BANDS = [[0, 2.22, LUXC.red], [2.22, 2.27, LUXC.gold], [2.27, 3.47, LUXC.cream], [3.47, 3.52, LUXC.gold], [3.52, 3.98, LUXC.red], [3.98, 9, LUXC.roof]];
+  function luxBands(L) { LUX_BANDS.forEach(([a, b, c]) => L.band(a, Math.min(b, 4.2), hex(c))); L.band(1.42, 1.46, LUXC.goldS); }
+  function makeCoachLux(gp, len, variant) {
+    const y0 = 1.15, y1 = 4.2, obs = variant === "obs", xb = obs ? -len / 2 + 2.8 : -len / 2;   // ตู้ชมวิว: ระเบียงเปิดยาว 2.8 ม. ท้ายตู้
+    const prof = (s) => { s.moveTo(xb, y0); s.lineTo(len / 2, y0); s.lineTo(len / 2, y1); s.lineTo(xb, y1); s.closePath(); };
+    const wallC = STRIPE(LUX_BANDS.concat([[1.42, 1.46, LUXC.gold]]), LUXC.red);
+    const key = "lux-" + variant + len;
+    const geo = bodyGeo(key, 2.95, 0.5, prof, null, wallC);
+    const tex = livery(key, len, y0, y1, (L) => {
+      luxBands(L);
+      if (variant === "dining") { for (let i = 0; i < 6; i++) { const x = -len / 2 + 2.6 + i * 3.0; luxWin(L, x, x + 2.3, 2.42, 3.34); } }
+      else if (obs) { for (let i = 0; i < 5; i++) { const x = xb + 1.0 + i * 3.3; luxWin(L, x, x + 2.7, 2.36, 3.4); } }
+      else { for (let i = 0; i < 8; i++) { const x = -len / 2 + 2.4 + i * 2.22; luxWin(L, x, x + 1.5, 2.45, 3.3); } }
+      L.door(len / 2 - 1.7, len / 2 - 0.8, 1.3, 3.45, LUXC.redS);
+      if (!obs) L.door(-len / 2 + 0.8, -len / 2 + 1.7, 1.3, 3.45, LUXC.redS);
+      luxCrest(L, 0, 1.8);
+      L.panelLines(5.5);
+    });
+    body(gp, key, geo, tex, { metalness: 0.35, roughness: 0.28 });
+    box(gp, under, len - 7.5, 0.5, 2.1, obs ? 1.2 : 0, 0.92, 0);
+    box(gp, mat(LUXC.roof, { roughness: 0.6 }), 2.6, 0.3, 1.4, 2, y1 + 0.1, 0, true);
+    bogie(gp, len / 2 - 2.7); bogie(gp, -len / 2 + 2.9);
+    gangway(gp, len / 2 + 0.2);
+    if (!obs) { gangway(gp, -len / 2 - 0.2); return; }
+    // ระเบียงชมวิว: พื้นไม้สัก ราวทองเหลือง หลังคากันสาดโค้ง ไฟท้ายแดง
+    box(gp, mat(0x6b4426, { roughness: 0.6 }), 2.9, 0.12, 2.8, -len / 2 + 1.4, y0 + 0.06, 0, true);
+    box(gp, mat(LUXC.red, { metalness: 0.3, roughness: 0.4 }), 2.9, 0.3, 2.85, -len / 2 + 1.4, y0 - 0.12, 0);
+    const roofG = new THREE.CylinderGeometry(1.6, 1.6, 3.1, 24, 1, false, -Math.PI / 2, Math.PI);
+    const canopy = new THREE.Mesh(roofG, mat(LUXC.roof, { roughness: 0.5, side: THREE.DoubleSide })); canopy.rotation.z = Math.PI / 2; canopy.scale.set(1, 1, 0.2); canopy.position.set(-len / 2 + 1.35, y1 - 0.25, 0); gp.add(canopy);
+    const rail = (a, b) => rod(gp, brass, new THREE.Vector3(...a), new THREE.Vector3(...b), 0.035);
+    const xr = -len / 2 + 0.05, ytop = y0 + 1.15;
+    rail([xr, ytop, -1.35], [xr, ytop, 1.35]); rail([xr, ytop, 1.35], [xb, ytop, 1.35]); rail([xr, ytop, -1.35], [xb, ytop, -1.35]);
+    for (let z = -1.35; z <= 1.36; z += 0.45) rail([xr, y0 + 0.12, z], [xr, ytop, z]);
+    [1.35, -1.35].forEach((z) => { for (let x = xr; x < xb; x += 0.55) rail([x, y0 + 0.12, z], [x, ytop, z]); rail([xr, y0 + 0.12, z], [xr, y1 - 0.4, z]); });
+    lamp(gp, lampR, -len / 2 + 0.02, 1.7, 0.95, 0.12); lamp(gp, lampR, -len / 2 + 0.02, 1.7, -0.95, 0.12);
+    const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.16, 14, 10), lampW); lantern.position.set(-len / 2 + 0.6, y1 - 0.65, 0); gp.add(lantern);
+  }
+  function makeLocoLux(gp, len) {
+    const y0 = 1.2, y1 = 4.2, NL = 3.4;
+    const prof = (s) => { s.moveTo(-len / 2, y0); s.lineTo(len / 2 - 0.7, y0); s.quadraticCurveTo(len / 2, y0 + 0.05, len / 2, 1.9); s.lineTo(len / 2, 2.55); s.bezierCurveTo(len / 2 - 0.35, 3.3, len / 2 - 1.3, 4.15, len / 2 - NL, y1); s.lineTo(-len / 2 + 0.6, y1); s.quadraticCurveTo(-len / 2, y1, -len / 2, 3.6); s.closePath(); };
+    const zs = (x, y) => { if (x <= len / 2 - NL) return 1; const t = (x - len / 2 + NL) / NL, h = Math.max(0, (y - y0) / (y1 - y0)); return (1 - 0.14 * t * t) * (1 - 0.12 * t * h * h); };
+    const stripe = STRIPE([[0, 1.5, 0x1d1a1b], [1.5, 1.55, LUXC.gold], [2.05, 2.1, LUXC.gold], [2.16, 2.21, LUXC.gold], [3.98, 9, LUXC.roof]], LUXC.red);
+    const wallC = (x, y) => {
+      if (x > len / 2 - 1.75 && y > 2.72 && y < 3.95) return 0x0c1218;   // กระจกหน้าโค้ง
+      if (x > len / 2 - 0.45 && y > 1.6 && y < 2.45) return Math.abs(y - 2.02) < 0.24 ? LUXC.gold : LUXC.red;   // ปีกทองหน้ารถ
+      return stripe(x, y);
+    };
+    const geo = bodyGeo("locoLux" + len, 3.0, 0.35, prof, zs, wallC);
+    const tex = livery("locoLux" + len, len, y0, y1, (L) => {
+      L.band(y0, y1, LUXC.redS); L.band(y0, 1.5, "#1d1a1b"); [[1.5, 1.55], [2.05, 2.1], [2.16, 2.21]].forEach(([a, b]) => L.band(a, b, LUXC.goldS)); L.band(3.98, y1, hex(LUXC.roof));
+      const { g, X, Y } = L;
+      // ช่องระบายอากาศกรอบทอง
+      for (let x = -len / 2 + 1.4; x < len / 2 - 6; x += 2.9) { g.fillStyle = "#3d0d1a"; g.fillRect(X(x), Y(3.55), X(x + 2.2) - X(x), Y(2.55) - Y(3.55)); g.strokeStyle = LUXC.goldS; g.lineWidth = 2; g.strokeRect(X(x), Y(3.55), X(x + 2.2) - X(x), Y(2.55) - Y(3.55)); for (let k = X(x) + 5; k < X(x + 2.2); k += 6) { g.strokeStyle = "rgba(0,0,0,.35)"; g.beginPath(); g.moveTo(k, Y(3.5)); g.lineTo(k, Y(2.6)); g.stroke(); } }
+      L.win(len / 2 - 3.4, len / 2 - 1.9, 2.85, 3.7, 0.18, false);
+      L.door(len / 2 - 4.5, len / 2 - 3.7, 1.4, 3.75, LUXC.redS);
+      luxCrest(L, -len / 2 + 2.2, 1.82);
+    });
+    body(gp, "locoLux", geo, tex, { metalness: 0.4, roughness: 0.25 });
+    box(gp, frameM, len - 0.4, 0.2, 2.9, 0, y0 - 0.05, 0, true);
+    box(gp, brass, len - 0.6, 0.06, 0.04, 0, y0 + 0.02, 1.47); box(gp, brass, len - 0.6, 0.06, 0.04, 0, y0 + 0.02, -1.47);
+    for (let k = 0; k < 3; k++) { const f = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.1, 24), mat(0x1a1718)); f.position.set(-len / 2 + 2.4 + k * 1.7, y1 + 0.02, 0); gp.add(f); const r = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.035, 6, 24), brass); r.rotation.x = Math.PI / 2; r.position.copy(f.position); gp.add(r); }
+    rod(gp, brass, new THREE.Vector3(len / 2 - 4, y1, 0.35), new THREE.Vector3(len / 2 - 3.3, y1 + 0.2, 0.35), 0.06);
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 5.5, 20), mat(0x1d1a1b, { metalness: 0.4, roughness: 0.5 })); tank.rotation.z = Math.PI / 2; tank.position.set(-0.5, 0.75, 0); tank.scale.set(1, 1, 1.5); gp.add(tank);
+    bogie(gp, len / 2 - 3.5); bogie(gp, -len / 2 + 3.2);
+    lamp(gp, lampW, len / 2 + 0.01, 1.8, 0.82, 0.15); lamp(gp, lampW, len / 2 + 0.01, 1.8, -0.82, 0.15); lamp(gp, lampW, len / 2 - 1.85, 4.0, 0, 0.16);
+    box(gp, brass, 0.08, 0.06, 2.2, len / 2 + 0.03, 1.55, 0);
+    box(gp, frameM, 0.5, 0.35, 0.4, len / 2 + 0.2, 1.05, 0); box(gp, frameM, 0.5, 0.35, 0.4, -len / 2 - 0.2, 1.05, 0);
+  }
   function makeLoco(gp, len) {
     const y0 = 1.25, cabX = len / 2 - 3.6;
     const prof = (s) => { s.moveTo(-len / 2, y0); s.lineTo(len / 2 - 0.15, y0); s.lineTo(len / 2, y0 + 0.25); s.lineTo(len / 2, 2.85); s.lineTo(len / 2 - 0.5, 3.85); s.quadraticCurveTo(len / 2 - 0.7, 4.15, len / 2 - 1.1, 4.15); s.lineTo(cabX, 4.15); s.lineTo(cabX, 3.72); s.lineTo(-len / 2 + 0.5, 3.72); s.quadraticCurveTo(-len / 2, 3.72, -len / 2, 3.3); s.closePath(); };
@@ -971,6 +1058,7 @@ export function createWorld(host, api) {
   // ตำแหน่งประตูของแต่ละแบบ (ตรงกับลายที่วาดบนตัวรถ): [x เริ่ม, ความกว้าง, จำนวนบาน]
   function doorSpec(type, len, style) {
     const hd = style && HSR_LOOK[style] ? HSR_LOOK[style].door : 0xeceef0;
+    if (type === "coachLux") return { w: 2.95, y0: 1.3, y1: 3.45, col: 0x5a1426, list: style === "obs" ? [[len / 2 - 1.7, 0.9, 1]] : [[-len / 2 + 0.8, 0.9, 1], [len / 2 - 1.7, 0.9, 1]] };
     if (type === "coach") return { w: 2.9, y0: 1.3, y1: 3.45, col: 0xddd7ca, list: [[-len / 2 + 0.75, 1.0, 1], [len / 2 - 1.75, 1.0, 1]] };
     if (type === "dmu") return { w: 2.9, y0: 1.25, y1: 3.45, col: 0xdfe5ea, list: [[-len / 2 + 0.9, 1.2, 2], [len / 2 - 2.1, 1.2, 2]] };
     if (type === "emu" || type === "emuModern") return { w: 2.9, y0: 1.25, y1: 3.45, col: type === "emuModern" ? 0xe5edf1 : 0xdfe6eb, list: [[-len / 4 - 0.65, 1.3, 2], [len / 4 - 0.65, 1.3, 2]] };
@@ -1004,13 +1092,15 @@ export function createWorld(host, api) {
       const gp = new THREE.Group(), len = c.len;
       const flip = !!(c.flip || c.cabRear);
       if (c.type === "loco") makeLoco(gp, len);
+      else if (c.type === "locoLux") makeLocoLux(gp, len);
+      else if (c.type === "coachLux") makeCoachLux(gp, len, c.variant || "sleeper");
       else if (c.type === "coach") makeCoach(gp, len);
       else if (c.type === "dmu" || c.type === "emu" || c.type === "emuModern") makeMU(gp, len, c.type, !!(c.cab || c.cabRear), !!c.panto);
       else makeHSR(gp, len, c.type === "hsrNose", !!c.panto, c.style);
       // คันท้าย: ไฟหน้ากลายเป็นไฟท้ายสีแดง
       if (flip) gp.traverse((o) => { if (o.material === lampW) o.material = lampR; });
       // ประตูเปิดฝั่งซ้ายตามทิศวิ่ง (ฝั่งชานชาลา) — คันที่กลับหัว ฝั่งซ้ายคือ +z ของตัวเอง
-      const doors = addDoors(gp, c.type, len, flip ? 1 : -1, c.style);
+      const doors = addDoors(gp, c.type, len, flip ? 1 : -1, c.type === "coachLux" ? c.variant : c.style);
       let outer = gp;
       if (flip) { outer = new THREE.Group(); gp.rotation.y = Math.PI; outer.add(gp); }
       trainRoot.add(outer); cars.push({ g: outer, len: c.len, off: c.off, doors });

@@ -52,7 +52,7 @@ const COMFORT = 0.65;  // ม./วินาที² แรงเหวี่ย�
 /* ---------------- ชนิดรถไฟ (ค่าประมาณตามประเภท) ---------------- */
 function consist(list) { let acc = 0; return list.map((c) => { const o = Object.assign({}, c, { off: acc + c.len / 2 }); acc += c.len + 0.8; return o; }); }
 // ปรับจำนวนตู้ได้: มวล แรงต้าน กำลัง (สำหรับรถที่มีมอเตอร์กระจายทุกคัน) คำนวณใหม่ตามจำนวนตู้
-const CARS = { loco: 12, dmu: 3, emu: 6, emuModern: 6, hsr: 10 };
+const CARS = { loco: 12, lux: 7, dmu: 3, emu: 6, emuModern: 6, hsr: 10 };
 // ลายรถไฟความเร็วสูง: "classic" = ลายเดิม (ค่าเริ่มต้น) · ลายใหม่เป็นตัวเลือกเพิ่ม ไม่ได้แทนของเดิม
 const HSR_STYLES = {
   classic: { name: "ดั้งเดิม", note: "ขาว แถบเขียว–ทอง จมูก 11 ม." },
@@ -61,7 +61,7 @@ const HSR_STYLES = {
   sea: { name: "อันดามัน", note: "ขาว คลื่นฟ้าครามไล่สีพาดตลอดขบวน จมูก 12 ม." }
 };
 let hsrStyle = "classic";
-const CAR_RANGE = { loco: [1, 20, "ตู้โดยสาร"], dmu: [2, 6, "คัน"], emu: [3, 16, "คัน"], emuModern: [3, 16, "คัน"], hsr: [4, 16, "คัน"] };
+const CAR_RANGE = { loco: [1, 20, "ตู้โดยสาร"], lux: [2, 14, "ตู้"], dmu: [2, 6, "คัน"], emu: [3, 16, "คัน"], emuModern: [3, 16, "คัน"], hsr: [4, 16, "คัน"] };
 const fmtN = (x) => Math.round(x).toLocaleString("en-US");
 function makeTrain(k, n) {
   let t, list;
@@ -72,6 +72,15 @@ function makeTrain(k, n) {
       mass: mt * 1e3, power: 2000e3, fmax: 380e3, adhMass: 88e3, vDesign: 120 / KMH, rot: 1.06, hcg: 1.8,
       A: mt * 12, B: mt * 0.35, bServ: 0.85, bEmer: 1.25, airLag: 1.6 + n * 0.13, dyn: 0, regen: false, tracLag: 2.5,
       stopMin: 1, dwell: 60, eye: 3.7, dial: 160 };
+  } else if (k === "lux") {
+    // ขบวนหรู: หัวจักรดีเซลทรงลู่ลม + ตู้นอน ตู้เสบียงกลางขบวน ตู้ชมวิวระเบียงเปิดท้ายขบวน (ตู้หนักกว่าปกติ ที่นั่งน้อย ห้องกว้าง)
+    const mid = Math.floor(n / 2);
+    list = [{ type: "locoLux", len: 21 }].concat(Array.from({ length: n }, (_, i) => ({ type: "coachLux", len: 22, variant: i === n - 1 ? "obs" : i === mid && n > 2 ? "dining" : "sleeper" })));
+    const mt = 96 + 52 * n;
+    t = { name: `ขบวนหรู "ไหมไทย" ${n} ตู้`, sub: `หัวจักรหรู + ตู้นอน · ตู้เสบียง · ตู้ชมวิว · ${fmtN(mt)} ตัน · 2,600 kW`, kind: "diesel",
+      mass: mt * 1e3, power: 2200e3, fmax: 400e3, adhMass: 96e3, vDesign: 130 / KMH, rot: 1.06, hcg: 1.85,
+      A: mt * 11.5, B: mt * 0.33, bServ: 0.85, bEmer: 1.25, airLag: 1.6 + n * 0.14, dyn: 0, regen: false, tracLag: 2.2,
+      stopMin: 2, dwell: 120, eye: 3.6, dial: 160 };
   } else if (k === "dmu") {
     list = Array.from({ length: n }, (_, i) => ({ type: "dmu", len: 20.5, cab: i === 0 ? 1 : 0, cabRear: i === n - 1 ? 1 : 0 }));
     const mt = 45 * n;
@@ -729,7 +738,7 @@ async function start() {
   pressed("trains", "k", S.type);
   buildPanel(); initMap(); updAtoBtn();
   try {
-    const mod = await import("./train_sim_3d.js?v=20261127-5");
+    const mod = await import("./train_sim_3d.js?v=20261127-6");
     const bld = await loadBuildings();
     const branch = branchFor();
     world = mod.createWorld($("view"), { geo, bld, branch, urban: (a, b) => countBld(bld, a, b) > 25, electric: () => !!TRAINS[S.type].electric });
