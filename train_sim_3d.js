@@ -961,6 +961,19 @@ export function createWorld(host, api) {
     emerald: { NL: 9, tw: 0.55, tp: 1.9, hp: 0.3, tipY: 1.85, c1y: 2.65, base: 0x0f5c4a, glassC: 0x5b7f8f, bands: [[0, 1.3, 0xaab3b8], [1.6, 1.65, 0xf2f4f5], [1.71, 1.74, 0xf2f4f5], [3.86, 9, 0x0b4739]], door: 0x125f4d, glass: [7.4, 3.9, 2.9], metal: 0.58, rough: 0.18 }
   };
   const hex = (c) => "#" + c.toString(16).padStart(6, "0");
+  // แผงปิดใต้จมูกที่เรียวตามรูปจมูก (ไม่มีเหลี่ยมโผล่ข้าง ไม่มีช่องว่างกับแผงใต้ท้อง)
+  function noseSkirt(gp, xa, xb, hw, yt, yb, m) {
+    const N = 24, pos = [], idx = [];
+    for (let i = 0; i <= N; i++) {
+      const x = xa + (xb - xa) * i / N, w = hw(x), lift = Math.pow(i / N, 3) * 0.25;   // ปลายจมูกยกขอบล่างขึ้นเล็กน้อย
+      pos.push(x, yt, w, x, yb + lift, w * 0.94, x, yb + lift, -w * 0.94, x, yt, -w);
+    }
+    for (let i = 0; i < N; i++) { const a = i * 4, b = a + 4; for (let k = 0; k < 3; k++) idx.push(a + k, b + k, a + k + 1, a + k + 1, b + k, b + k + 1); idx.push(a + 3, b + 3, a, a, b + 3, b); }   // ฝาบน: ปิดช่องระหว่างแผงกับขอบโค้งของตัวรถ
+    const e = N * 4; idx.push(e, e + 1, e + 2, e, e + 2, e + 3);
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+    const mm = m.clone(); mm.side = THREE.DoubleSide;
+    const me = new THREE.Mesh(g, mm); me.castShadow = true; gp.add(me); return me;
+  }
   function makeHSRStyled(gp, len, nose, panto, style) {
     const K = HSR_LOOK[style], y0 = 1.0, y1 = 4.0, NL = K.NL, xn = len / 2 - NL;
     const prof = (s) => {
@@ -1026,15 +1039,14 @@ export function createWorld(host, api) {
     });
     body(gp, key, geo, tex, { metalness: K.metal, roughness: K.rough });
     const skirtC = K.bands[0][2];
-    box(gp, mat(skirtC, { metalness: 0.3 }), nose ? len - NL - 1 : len - 2, 0.55, 2.7, nose ? -NL / 2 - 0.5 : 0, 0.95, 0);
+    box(gp, mat(skirtC, { metalness: 0.3 }), nose ? xn + len / 2 - 0.9 : len - 2, 0.55, 2.7, nose ? (xn - len / 2 + 1) / 2 + 0.05 : 0, 0.95, 0);
     if (panto) { pantograph(gp, 2, y1); box(gp, mat(style === "night" ? 0x2c3546 : 0xd8dbde, { metalness: 0.3 }), 4.2, 0.35, 2.0, 2, y1 + 0.1, 0, true); }
     bogie(gp, len / 2 - (nose ? 4 : 2.7), null); bogie(gp, -len / 2 + 2.7, null);
     if (nose) {
       const ly = style === "night" ? 1.62 : 1.45, lz = style === "gold" ? 0.42 : 0.52;
       lamp(gp, lampW, len / 2 - 1.05, ly, lz, 0.12); lamp(gp, lampW, len / 2 - 1.05, ly, -lz, 0.12);
       if (style === "night") { lamp(gp, lampW, len / 2 - 1.3, ly + 0.22, 0.62, 0.07); lamp(gp, lampW, len / 2 - 1.3, ly + 0.22, -0.62, 0.07); }
-      [1, -1].forEach((sd) => { const sk = box(gp, mat(skirtC, { metalness: 0.3 }), 6.5, 0.6, 0.06, len / 2 - 4.4, 0.95, sd * 1.05); sk.rotation.y = sd * 0.07; });
-      box(gp, mat(0x9aa0a6, { metalness: 0.3 }), 1.6, 0.35, 1.6, len / 2 - 1.2, 0.85, 0);
+      noseSkirt(gp, xn - 0.1, len / 2 - 0.95, (x) => Math.min(1.35, Math.max(1.525 * zs(x, y0 + 0.08) + 0.02, x < len / 2 - 2.1 ? 1.0 : 0)), y0 + 0.32, 0.68, mat(skirtC, { metalness: 0.3 }));
       gangway(gp, -len / 2 - 0.2);
     } else { gangway(gp, len / 2 + 0.2); gangway(gp, -len / 2 - 0.2); }
   }
@@ -1062,14 +1074,13 @@ export function createWorld(host, api) {
       L.panelLines(5);
     });
     body(gp, "hsr", geo, tex, { metalness: 0.42, roughness: 0.22 });
-    box(gp, mat(0xc9ccd0, { metalness: 0.3 }), nose ? len - NL - 1 : len - 2, 0.55, 2.7, nose ? -NL / 2 - 0.5 : 0, 0.95, 0);   // แผงปิดใต้ท้อง (ลู่ลม)
+    box(gp, mat(0xc9ccd0, { metalness: 0.3 }), nose ? xn + len / 2 - 0.9 : len - 2, 0.55, 2.7, nose ? (xn - len / 2 + 1) / 2 + 0.05 : 0, 0.95, 0);   // แผงปิดใต้ท้อง (ลู่ลม)
     if (panto) { pantograph(gp, 2, y1); box(gp, mat(0xd8dbde, { metalness: 0.3 }), 4.2, 0.35, 2.0, 2, y1 + 0.1, 0, true); }
     bogie(gp, len / 2 - (nose ? 4 : 2.7), null); bogie(gp, -len / 2 + 2.7, null);
     if (nose) {
       lamp(gp, lampW, len / 2 - 1.05, 1.5, 0.52, 0.12); lamp(gp, lampW, len / 2 - 1.05, 1.5, -0.52, 0.12);
       // แผงปิดโบกี้หน้าใต้จมูก (ไม่ให้เห็นล้อโผล่)
-      [1, -1].forEach((sd) => { const sk = box(gp, mat(0xc9ccd0, { metalness: 0.3 }), 6.5, 0.6, 0.06, len / 2 - 4.4, 0.95, sd * 1.05); sk.rotation.y = sd * 0.07; });
-      box(gp, mat(0x9aa0a6, { metalness: 0.3 }), 1.6, 0.35, 1.6, len / 2 - 1.2, 0.85, 0);
+      noseSkirt(gp, xn - 0.1, len / 2 - 0.95, (x) => Math.min(1.35, Math.max(1.525 * zs(x, y0 + 0.08) + 0.02, x < len / 2 - 2.1 ? 1.0 : 0)), y0 + 0.32, 0.68, mat(0xc9ccd0, { metalness: 0.3 }));
       gangway(gp, -len / 2 - 0.2);
     } else { gangway(gp, len / 2 + 0.2); gangway(gp, -len / 2 - 0.2); }
   }
