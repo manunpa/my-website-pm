@@ -778,18 +778,31 @@ export function createWorld(host, api) {
       : modern
         ? [[1.42, 1.78, 0x0a9f9a], [1.83, 1.91, 0xd7b66b], [2.28, 3.3, 0x10243a], [3.5, 3.58, 0x20c7bb], [3.9, 9, 0xe3e9ef]]
         : [[1.45, 1.85, 0xc8102e], [2.28, 3.3, 0x20252d], [3.5, 3.58, 0xc8102e], [3.9, 9, 0xc4c8cd]];
-    const noseL = dmu ? 1.6 : 2.2;
+    const noseL = dmu ? 1.6 : modern ? 4.35 : 2.2;
     const prof = (s) => {
       s.moveTo(-len / 2, y0);
       if (!cab) { s.lineTo(len / 2, y0); s.lineTo(len / 2, y1); }
       else if (dmu) { s.lineTo(len / 2 - 0.25, y0); s.quadraticCurveTo(len / 2, y0 + 0.05, len / 2, y0 + 0.45); s.lineTo(len / 2, 2.5); s.lineTo(len / 2 - 0.62, 3.78); s.quadraticCurveTo(len / 2 - 0.85, y1, len / 2 - 1.3, y1); }
+      else if (modern) {
+        // Longer swept cab: low aerodynamic nose and a continuous roofline into the cab.
+        s.lineTo(len / 2 - 0.42, y0);
+        s.quadraticCurveTo(len / 2, y0 + 0.06, len / 2, y0 + 0.72);
+        s.lineTo(len / 2, 2.35);
+        s.bezierCurveTo(len / 2 - 0.5, 3.08, len / 2 - 2.1, 3.82, len / 2 - 3.55, 3.98);
+        s.quadraticCurveTo(len / 2 - 4.1, y1, len / 2 - 4.35, y1);
+      }
       else { s.lineTo(len / 2 - 0.4, y0); s.quadraticCurveTo(len / 2, y0 + 0.05, len / 2, y0 + 0.55); s.lineTo(len / 2, 2.25); s.bezierCurveTo(len / 2 - 0.1, 3.0, len / 2 - 0.9, 3.95, len / 2 - 1.9, y1); }
       s.lineTo(-len / 2, y1); s.closePath();
     };
-    const zs = cab ? (x, y) => { if (x <= len / 2 - noseL) return 1; const t = (x - len / 2 + noseL) / noseL, h = Math.max(0, (y - y0) / (y1 - y0)); return (1 - (dmu ? 0.1 : 0.16) * t * t) * (1 - (dmu ? 0.08 : 0.14) * t * h * h); } : null;
+    const zs = cab ? (x, y) => {
+      if (x <= len / 2 - noseL) return 1;
+      const t = (x - len / 2 + noseL) / noseL, h = Math.max(0, (y - y0) / (y1 - y0));
+      const sideTaper = modern ? 0.28 : dmu ? 0.1 : 0.16, roofTaper = modern ? 0.2 : dmu ? 0.08 : 0.14;
+      return (1 - sideTaper * t * t) * (1 - roofTaper * t * h * h);
+    } : null;
     const stripe = STRIPE(bands, base);
     const wallC = (x, y) => {
-      if (cab && x > len / 2 - (dmu ? 0.72 : 1.45) && y > (dmu ? 2.6 : 2.32) && y < (dmu ? 3.76 : 3.9)) return 0x0b1015;
+      if (cab && x > len / 2 - (dmu ? 0.72 : modern ? 4.05 : 1.45) && y > (dmu ? 2.6 : 2.32) && y < (dmu ? 3.76 : 3.9)) return 0x0b1015;
       if (cab && dmu && x > len / 2 - 0.3 && y < 2.5 && y > 1.95) return 0xf2c230;
       return stripe(x, y);
     };
@@ -815,11 +828,11 @@ export function createWorld(host, api) {
       }
       const doors = dmu ? [-len / 2 + 0.9, len / 2 - 2.1] : [-len / 4 - 0.65, len / 4 - 0.65];
       const dw = dmu ? 1.2 : 1.3;
-      const nW = dmu ? 7 : 8;
+      const nW = dmu ? 7 : modern ? 7 : 8, winW = modern ? 1.35 : 1.1;
       for (let i = 0; i < nW; i++) {
         const x = -len / 2 + 1.0 + (i + 0.5) * (len - 2.0) / nW;
         if (doors.some((d) => x > d - 0.5 && x < d + dw + 0.5)) continue;
-        L.win(x - 0.55, x + 0.55, 2.4, 3.15, 0.12);
+        L.win(x - winW / 2, x + winW / 2, modern ? 2.43 : 2.4, modern ? 3.18 : 3.15, modern ? 0.18 : 0.12);
       }
       doors.forEach((d) => L.door(d, d + dw, 1.25, 3.45, dmu ? "#dfe5ea" : modern ? "#dfe6eb" : "#d0d3d6", 2));
       L.panelLines(dmu ? 2.6 : 3.4); L.dirt();
@@ -831,8 +844,21 @@ export function createWorld(host, api) {
     if (panto) pantograph(gp, 3, y1);
     bogie(gp, len / 2 - 2.5, null); bogie(gp, -len / 2 + 2.5, null);
     if (cab) {
-      lamp(gp, lampW, len / 2 + 0.005, 1.95, 0.9); lamp(gp, lampW, len / 2 + 0.005, 1.95, -0.9);
-      box(gp, frameM, 0.4, 0.3, 2.4, len / 2 - 0.1, y0 - 0.12, 0);
+      if (modern) {
+        // Wraparound dark visor, full-width LED light bar, and sculpted lower bumper.
+        box(gp, mat(0x091b2b, { metalness: 0.45, roughness: 0.2 }), 0.055, 0.48, 2.42, len / 2 + 0.025, 2.08, 0);
+        box(gp, lampW, 0.045, 0.075, 1.86, len / 2 + 0.064, 1.77, 0);
+        lamp(gp, lampW, len / 2 + 0.05, 2.24, 1.17, 0.11); lamp(gp, lampW, len / 2 + 0.05, 2.24, -1.17, 0.11);
+        box(gp, mat(0x087f8a, { metalness: 0.35, roughness: 0.3 }), 0.12, 0.22, 2.45, len / 2 - 0.02, y0 + 0.18, 0, true);
+        // Streamlined side skirts bridge the bogies and repeat the teal signature line.
+        [-1, 1].forEach((side) => {
+          box(gp, mat(0xb2bec7, { metalness: 0.32, roughness: 0.36 }), len - 8.5, 0.34, 0.12, 0, 1.02, side * 1.48);
+          box(gp, mat(0x16aaa5, { metalness: 0.25, roughness: 0.3 }), len - 8.5, 0.045, 0.13, 0, 1.23, side * 1.49);
+        });
+      } else {
+        lamp(gp, lampW, len / 2 + 0.005, 1.95, 0.9); lamp(gp, lampW, len / 2 + 0.005, 1.95, -0.9);
+        box(gp, frameM, 0.4, 0.3, 2.4, len / 2 - 0.1, y0 - 0.12, 0);
+      }
       gangway(gp, -len / 2 - 0.2);
     } else { gangway(gp, len / 2 + 0.2); gangway(gp, -len / 2 - 0.2); }
   }
