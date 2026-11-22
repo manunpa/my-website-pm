@@ -66,6 +66,7 @@
     display: grid; grid-template-columns: auto auto; gap: 0 12px; font-variant-numeric: tabular-nums;
   }
   .hud b { font-weight: 600; text-align: right; }
+  .hud, .msg { z-index: 3; }
   .hud .big { font-size: 1.6rem; line-height: 1.1; font-weight: 600; grid-column: 1 / -1; }
   .hud .big small { font-size: .8rem; font-weight: 400; color: var(--muted); margin-left: 4px; }
   .msg {
@@ -76,7 +77,7 @@
   }
   .msg.show { opacity: 1; }
   .legend-mini {
-    position: absolute; left: 12px; bottom: 12px; pointer-events: none;
+    position: absolute; left: 12px; bottom: 58px; pointer-events: none;
     background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
     padding: 6px 10px; font-size: .75rem; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap;
   }
@@ -95,7 +96,33 @@
   .zoom button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
   .zoom #zAuto { font-size: .78rem; }
   .zoom span { font-size: .75rem; color: var(--muted); min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; }
-  .touch { position: absolute; right: 12px; bottom: 12px; display: none; gap: 8px; }
+  .view3d { position: absolute; inset: 0; background: #0b1020; }
+  .view3d[hidden] { display: none; }
+  .viewbar {
+    position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; gap: 2px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 4px;
+    box-shadow: 0 6px 20px -12px rgba(0,0,0,.35); z-index: 2;
+  }
+  .viewbar button {
+    font: inherit; font-size: .82rem; height: 32px; padding: 0 12px; border-radius: 8px; border: 0;
+    background: transparent; color: var(--text); cursor: pointer; white-space: nowrap;
+  }
+  .viewbar button:hover { background: var(--bg); }
+  .viewbar button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+  #btnNight { margin-left: 6px; border-left: 1px solid var(--line); border-radius: 0 8px 8px 0; }
+  #btnNight[aria-pressed="true"] { background: #1d2a4d; color: #ffe6a8; border-radius: 8px; }
+  .hint3d {
+    position: absolute; left: 12px; bottom: 58px; max-width: 340px; pointer-events: none;
+    background: rgba(10,14,24,.7); color: #e8ecf4; font-size: .76rem; padding: 6px 10px; border-radius: 10px;
+  }
+  .hint3d[hidden] { display: none; }
+  .mir { position: absolute; pointer-events: none; border: 5px solid #1c1f24; border-radius: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+  .mir span {
+    position: absolute; left: 50%; top: -24px; transform: translateX(-50%); white-space: nowrap;
+    background: rgba(10,14,24,.75); color: #fff; font-size: .72rem; padding: 2px 8px; border-radius: 999px;
+  }
+  @media (max-width: 600px) { .viewbar button { padding: 0 8px; font-size: .76rem; } }
+  .touch { position: absolute; right: 12px; bottom: 60px; display: none; gap: 8px; }
   .touch button {
     width: 58px; height: 58px; border-radius: 14px; border: 1px solid var(--line);
     background: var(--surface); color: var(--text); font-size: 1.4rem; touch-action: none; user-select: none;
@@ -163,14 +190,23 @@
     <canvas id="cv" aria-label="แผนที่จำลองรถบรรทุกและมุมอับ"></canvas>
     <div class="hud" id="hud"></div>
     <div class="msg" id="msg" role="status"></div>
-    <div class="zoom" role="toolbar" aria-label="ซูมแผนที่">
+    <div id="view3d" class="view3d" hidden></div>
+    <div id="mirLabels"></div>
+    <p id="hint3d" class="hint3d" hidden></p>
+    <div class="viewbar" id="viewbar" role="toolbar" aria-label="มุมมอง">
+      <button data-view="2d" aria-pressed="true" title="มุมมองจากด้านบน (C สลับ)">บนลงล่าง</button>
+      <button data-view="chase" aria-pressed="false" title="กล้อง 3 มิติไล่ตามหลังรถ">3D ไล่หลัง</button>
+      <button data-view="driver" aria-pressed="false" title="มองจากที่นั่งคนขับ พร้อมกระจกมองข้าง">มุมคนขับ</button>
+      <button id="btnNight" aria-pressed="false" title="สลับกลางวัน/กลางคืน (N)">กลางคืน</button>
+    </div>
+    <div class="zoom" id="zoomBar" role="toolbar" aria-label="ซูมแผนที่">
       <button id="zOut" title="ซูมออก (−)" aria-label="ซูมออก">−</button>
       <span id="zLabel">100%</span>
       <button id="zIn" title="ซูมเข้า (+)" aria-label="ซูมเข้า">+</button>
       <button id="zFit" title="พอดีตัวรถ" aria-label="ซูมพอดีตัวรถ">⤢</button>
       <button id="zAuto" title="ซูมออกเองตามความเร็ว ให้เห็นจุดหยุดรถ" aria-pressed="false">ตามความเร็ว</button>
     </div>
-    <div class="legend-mini">
+    <div class="legend-mini" id="legendMini">
       <span><i class="sw" style="background:rgba(229,72,77,.55)"></i>มุมอับ</span>
       <span><i class="sw" style="background:rgba(46,160,90,.35)"></i>มองเห็นตรง</span>
       <span><i class="sw" style="background:rgba(59,130,246,.35)"></i>ผ่านกระจก</span>
@@ -301,6 +337,7 @@
         <kbd>Space</kbd><span>เบรกมือ</span>
         <kbd>1 2 3</kbd><span>เปลี่ยนรถ</span>
         <kbd>V · T · Z</kbd><span>เปิด/ปิดพื้นที่ที่มองเห็น · เส้นทางล้อ · โซนอันตราย</span>
+        <kbd>C · N</kbd><span>สลับมุมมอง (บนลงล่าง / 3D ไล่หลัง / มุมคนขับ) · กลางวัน/กลางคืน</span>
         <kbd>+ − / ล้อเมาส์</kbd><span>ซูม (หรือปุ่มมุมขวาบนของแผนที่)</span>
         <kbd>R</kbd><span>เริ่มใหม่</span>
       </div>
@@ -308,6 +345,6 @@
   </aside>
 </div>
 
-<script type="module" src="./truck_blind_spot_simulator.js?v=20261122-4"></script>
+<script type="module" src="./truck_blind_spot_simulator.js?v=20261123-2"></script>
 </body>
 </html>

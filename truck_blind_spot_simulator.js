@@ -75,6 +75,39 @@ const RIGS = {
   }
 };
 
+/* ---------------- ผังเมือง (ใช้ร่วมกันทั้ง 2D และ 3D) ----------------
+   ตึกริมถนนทั้งสองเส้น ต้นไม้บนทางเท้า เสาไฟ — สุ่มแบบกำหนดเมล็ดไว้ ทุกครั้งได้ผังเดิม */
+const CITY = (() => {
+  let seed = 42 >>> 0;
+  const r = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+  const B = [], T = [], Lm = [];
+  for (let i = -14; i <= 14; i++) {
+    const x = i * 21;
+    [1, -1].forEach((side) => {
+      if (Math.abs(x - CROSS_X) < 26) return;
+      const d = 12 + r() * 14, w = 14 + r() * 5, h = 7 + r() * r() * 38;
+      B.push({ x, y: side * (14 + d / 2), w, d, h, c: Math.floor(r() * 7) });
+    });
+  }
+  for (let j = -14; j <= 14; j++) {
+    const y = j * 21;
+    [1, -1].forEach((side) => {
+      if (Math.abs(y) < 26) return;
+      const d = 12 + r() * 14, w = 14 + r() * 5, h = 7 + r() * r() * 38;
+      B.push({ x: CROSS_X + side * (14 + d / 2), y, w: d, d: w, h, c: Math.floor(r() * 7) });
+    });
+  }
+  for (let x = -300; x <= 300; x += 13) if (Math.abs(x - CROSS_X) > 13) [10.2, -10.2].forEach((y) => T.push({ x: x + 3, y, s: 0.8 + r() * 0.5 }));
+  for (let y = -300; y <= 300; y += 13) if (Math.abs(y) > 13) [CROSS_X - 10.2, CROSS_X + 10.2].forEach((x) => T.push({ x, y: y + 3, s: 0.8 + r() * 0.5 }));
+  for (let x = -160; x <= 300; x += 36) if (Math.abs(x - CROSS_X) > 14) {
+    Lm.push({ x, y: 9.3, dir: 1, light: Math.abs(x) < 120 });
+    Lm.push({ x: x + 18, y: -9.3, dir: -1, light: Math.abs(x) < 120 });
+  }
+  Lm.push({ x: CROSS_X - 10, y: 10, dir: 1, light: true }, { x: CROSS_X + 10, y: -10, dir: -1, light: true });
+  return { B, T, Lm };
+})();
+const BUILD_COLORS = ["#d8d2c4", "#c7cbd1", "#e2d6c2", "#b9c2c9", "#d6c9b6", "#cfd6d9", "#e8e2d6"];
+
 /* ---------------- สถานะ ---------------- */
 const S = {
   rigKey: "tanker", units: [], v: 0, steer: 0,
@@ -83,6 +116,7 @@ const S = {
   opts: { prox: false, front: false, showVis: true, trail: true, autoCenter: true, objH: 1.2, range: 8, place: "moto",
           mu: 0.7, tbrake: "abs", cargo: 13, testSpeed: 80, zone: true },
   brakeA: 0, accel: 0, imbSign: 1, test: null, lastResult: "", warnT: 0,
+  view: "2d", night: false, skids: [], skidPrev: {}, smoke: [], hist: [], kS: 0,
   phys: { latUse: 0, push: 0, pushLat: 0, aLat: 0, artRate: 0 }
 };
 const P = {};       // ค่าที่คำนวณล่วงหน้าทุกเฟรม (ตำแหน่งตา กระจก รูปทรงตัวรถ)
@@ -190,7 +224,8 @@ function buildRig(key) {
   }
   S.v = 0; S.steer = 0; S.brakeA = 0; S.accel = 0; S.test = null;
   S.units.forEach((u) => { u.w = 0; u.vH = null; u.aH = null; });
-  S.trails = [[], [], [], []]; S.trailAcc = 0;
+  S.trails = [[], [], [], []]; S.trailAcc = 0; S.hist = []; S.kS = 0;
+  S.skids = []; S.skidPrev = {}; S.smoke = [];
   updateMass();
   prep();
   const t = S.units[0];
@@ -473,6 +508,10 @@ function step(dt) {
   if (S.msgT > 0) S.msgT -= dt;
   if (S.warnT > 0) S.warnT -= dt;
   if (S.test) testTrack();
+  updateSmoke(dt);
+  // ความโค้งของเส้นทางข้างหน้า ไล่ตามพวงมาลัยแบบนุ่ม ๆ (โซนหน้า/จุดหยุดรถโค้งตามการเลี้ยว)
+  const kNow = Math.tan(S.steer) / d.wb;
+  S.kS += (kNow - S.kS) * Math.min(1, dt * 5);
 }
 
 /* หางแบบไดนามิก (ใช้ตอนวิ่งเร็วกว่า 3 ม./วิ เดินหน้า)
@@ -541,6 +580,7 @@ function moveRig(ds, h) {
       return false;
     }
   }
+  recordSkids();
   // เก็บเส้นทางล้อ: มุมหน้ารถทั้งสองข้าง + ล้อหลังสุดของคันสุดท้าย
   S.trailAcc += Math.abs(ds);
   if (S.trailAcc >= 0.25) {
@@ -548,8 +588,42 @@ function moveRig(ds, h) {
     const lb = lastBody(), ax = lb.def.axles[lb.def.axles.length - 1].x;
     const pts = [toWorld(tr, tr.def.front, HW), toWorld(tr, tr.def.front, -HW), toWorld(lb, ax, HW - 0.15), toWorld(lb, ax, -HW + 0.15)];
     pts.forEach((p, i) => { S.trails[i].push(p); if (S.trails[i].length > 600) S.trails[i].shift(); });
+    if (ds > 0) {
+      const [hx, hy] = toWorld(lb, lb.def.rear, 0);
+      S.hist.push({ x: hx, y: hy }); if (S.hist.length > 900) S.hist.shift();
+    }
   }
   return true;
+}
+
+/* ---------------- รอยเบรก / ควันยาง ----------------
+   เบรกเต็มที่ = รอยจาง ๆ จากล้อหลังตัวแม่ · ล้อหางล็อก = รอยเข้ม + ควันยาง */
+function recordSkids() {
+  const hard = S.brakeA > 0 && S.brakeA >= 0.85 * PH.aMax, locked = S.phys.locked;
+  if (S.v < 2 || (!hard && !locked)) { S.skidPrev = {}; return; }
+  S.units.forEach((u, ui) => {
+    const lockU = locked && u.def.kind === "trailer";
+    if (!lockU && !(hard && u.def.kind === "truck")) return;
+    u.def.axles.forEach((a, ai) => {
+      if (a.steer) return;
+      [HW - 0.3, -HW + 0.3].forEach((y, si) => {
+        const key = ui + "-" + ai + "-" + si, p = toWorld(u, a.x, y), q = S.skidPrev[key];
+        if (!q) { S.skidPrev[key] = p; return; }
+        if (Math.hypot(p[0] - q[0], p[1] - q[1]) > 0.35) { S.skids.push([q[0], q[1], p[0], p[1], lockU ? 0.55 : 0.22]); S.skidPrev[key] = p; }
+      });
+    });
+  });
+  if (S.skids.length > 8000) S.skids.splice(0, S.skids.length - 8000);
+}
+function updateSmoke(dt) {
+  if (S.phys.locked && S.v > 3) {
+    const tu = S.units.find((u) => u.def.kind === "trailer");
+    if (tu) tu.def.axles.forEach((a) => [HW - 0.3, -HW + 0.3].forEach((y) => {
+      if (Math.random() < 0.6) { const [x, yy] = toWorld(tu, a.x, y); S.smoke.push({ x, y: yy, r: 0.35, life: 1.4, vx: (Math.random() - 0.5) * 0.8, vy: (Math.random() - 0.5) * 0.8 }); }
+    }));
+  }
+  S.smoke.forEach((pt) => { pt.r += 1.8 * dt; pt.life -= dt; pt.x += pt.vx * dt; pt.y += pt.vy * dt; });
+  S.smoke = S.smoke.filter((pt) => pt.life > 0).slice(-400);
 }
 
 /* ---------------- ทดสอบเบรกกะทันหัน ---------------- */
@@ -607,10 +681,37 @@ function objState(o) {
 /* ---------------- วาด ---------------- */
 function readColors() {
   const cs = getComputedStyle(document.documentElement);
+  setTimeout(makePatterns, 0);
   ["ground", "grid", "road", "walk", "mark", "yellow", "text", "label"].forEach((k) => { COL[k] = cs.getPropertyValue("--c-" + k).trim(); });
   COL.bad = cs.getPropertyValue("--bad").trim(); COL.ok = cs.getPropertyValue("--ok").trim();
 }
+const PAT = {};
+function makePatterns() {
+  const mk = (size, meters, draw) => {
+    const c = document.createElement("canvas"); c.width = c.height = size;
+    draw(c.getContext("2d"), size);
+    const pat = ctx.createPattern(c, "repeat"); pat.m = meters / size; return pat;
+  };
+  const speck = (g, n, base, light, dark, count) => {
+    g.fillStyle = base; g.fillRect(0, 0, n, n);
+    for (let i = 0; i < count; i++) {
+      g.fillStyle = Math.random() < 0.5 ? light : dark;
+      g.globalAlpha = 0.15 + Math.random() * 0.35; g.fillRect(Math.random() * n, Math.random() * n, 1 + Math.random() * 1.6, 1 + Math.random() * 1.6);
+    }
+    g.globalAlpha = 1;
+  };
+  PAT.road = mk(256, 6, (g, n) => speck(g, n, COL.road, "#9aa0a6", "#2a2d31", 5200));
+  PAT.ground = mk(256, 12, (g, n) => speck(g, n, COL.ground, "#ffffff", "#7d846f", 2600));
+  PAT.walk = mk(128, 2, (g, n) => {
+    g.fillStyle = COL.walk; g.fillRect(0, 0, n, n);
+    g.strokeStyle = "rgba(0,0,0,.10)"; g.lineWidth = 2;
+    for (let i = 0; i <= n; i += n / 2) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, n); g.moveTo(0, i); g.lineTo(n, i); g.stroke(); }
+    speck(g, 0, COL.walk, "#fff", "#000", 0);
+  });
+}
+function patFill(pat) { pat.setTransform(new DOMMatrix().scale(pat.m)); ctx.fillStyle = pat; }
 function resize() {
+  if (three) three.resize();
   const r = cv.parentElement.getBoundingClientRect();
   DPR = Math.min(2, window.devicePixelRatio || 1);
   W = Math.max(1, r.width); H = Math.max(1, r.height);
@@ -634,17 +735,25 @@ function drawWorld() {
   const vx1 = S.cam.x - W / 2 / s - 5, vx2 = S.cam.x + W / 2 / s + 5;
   const vy1 = S.cam.y - H / 2 / s - 5, vy2 = S.cam.y + H / 2 / s + 5;
   worldT();
-  ctx.fillStyle = COL.ground; ctx.fillRect(vx1, vy1, vx2 - vx1, vy2 - vy1);
+  if (PAT.ground) patFill(PAT.ground); else ctx.fillStyle = COL.ground;
+  ctx.fillRect(vx1, vy1, vx2 - vx1, vy2 - vy1);
   // เส้นตาราง 5 ม.
   ctx.strokeStyle = COL.grid; ctx.lineWidth = px; ctx.beginPath();
   for (let x = Math.floor(vx1 / 5) * 5; x < vx2; x += 5) { ctx.moveTo(x, vy1); ctx.lineTo(x, vy2); }
   for (let y = Math.floor(vy1 / 5) * 5; y < vy2; y += 5) { ctx.moveTo(vx1, y); ctx.lineTo(vx2, y); }
   ctx.stroke();
   // ทางเท้า + ถนน
-  ctx.fillStyle = COL.walk;
+  if (PAT.walk) patFill(PAT.walk); else ctx.fillStyle = COL.walk;
   ctx.fillRect(vx1, -11, vx2 - vx1, 22); ctx.fillRect(CROSS_X - 11, vy1, 22, vy2 - vy1);
-  ctx.fillStyle = COL.road;
+  if (PAT.road) patFill(PAT.road); else ctx.fillStyle = COL.road;
   ctx.fillRect(vx1, -8.5, vx2 - vx1, 17); ctx.fillRect(CROSS_X - 8.5, vy1, 17, vy2 - vy1);
+  // ขอบคันหิน
+  ctx.fillStyle = "rgba(255,255,255,.35)";
+  [[8.5, 0.25], [-8.75, 0.25]].forEach(([y, h]) => { ctx.fillRect(vx1, y, CROSS_X - 8.5 - vx1, h); ctx.fillRect(CROSS_X + 8.5, y, vx2 - CROSS_X - 8.5, h); });
+  [[CROSS_X - 8.75, 0.25], [CROSS_X + 8.5, 0.25]].forEach(([x, w]) => { ctx.fillRect(x, 8.5, w, vy2 - 8.5); ctx.fillRect(x, vy1, w, -8.5 - vy1); });
+  // รอยล้อจาง ๆ กลางช่องจราจร
+  ctx.fillStyle = "rgba(0,0,0,.07)";
+  [5.25, 1.75, -1.75, -5.25].forEach((c) => [-0.95, 0.95].forEach((o) => { ctx.fillRect(vx1, c + o - 0.3, CROSS_X - 9 - vx1, 0.6); ctx.fillRect(CROSS_X + 9, c + o - 0.3, vx2 - CROSS_X - 9, 0.6); }));
   const inX = (x) => x > CROSS_X - 8.5 && x < CROSS_X + 8.5, inY = (y) => y > -8.5 && y < 8.5;
   // เส้นขอบทาง / แบ่งช่อง / เส้นกลางถนน
   ctx.lineWidth = 0.15;
@@ -667,6 +776,131 @@ function drawWorld() {
   for (let y = -7.5; y < 7.5; y += 1) { ctx.fillRect(CROSS_X - 12, y, 3, 0.5); ctx.fillRect(CROSS_X + 9, y, 3, 0.5); }
   for (let x = CROSS_X - 7.5; x < CROSS_X + 7.5; x += 1) { ctx.fillRect(x, 9, 0.5, 3); ctx.fillRect(x, -12, 0.5, 3); }
   ctx.fillRect(CROSS_X - 12.8, 0, 0.4, 7); ctx.fillRect(CROSS_X + 12.4, -7, 0.4, 7);
+  drawDecor(vx1, vx2, vy1, vy2);
+}
+// ตึก (หลังคา + เงา) ต้นไม้ เสาไฟ — แสงแดดมาจากซ้ายบน เงาทอดไปขวาล่าง
+function drawDecor(vx1, vx2, vy1, vy2) {
+  const px = 1 / S.cam.s, inView = (x, y, r) => x + r > vx1 && x - r < vx2 && y + r > vy1 && y - r < vy2;
+  CITY.B.forEach((b) => {
+    if (!inView(b.x, b.y, Math.max(b.w, b.d) / 2 + b.h * 0.4)) return;
+    const x1 = b.x - b.w / 2, y1 = b.y - b.d / 2, sh = Math.min(b.h * 0.35, 14);
+    ctx.fillStyle = "rgba(0,0,0,.22)";
+    ctx.beginPath();
+    ctx.moveTo(x1 + b.w, y1 + b.d); ctx.lineTo(x1 + b.w + sh, y1 + b.d - sh); ctx.lineTo(x1 + b.w + sh, y1 - sh); ctx.lineTo(x1 + sh, y1 - sh); ctx.lineTo(x1, y1); ctx.lineTo(x1 + b.w, y1);
+    ctx.closePath(); ctx.fill();
+    const col = BUILD_COLORS[b.c % BUILD_COLORS.length];
+    const g = ctx.createLinearGradient(x1, y1 + b.d, x1 + b.w, y1);
+    g.addColorStop(0, col); g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = col; ctx.fillRect(x1, y1, b.w, b.d);
+    ctx.fillStyle = "rgba(255,255,255,.18)"; ctx.fillRect(x1, y1 + b.d - 0.6, b.w, 0.6); ctx.fillRect(x1, y1, 0.6, b.d);
+    ctx.strokeStyle = "rgba(0,0,0,.25)"; ctx.lineWidth = px; ctx.strokeRect(x1, y1, b.w, b.d);
+    // อุปกรณ์บนหลังคา
+    ctx.fillStyle = "rgba(90,96,104,.55)";
+    ctx.fillRect(b.x + b.w * 0.05, b.y - b.d * 0.15, b.w * 0.3, b.d * 0.25);
+    ctx.fillStyle = "rgba(255,255,255,.45)";
+    for (let i = 0; i < 3; i++) ctx.fillRect(x1 + 1.2 + i * 1.6, y1 + 1.2, 1.1, 1.1);
+  });
+  CITY.T.forEach((t) => {
+    if (!inView(t.x, t.y, 4)) return;
+    const r = 1.9 * t.s;
+    ctx.fillStyle = "rgba(0,0,0,.2)"; ctx.beginPath(); ctx.ellipse(t.x + r * 0.55, t.y - r * 0.55, r, r * 0.9, 0, 0, Math.PI * 2); ctx.fill();
+    const g = ctx.createRadialGradient(t.x - r * 0.3, t.y + r * 0.3, r * 0.1, t.x, t.y, r);
+    g.addColorStop(0, "#7fae5a"); g.addColorStop(0.7, "#4f7a3a"); g.addColorStop(1, "#3a5c2b");
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(t.x, t.y, r, 0, Math.PI * 2); ctx.fill();
+  });
+  CITY.Lm.forEach((l) => {
+    if (!inView(l.x, l.y, 4)) return;
+    ctx.strokeStyle = "#4b5057"; ctx.lineWidth = 0.14;
+    ctx.beginPath(); ctx.moveTo(l.x, l.y); ctx.lineTo(l.x, l.y - l.dir * 2.2); ctx.stroke();
+    ctx.fillStyle = "#4b5057"; ctx.beginPath(); ctx.arc(l.x, l.y, 0.2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = S.night ? "#ffe6a8" : "#d9dce0"; ctx.fillRect(l.x - 0.35, l.y - l.dir * 2.2 - 0.2, 0.7, 0.4);
+  });
+}
+function drawSkids() {
+  if (!S.skids.length) return;
+  worldT();
+  ctx.lineCap = "round"; ctx.lineWidth = 0.32;
+  [0.22, 0.55].forEach((a) => {
+    ctx.strokeStyle = "rgba(18,18,20," + a + ")"; ctx.beginPath();
+    S.skids.forEach((k) => { if (k[4] === a) { ctx.moveTo(k[0], k[1]); ctx.lineTo(k[2], k[3]); } });
+    ctx.stroke();
+  });
+  ctx.lineCap = "butt";
+}
+function drawSmoke() {
+  if (!S.smoke.length) return;
+  worldT();
+  S.smoke.forEach((pt) => {
+    const a = Math.max(0, pt.life / 1.4) * 0.38;
+    const g = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, pt.r);
+    g.addColorStop(0, "rgba(225,225,225," + a + ")"); g.addColorStop(1, "rgba(225,225,225,0)");
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2); ctx.fill();
+  });
+}
+// ไฟเบรก ไฟท้าย ไฟถอย ไฟเลี้ยว
+function drawLights() {
+  worldT();
+  const t = performance.now() / 1000, blink = Math.sin(t * 9.5) > 0;
+  const braking = S.brakeA > 0.05, rev = S.v < -0.05, turn = Math.abs(S.steer) > 6 * DEG ? Math.sign(S.steer) : 0;
+  const glow = (x, y, r, rgb, a) => {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, "rgba(" + rgb + "," + a + ")"); g.addColorStop(1, "rgba(" + rgb + ",0)");
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  };
+  const lb = lastBody();
+  S.units.forEach((u) => {
+    if (u.def.front == null) return;
+    [HW - 0.25, -HW + 0.25].forEach((y) => {
+      const [x, yy] = toWorld(u, u.def.rear + 0.05, y);
+      ctx.fillStyle = braking ? "#ff2a2a" : "#9b1c1c"; ctx.beginPath(); ctx.arc(x, yy, 0.16, 0, Math.PI * 2); ctx.fill();
+      if (braking) glow(x, yy, 1.8, "255,40,40", 0.55); else if (S.night) glow(x, yy, 1.0, "255,40,40", 0.3);
+      if (rev && u === lb) glow(x, yy, 1.4, "255,255,255", 0.7);
+    });
+  });
+  if (turn && blink) {
+    const tr = S.units[0], y = turn * (HW - 0.15);
+    [toWorld(tr, tr.def.front, y), toWorld(lb, lb.def.rear, y)].forEach(([x, yy]) => {
+      ctx.fillStyle = "#ffb020"; ctx.beginPath(); ctx.arc(x, yy, 0.18, 0, Math.PI * 2); ctx.fill();
+      glow(x, yy, 1.5, "255,170,30", 0.65);
+    });
+  }
+}
+// กลางคืน: ฉากมืด เปิดช่องแสงตามไฟถนนและไฟหน้ารถ
+const nightC = document.createElement("canvas"), nctx = nightC.getContext("2d");
+function drawNight() {
+  if (nightC.width !== cv.width || nightC.height !== cv.height) { nightC.width = cv.width; nightC.height = cv.height; }
+  nctx.setTransform(1, 0, 0, 1, 0, 0); nctx.globalCompositeOperation = "source-over";
+  nctx.clearRect(0, 0, nightC.width, nightC.height);
+  nctx.fillStyle = "rgba(4,8,22,0.82)"; nctx.fillRect(0, 0, nightC.width, nightC.height);
+  nctx.globalCompositeOperation = "destination-out";
+  nctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const hole = (X, Y, R, a) => {
+    const g = nctx.createRadialGradient(X, Y, 0, X, Y, R);
+    g.addColorStop(0, "rgba(0,0,0," + a + ")"); g.addColorStop(1, "rgba(0,0,0,0)");
+    nctx.fillStyle = g; nctx.fillRect(X - R, Y - R, R * 2, R * 2);
+  };
+  CITY.Lm.forEach((l) => { const X = sx(l.x), Y = sy(l.y - l.dir * 2.2), R = 11 * S.cam.s; if (X > -R && X < W + R && Y > -R && Y < H + R) hole(X, Y, R, 0.8); });
+  const tr = S.units[0];
+  [HW - 0.35, -HW + 0.35].forEach((yo) => {
+    const [fx, fy] = toWorld(tr, tr.def.front, yo), X = sx(fx), Y = sy(fy), R = 42 * S.cam.s;
+    nctx.save(); nctx.translate(X, Y); nctx.rotate(-tr.th);
+    const g = nctx.createRadialGradient(0, 0, 0, 0, 0, R);
+    g.addColorStop(0, "rgba(0,0,0,.95)"); g.addColorStop(0.6, "rgba(0,0,0,.6)"); g.addColorStop(1, "rgba(0,0,0,0)");
+    nctx.fillStyle = g; nctx.beginPath(); nctx.moveTo(0, 0); nctx.arc(0, 0, R, -0.33, 0.33); nctx.closePath(); nctx.fill();
+    nctx.restore();
+  });
+  S.units.forEach((u) => { if (u.def.front != null) { const [x, y] = toWorld(u, (u.def.front + u.def.rear) / 2, 0); hole(sx(x), sy(y), 7 * S.cam.s, 0.35); } });
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(nightC, 0, 0);
+  // แสงอุ่น ๆ ของไฟถนน
+  screenT(); ctx.globalCompositeOperation = "lighter";
+  CITY.Lm.forEach((l) => {
+    const X = sx(l.x), Y = sy(l.y - l.dir * 2.2), R = 9 * S.cam.s;
+    if (X < -R || X > W + R || Y < -R || Y > H + R) return;
+    const g = ctx.createRadialGradient(X, Y, 0, X, Y, R);
+    g.addColorStop(0, "rgba(255,190,90,.22)"); g.addColorStop(1, "rgba(255,190,90,0)");
+    ctx.fillStyle = g; ctx.fillRect(X - R, Y - R, R * 2, R * 2);
+  });
+  ctx.globalCompositeOperation = "source-over";
 }
 
 function drawVisibility() {
@@ -688,65 +922,100 @@ function drawVisibility() {
    - ข้างซ้าย/ขวา: ช่องจราจรข้าง ๆ ตลอดความยาวรถ + ระยะที่รถกำลังแซงวิ่งเข้ามาได้ใน 1.5 วินาที */
 const ZONE_COL = "#e8890c", LANE_W = 3.5;
 const ZONE_NAME = { front: "หน้า: ระยะหยุดรถ", rear: "หลัง: เว้นระยะ 2 วิ", left: "ช่องซ้าย: รถแซง 1.5 วิ", right: "ช่องขวา: รถแซง 1.5 วิ" };
+/* โซนเป็น "แถบ" ตามเส้นทาง ไม่ใช่สี่เหลี่ยมแข็ง ๆ:
+   - หน้า: ตามเส้นทางที่รถกำลังจะวิ่งไปด้วยมุมพวงมาลัยตอนนี้ (โค้งตามการเลี้ยว)
+   - หลัง + ส่วนต่อท้ายช่องข้าง: ตามเส้นทางที่ท้ายรถเพิ่งวิ่งผ่านมา (โค้งตามรอยที่รถมา)
+   - ช่องข้างตลอดตัวรถ: ติดกับรถแต่ละท่อน (หัว/หาง) จึงหักตามข้อต่อ */
+function predictFront(s) {
+  const t = S.units[0], k = S.kS || 0, th = t.th + k * s;
+  let x, y;
+  if (Math.abs(k) < 1e-5) { x = t.x + s * Math.cos(t.th); y = t.y + s * Math.sin(t.th); }
+  else { x = t.x + (Math.sin(th) - Math.sin(t.th)) / k; y = t.y - (Math.cos(th) - Math.cos(t.th)) / k; }
+  return { x: x + t.def.front * Math.cos(th), y: y + t.def.front * Math.sin(th), th };
+}
+function pathBack(len) {
+  const lb = lastBody(), [rx, ry] = toWorld(lb, lb.def.rear, 0), c = Math.cos(lb.th), sn = Math.sin(lb.th);
+  const out = [{ x: rx, y: ry, th: lb.th }];
+  let acc = 0, px = rx, py = ry, started = false;
+  for (let i = S.hist.length - 1; i >= 0 && acc < len; i--) {
+    const h = S.hist[i];
+    if (!started && (h.x - rx) * c + (h.y - ry) * sn > -0.3) continue;   // ข้ามจุดที่อยู่หน้าท้ายรถ
+    started = true;
+    const d = Math.hypot(h.x - px, h.y - py);
+    if (d < 0.45) continue;
+    const th = Math.atan2(py - h.y, px - h.x);
+    if (acc + d > len) { const f = (len - acc) / d; out.push({ x: px + (h.x - px) * f, y: py + (h.y - py) * f, th }); acc = len; break; }
+    acc += d; out.push({ x: h.x, y: h.y, th }); px = h.x; py = h.y;
+  }
+  if (acc < len) { const th = out[out.length - 1].th, rem = len - acc; out.push({ x: px - Math.cos(th) * rem, y: py - Math.sin(th) * rem, th }); }
+  return out;
+}
+// เติมจุดให้ห่างกันไม่เกิน step (ใช้สุ่มตัวอย่างและให้ขอบโค้งเนียน)
+function resample(pts, step) {
+  const out = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i], d = Math.hypot(b.x - a.x, b.y - a.y), n = Math.max(1, Math.ceil(d / step));
+    for (let k = 1; k <= n; k++) { const f = k / n; out.push({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, th: f < 1 ? a.th + wrap(b.th - a.th) * f : b.th }); }
+  }
+  return out;
+}
+function strip(key, pts, o1, o2, extra) {
+  const P2 = resample(pts, 0.5), L = [], R = [], samples = [];
+  P2.forEach((p, i) => {
+    const nx = -Math.sin(p.th), ny = Math.cos(p.th);
+    L.push([p.x + nx * o2, p.y + ny * o2]); R.push([p.x + nx * o1, p.y + ny * o1]);
+    if (i % 1 === 0) for (let o = o1 + 0.25; o < o2; o += 0.5) samples.push([p.x + nx * o, p.y + ny * o]);
+  });
+  const e = P2[P2.length - 1], mid = (o1 + o2) / 2;
+  return Object.assign({ key, L, R, samples, far: [e.x - Math.sin(e.th) * mid, e.y + Math.cos(e.th) * mid] }, extra || {});
+}
 function zoneRects() {
   const v = Math.max(0, S.v);
   if (v < 1 || !S.opts.zone) return [];
-  const t = S.units[0], lb = lastBody(), sd = stopDistance(v);
-  const rear = Math.max(5, v * 2), side = v * 1.5, w = HW + 0.35;
-  const z = [
-    { key: "front", u: t, x1: t.def.front, x2: t.def.front + sd.total, y1: -w, y2: w, len: sd.total },
-    { key: "rear", u: lb, x1: lb.def.rear - rear, x2: lb.def.rear, y1: -w, y2: w, len: rear }
-  ];
+  const sd = stopDistance(v), w = HW + 0.35, rear = Math.max(5, v * 2), side = v * 1.5;
+  const front = [];
+  for (let d = 0; d < sd.total; d += 0.5) front.push(predictFront(d));
+  front.push(predictFront(sd.total));
+  const z = [strip("front", front, -w, w, { len: sd.total }), strip("rear", pathBack(rear), -w, w, { len: rear })];
+  const back = pathBack(side), lo = HW + 0.3, hi = HW + 0.3 + LANE_W;
   S.units.forEach((u) => {
     if (u.def.front == null) return;
-    z.push({ key: "left", u, x1: u.def.rear, x2: u.def.front, y1: HW + 0.3, y2: HW + 0.3 + LANE_W });
-    z.push({ key: "right", u, x1: u.def.rear, x2: u.def.front, y1: -HW - 0.3 - LANE_W, y2: -HW - 0.3 });
+    const [ax, ay] = toWorld(u, u.def.front, 0), [bx, by] = toWorld(u, u.def.rear, 0);
+    const seg = [{ x: ax, y: ay, th: u.th }, { x: bx, y: by, th: u.th }];
+    z.push(strip("left", seg, lo, hi), strip("right", seg, -hi, -lo));
   });
-  z.push({ key: "left", u: lb, x1: lb.def.rear - side, x2: lb.def.rear, y1: HW + 0.3, y2: HW + 0.3 + LANE_W, tail: true, len: side });
-  z.push({ key: "right", u: lb, x1: lb.def.rear - side, x2: lb.def.rear, y1: -HW - 0.3 - LANE_W, y2: -HW - 0.3, tail: true, len: side });
+  z.push(strip("left", back, lo, hi, { tail: true, len: side }), strip("right", back, -hi, -lo, { tail: true, len: side }));
   return z;
 }
-// สุ่มจุดในโซน (ทุก 0.5 ม.) แล้วนับว่ากี่ % คนขับมองไม่เห็น
-function zoneStats(rects) {
+function zoneStats(shapes) {
   const acc = {};
-  rects.forEach((r) => {
-    const a = acc[r.key] || (acc[r.key] = { n: 0, blind: 0, len: 0 });
-    if (r.len && (r.key === "front" || r.key === "rear" || r.tail)) a.len = r.len;
-    for (let x = r.x1 + 0.25; x < r.x2; x += 0.5) for (let y = r.y1 + 0.25; y < r.y2; y += 0.5) {
-      const [wx, wy] = toWorld(r.u, x, y), c = classify(wx, wy);
-      if (c === VIS.INSIDE) continue;
-      a.n++; if (c === VIS.BLIND) a.blind++;
-    }
+  shapes.forEach((z) => {
+    const a = acc[z.key] || (acc[z.key] = { n: 0, blind: 0, len: 0 });
+    if (z.len) a.len = z.len;
+    z.samples.forEach(([x, y]) => { const c = classify(x, y); if (c === VIS.INSIDE) return; a.n++; if (c === VIS.BLIND) a.blind++; });
   });
   Object.keys(acc).forEach((k) => { acc[k].pct = acc[k].n ? acc[k].blind / acc[k].n * 100 : 0; });
   return acc;
 }
-function drawZones(rects) {
-  if (!rects.length) return;
+function drawZones(shapes) {
+  if (!shapes.length) return;
   worldT();
   const px = 1 / S.cam.s;
-  ctx.fillStyle = "rgba(232,137,12,.10)"; ctx.strokeStyle = ZONE_COL; ctx.lineWidth = 1.5 * px; ctx.setLineDash([7 * px, 5 * px]);
-  rects.forEach((r) => {
-    ctx.save();
-    ctx.transform(Math.cos(r.u.th), Math.sin(r.u.th), -Math.sin(r.u.th), Math.cos(r.u.th), r.u.x, r.u.y);
-    ctx.fillRect(r.x1, r.y1, r.x2 - r.x1, r.y2 - r.y1); ctx.strokeRect(r.x1, r.y1, r.x2 - r.x1, r.y2 - r.y1);
-    ctx.restore();
+  ctx.fillStyle = "rgba(232,137,12,.11)"; ctx.strokeStyle = ZONE_COL; ctx.lineWidth = 1.5 * px; ctx.setLineDash([7 * px, 5 * px]);
+  shapes.forEach((z) => {
+    ctx.beginPath();
+    z.L.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    for (let i = z.R.length - 1; i >= 0; i--) ctx.lineTo(z.R[i][0], z.R[i][1]);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
   });
   ctx.setLineDash([]);
-  // ป้ายหนึ่งอันต่อโซน: หน้า/หลังที่ปลาย ข้าง ๆ ที่ส่วนต่อท้ายรถ
   screenT();
   const st = S.zoneStats || {};
-  // ป้ายสั้น ๆ ไว้ปลายนอกของโซน (โซนหน้าใช้ป้ายจุดหยุดรถแทน) — ซูมออกมากจะซ่อนป้ายข้าง ๆ ให้ดูที่แผงแทน
-  rects.forEach((r) => {
-    const a = st[r.key];
-    if (!a || !(r.key === "rear" || r.tail) || (r.tail && S.cam.s < 9)) return;
-    const lx = r.x1 - 1.2, ly = r.key === "rear" ? 0 : r.key === "left" ? r.y2 + 0.8 : r.y1 - 0.8;
-    const [wx, wy] = toWorld(r.u, lx, ly);
-    const name = r.key === "rear" ? "เว้นท้าย 2 วิ " + a.len.toFixed(0) + " ม." : r.key === "left" ? "รถแซงซ้าย" : "รถแซงขวา";
-    ctx.font = "500 12px 'IBM Plex Sans Thai', system-ui, sans-serif";
-    const txt = name + " · มองไม่เห็น " + Math.round(a.pct) + "%", half = ctx.measureText(txt).width / 2 + 8;
-    const c = Math.cos(r.u.th);
-    label(sx(wx) - c * half, sy(wy), txt, ZONE_COL);
+  shapes.forEach((z) => {
+    const a = st[z.key];
+    if (!a || !(z.key === "rear" || z.tail) || (z.tail && S.cam.s < 9)) return;
+    const name = z.key === "rear" ? "เว้นท้าย 2 วิ " + a.len.toFixed(0) + " ม." : z.key === "left" ? "รถแซงซ้าย" : "รถแซงขวา";
+    label(sx(z.far[0]), sy(z.far[1]), name + " · มองไม่เห็น " + Math.round(a.pct) + "%", ZONE_COL);
   });
 }
 function updateZonePanel() {
@@ -760,12 +1029,14 @@ function updateZonePanel() {
 
 function drawStopMarker() {
   if (S.v < 2) return;
-  const t = S.units[0], sd = stopDistance(S.v);
-  const [fx, fy] = toWorld(t, t.def.front, 0), c = Math.cos(t.th), s = Math.sin(t.th);
-  const pr = [fx + c * sd.r, fy + s * sd.r], pt = [fx + c * sd.total, fy + s * sd.total];
+  const sd = stopDistance(S.v), pr = predictFront(sd.r), pt = predictFront(sd.total);
   screenT();
+  // เส้นทางที่ด้านหน้ารถจะวิ่งไป (ประตามพวงมาลัย)
+  ctx.strokeStyle = "rgba(229,72,77,.55)"; ctx.lineWidth = 2; ctx.setLineDash([3, 5]); ctx.beginPath();
+  for (let d = 0; d <= sd.total; d += 1) { const p = predictFront(d); d ? ctx.lineTo(sx(p.x), sy(p.y)) : ctx.moveTo(sx(p.x), sy(p.y)); }
+  ctx.stroke(); ctx.setLineDash([]);
   const line = (p, col, text, dash) => {
-    const x = sx(p[0]), y = sy(p[1]), nx = -s * HW * 1.6 * S.cam.s, ny = -c * HW * 1.6 * S.cam.s;
+    const x = sx(p.x), y = sy(p.y), nx = -Math.sin(p.th) * HW * 1.6 * S.cam.s, ny = -Math.cos(p.th) * HW * 1.6 * S.cam.s;
     ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.setLineDash(dash ? [6, 4] : []);
     ctx.beginPath(); ctx.moveTo(x + nx, y + ny); ctx.lineTo(x - nx, y - ny); ctx.stroke(); ctx.setLineDash([]);
     label(x - nx * 1.4, y - ny * 1.4, text, col);
@@ -830,11 +1101,20 @@ function drawUnit(u, idx) {
   ctx.save();
   ctx.transform(Math.cos(u.th), Math.sin(u.th), -Math.sin(u.th), Math.cos(u.th), u.x, u.y);
   ctx.lineWidth = 1.2 * px;
+  if (d.front != null) {
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,.45)"; ctx.shadowBlur = 0.8 * S.cam.s;
+    ctx.shadowOffsetX = 0.55 * S.cam.s; ctx.shadowOffsetY = 0.55 * S.cam.s;
+    ctx.fillStyle = "rgba(0,0,0,.25)"; rr(d.rear, -HW, d.front - d.rear, HW * 2, 0.4); ctx.fill();
+    ctx.restore();
+  }
   d.parts.forEach((p) => {
     if (p.t === "chassis") { ctx.fillStyle = "#3b3e42"; ctx.fillRect(p.x1, -p.hw, p.x2 - p.x1, p.hw * 2); }
     if (p.t === "fifth") { ctx.fillStyle = "#6b6f75"; ctx.beginPath(); ctx.arc(p.x, 0, 0.55, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#222"; ctx.beginPath(); ctx.arc(p.x, 0, 0.12, 0, Math.PI * 2); ctx.fill(); }
     if (p.t === "tank") {
-      ctx.fillStyle = "#e9ecee"; ctx.strokeStyle = "#8a939b"; rr(p.x1, -HW, p.x2 - p.x1, HW * 2, 0.9); ctx.fill(); ctx.stroke();
+      const tg = ctx.createLinearGradient(0, -HW, 0, HW);
+      tg.addColorStop(0, "#9ea6ad"); tg.addColorStop(0.35, "#f4f6f7"); tg.addColorStop(0.55, "#ffffff"); tg.addColorStop(1, "#aeb6bd");
+      ctx.fillStyle = tg; ctx.strokeStyle = "#7d868e"; rr(p.x1, -HW, p.x2 - p.x1, HW * 2, 0.9); ctx.fill(); ctx.stroke();
       ctx.fillStyle = "rgba(0,0,0,.07)"; ctx.fillRect(p.x1 + 0.4, -0.35, p.x2 - p.x1 - 0.8, 0.7);
       ctx.fillStyle = "#9aa3ab";
       for (let x = p.x1 + 1.4; x < p.x2 - 0.8; x += 2.3) { ctx.beginPath(); ctx.arc(x, 0, 0.28, 0, Math.PI * 2); ctx.fill(); }
@@ -878,7 +1158,11 @@ function drawUnit(u, idx) {
     const cf = d.cabFront, cb = d.cabBack;
     ctx.fillStyle = d.color; ctx.strokeStyle = "rgba(0,0,0,.5)";
     rr(cb, -HW, cf - cb, HW * 2, 0.35); ctx.fill(); ctx.stroke();
+    const cg = ctx.createLinearGradient(0, -HW, 0, HW);
+    cg.addColorStop(0, "rgba(0,0,0,.22)"); cg.addColorStop(0.45, "rgba(255,255,255,.28)"); cg.addColorStop(1, "rgba(0,0,0,.18)");
+    ctx.fillStyle = cg; rr(cb, -HW, cf - cb, HW * 2, 0.35); ctx.fill();
     ctx.fillStyle = "rgba(255,255,255,.18)"; rr(cb + 0.25, -HW + 0.25, cf - cb - 0.6, HW * 2 - 0.5, 0.2); ctx.fill();
+    ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.fillRect(cb + 0.35, -0.5, 0.5, 1.0);
     ctx.fillStyle = "rgba(20,30,45,.8)"; ctx.fillRect(cf - 0.28, -HW + 0.12, 0.16, HW * 2 - 0.24);
     ctx.strokeStyle = "#222"; ctx.lineWidth = 0.07;
     P.mirrors.forEach((m) => { ctx.beginPath(); ctx.moveTo(m.lx + 0.1, m.side * (HW - 0.05)); ctx.lineTo(m.lx, m.ly); ctx.stroke(); });
@@ -1040,19 +1324,26 @@ function frame(t) {
   const M = measure();
   const states = S.objects.map(objState);
 
-  screenT(); ctx.clearRect(0, 0, W, H);
-  drawWorld();
-  drawVisibility();
-  drawTrails();
   const zr = zoneRects();
   if (panelT - dt <= 0) S.zoneStats = zr.length ? zoneStats(zr) : null;
-  drawZones(zr);
-  drawStopMarker();
-  drawObjects(states);
-  drawRig();
-  drawProbes(M);
-  drawRegionLabels();
-  drawScale();
+  if (S.view !== "2d" && three) {
+    placeMirrorLabels(three.render(dt, states, true));
+  } else {
+    screenT(); ctx.clearRect(0, 0, W, H);
+    drawWorld();
+    drawSkids();
+    if (S.night) {
+      // กลางคืน: วาดรถกับวัตถุก่อน แล้วค่อยทาความมืด จากนั้นวางชั้นมุมอับ/ป้ายไว้บนสุดให้ยังอ่านได้
+      drawObjects(states); drawRig(); drawSmoke(); drawNight(); drawLights();
+      drawVisibility(); drawTrails(); drawZones(zr); drawStopMarker();
+    } else {
+      drawVisibility(); drawTrails(); drawZones(zr); drawStopMarker();
+      drawObjects(states); drawRig(); drawSmoke(); drawLights();
+    }
+    drawProbes(M);
+    drawRegionLabels();
+    drawScale();
+  }
 
   panelT -= dt;
   if (panelT <= 0) { panelT = 0.15; updatePanel(M); updatePhysPanel(); updateZonePanel(); updateHud(); zoomLabel(); }
@@ -1075,6 +1366,8 @@ function bindControls() {
     else if (e.code === "KeyV") setOpt("showVis", !S.opts.showVis, "optVis");
     else if (e.code === "KeyT") setOpt("trail", !S.opts.trail, "optTrail");
     else if (e.code === "KeyZ") setOpt("zone", !S.opts.zone, "optZone");
+    else if (e.code === "KeyC") setView({ "2d": "chase", chase: "driver", driver: "2d" }[S.view]);
+    else if (e.code === "KeyN") setNight(!S.night);
     else if (e.key === "+" || e.key === "=") zoom(1.2);
     else if (e.key === "-" || e.key === "_") zoom(1 / 1.2);
   });
@@ -1086,15 +1379,11 @@ function bindControls() {
   cv.addEventListener("pointerdown", (e) => {
     const r = cv.getBoundingClientRect();
     const X = S.cam.x + (e.clientX - r.left - W / 2) / S.cam.s, Y = S.cam.y - (e.clientY - r.top - H / 2) / S.cam.s;
-    if (e.button === 2 || e.shiftKey) {
-      let best = -1, bd = 3;
-      S.objects.forEach((o, i) => { const d = Math.hypot(o.x - X, o.y - Y); if (d < bd) { bd = d; best = i; } });
-      if (best > -1) S.objects.splice(best, 1);
-      return;
-    }
-    if (e.button !== 0) return;
-    S.objects.push({ t: S.opts.place, x: X, y: Y, th: S.units[0].th, v: 0 });
+    if (e.button === 2 || e.shiftKey) placeAt(X, Y, true);
+    else if (e.button === 0) placeAt(X, Y, false);
   });
+  document.querySelectorAll("#viewbar [data-view]").forEach((b) => b.addEventListener("click", () => { setView(b.dataset.view); b.blur(); }));
+  $("btnNight").addEventListener("click", (e) => { setNight(!S.night); e.currentTarget.blur(); });
 
   document.querySelectorAll(".touch button").forEach((b) => {
     const k = b.dataset.key;
@@ -1143,6 +1432,62 @@ function bindControls() {
   window.addEventListener("resize", resize);
 }
 function setOpt(key, val, id) { S.opts[key] = val; $(id).checked = val; }
+function placeAt(X, Y, remove) {
+  if (remove) {
+    let best = -1, bd = 3;
+    S.objects.forEach((o, i) => { const d = Math.hypot(o.x - X, o.y - Y); if (d < bd) { bd = d; best = i; } });
+    if (best > -1) S.objects.splice(best, 1);
+    return;
+  }
+  S.objects.push({ t: S.opts.place, x: X, y: Y, th: S.units[0].th, v: 0 });
+}
+
+/* ---------------- มุมมอง 3D (โหลดเมื่อใช้ครั้งแรก) ---------------- */
+let three = null, threeLoading = false;
+const API3D = { S, P, G, HW, CELL, CROSS_X, EYE_H, toWorld, blindOutline, city: CITY, placeAt, zoneRects, stopDistance, predictFront };
+async function setView(v) {
+  if (v !== "2d" && !three) {
+    if (threeLoading) return;
+    threeLoading = true; flash("กำลังโหลดมุมมอง 3 มิติ…");
+    try {
+      const mod = await import("./truck_blind_spot_3d.js?v=20261123-6");
+      three = mod.create3D($("view3d"), API3D);
+      three.setNight(S.night);
+    } catch (err) {
+      console.error(err); threeLoading = false;
+      flash("โหลดมุมมอง 3 มิติไม่สำเร็จ — ลองตรวจอินเทอร์เน็ตแล้วกดใหม่");
+      return;
+    }
+    threeLoading = false; S.msgT = 0;
+  }
+  S.view = v;
+  const is3d = v !== "2d";
+  $("view3d").hidden = !is3d; cv.style.display = is3d ? "none" : "";
+  $("zoomBar").style.display = is3d ? "none" : "";
+  $("legendMini").style.display = is3d ? "none" : "";
+  $("hint3d").hidden = !is3d;
+  $("hint3d").textContent = v === "driver" ? "ลากเมาส์ = หันมองรอบตัว · ล้อเมาส์ = มุมกว้าง/แคบ · จอซ้าย-ขวา = กระจกมองข้าง" : "ลากเมาส์ = หมุนกล้องรอบรถ · ล้อเมาส์ = ซูม · คลิกพื้น = วางวัตถุ";
+  document.querySelectorAll("#viewbar [data-view]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.view === v ? "true" : "false"));
+  if (is3d) { three.setMode(v); three.resize(); }
+  clearTimeout(setView.hintT);
+  if (is3d) setView.hintT = setTimeout(() => { $("hint3d").hidden = true; }, 7000);
+  placeMirrorLabels([]);
+}
+function setNight(on) {
+  S.night = on;
+  $("btnNight").setAttribute("aria-pressed", on ? "true" : "false");
+  if (three) three.setNight(on);
+}
+function placeMirrorLabels(insets) {
+  const box = $("mirLabels");
+  if (!insets.length) { if (box.childElementCount) box.innerHTML = ""; return; }
+  if (box.childElementCount !== insets.length) box.innerHTML = insets.map(() => '<div class="mir"><span></span></div>').join("");
+  insets.forEach((m, i) => {
+    const el = box.children[i];
+    Object.assign(el.style, { left: m.x - 5 + "px", top: m.y - 5 + "px", width: m.w + 10 + "px", height: m.h + 10 + "px" });
+    el.firstChild.textContent = m.side > 0 ? "กระจกซ้าย" : "กระจกขวา (ฝั่งคนขับ)";
+  });
+}
 const ZOOM_MIN = 1.5, ZOOM_MAX = 60;
 function zoom(f) { setAutoZoom(false); S.cam.s = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, S.cam.s * f)); }
 // ซูมพอดีทั้งคันรถ + ระยะแสดงมุมอับรอบรถ
