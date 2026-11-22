@@ -602,7 +602,7 @@ function frame(now) {
 async function start() {
   buildPanel(); initMap(); updAtoBtn();
   try {
-    const mod = await import("./train_sim_3d.js?v=20261126-6");
+    const mod = await import("./train_sim_3d.js?v=20261126-7");
     world = mod.createWorld($("view"), { geo, electric: () => !!TRAINS[S.type].electric });
     window.addEventListener("resize", () => world.resize());
     world.setEnv({ tod: S.tod, wx: S.wx });
