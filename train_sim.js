@@ -12,8 +12,8 @@ import { requireLogin } from "./firebase-guard.js?v=20261122-cut";
 const QS = new URLSearchParams(location.search);
 const LINE_ID = QS.get("line") === "arl" ? "arl" : "north";
 const LINES = {
-  north: { name: "สายเหนือ กรุงเทพ–เชียงใหม่", data: "./train_line_north.js?v=20261126-1", bld: "./bkk_bld_north.js?v=20261127-1", train: "loco" },
-  arl: { name: "สายสนามบิน กรุงเทพ–อุรุพงษ์–สุวรรณภูมิ", data: "./train_line_arl.js?v=20261127-1", bld: "./bkk_bld_arl.js?v=20261127-1", train: "emu" }
+  north: { name: "สายเหนือ กรุงเทพ–เชียงใหม่", data: "./train_line_north.js?v=20261128-1", bld: "./bkk_bld_north.js?v=20261127-1", train: "loco" },
+  arl: { name: "สายสนามบิน กรุงเทพ–อุรุพงษ์–สุวรรณภูมิ", data: "./train_line_arl.js?v=20261128-1", bld: "./bkk_bld_arl.js?v=20261127-1", train: "emu" }
 };
 const { LINE } = await import(LINES[LINE_ID].data);
 
@@ -24,7 +24,7 @@ const G = 9.81, KMH = 3.6;
 /* ---------------- ถอดข้อมูลเส้นทาง ---------------- */
 const N = LINE.n, STEP = LINE.step;
 const LAT = new Float64Array(N), LON = new Float64Array(N), Z = new Float32Array(N), GZ = new Float32Array(N);
-{ let a = 0, b = 0, c = 0; for (let i = 0; i < N; i++) { a += LINE.lat[i]; b += LINE.lon[i]; c += LINE.z[i]; LAT[i] = a / 1e5; LON[i] = b / 1e5; Z[i] = c / 10; } }
+{ let a = 0, b = 0, c = 0; for (let i = 0; i < N; i++) { a += LINE.lat[i]; b += LINE.lon[i]; c += LINE.z[i]; LAT[i] = a / (LINE.q || 1e5); LON[i] = b / (LINE.q || 1e5); Z[i] = c / 10; } }
 { let g = 0; for (let i = 0; i < N; i++) { if (LINE.g) { g += LINE.g[i]; GZ[i] = g / 10; } else GZ[i] = Z[i]; } }   // ระดับพื้นดิน (ต่างจากราง = ทางยกระดับ/ใต้ดิน)
 const TOTAL = (N - 1) * STEP;
 const K = new Float32Array(N); for (let i = 0; i < N; i++) { const r = LINE.r[i]; K[i] = r ? Math.sign(r) / Math.max(150, Math.abs(r)) : 0; }
