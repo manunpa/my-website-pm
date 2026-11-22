@@ -42,37 +42,50 @@ const COMFORT = 0.65;  // ม./วินาที² แรงเหวี่ย�
 
 /* ---------------- ชนิดรถไฟ (ค่าประมาณตามประเภท) ---------------- */
 function consist(list) { let acc = 0; return list.map((c) => { const o = Object.assign({}, c, { off: acc + c.len / 2 }); acc += c.len + 0.8; return o; }); }
-const TRAINS = {
-  loco: {
-    name: "รถจักรดีเซล + ตู้โดยสาร 12 คัน", sub: "ขบวนรถเร็ว/ด่วน · 621 ตัน · 2,400 kW", kind: "diesel",
-    mass: 621e3, power: 2000e3, fmax: 380e3, adhMass: 88e3, vDesign: 120 / KMH, rot: 1.06, hcg: 1.8,
-    A: 621 * 12, B: 621 * 0.35, C: 8.5, bServ: 0.85, bEmer: 1.25, airLag: 3.2, dyn: 0, regen: false, tracLag: 2.5,
-    stopMin: 1, dwell: 60, eye: 3.7, dial: 160,
-    cars: consist([{ type: "loco", len: 20 }].concat(Array.from({ length: 12 }, () => ({ type: "coach", len: 20.5 }))))
-  },
-  dmu: {
-    name: "รถดีเซลราง 3 คัน", sub: "ขบวนท้องถิ่น/ชานเมือง · 135 ตัน · 990 kW", kind: "dmu",
-    mass: 135e3, power: 800e3, fmax: 110e3, adhMass: 70e3, vDesign: 120 / KMH, rot: 1.07, hcg: 1.7,
-    A: 135 * 13, B: 135 * 0.4, C: 4.2, bServ: 1.0, bEmer: 1.35, airLag: 1.4, dyn: 0, regen: false, tracLag: 1.8,
-    stopMin: 0, dwell: 30, eye: 3.1, dial: 160,
-    cars: consist([{ type: "dmu", len: 20.5, cab: 1 }, { type: "dmu", len: 20.5 }, { type: "dmu", len: 20.5, cabRear: 1 }])
-  },
-  emu: {
-    name: "รถไฟฟ้า 6 คัน (EMU)", sub: "ขบวนด่วนพิเศษไฟฟ้า · 270 ตัน · 3,600 kW · เบรกคืนพลังงาน", kind: "emu",
-    mass: 270e3, power: 3600e3, fmax: 260e3, adhMass: 180e3, vDesign: 160 / KMH, rot: 1.08, hcg: 1.6,
-    A: 270 * 11, B: 270 * 0.3, C: 5.8, bServ: 1.0, bEmer: 1.35, airLag: 1.0, dyn: 3000e3, regen: true, tracLag: 0.4,
-    stopMin: 1, dwell: 40, eye: 3.1, dial: 200, electric: true,
-    cars: consist([{ type: "emu", len: 20, cab: 1 }, { type: "emu", len: 20, panto: 1 }, { type: "emu", len: 20 }, { type: "emu", len: 20 }, { type: "emu", len: 20, panto: 1 }, { type: "emu", len: 20, cabRear: 1 }])
-  },
-  hsr: {
-    name: "รถไฟความเร็วสูง 10 คัน", sub: "จอดสถานีหลัก 12 แห่ง · 490 ตัน · 9,600 kW", kind: "hsr",
-    mass: 490e3, power: 9600e3, fmax: 300e3, adhMass: 260e3, vDesign: 250 / KMH, rot: 1.05, hcg: 1.5,
-    A: 490 * 9, B: 490 * 0.2, C: 7.2, bServ: 0.9, bEmer: 1.3, airLag: 0.9, dyn: 8000e3, regen: true, tracLag: 0.4,
-    stopMin: 2, dwell: 60, eye: 3.2, eyeX: 6.4, dial: 320, electric: true,
-    cars: consist([{ type: "hsrNose", len: 27 }].concat(Array.from({ length: 8 }, (_, i) => ({ type: "hsr", len: 25, panto: i === 2 || i === 5 ? 1 : 0 }))).concat([{ type: "hsrNose", len: 27, flip: 1 }]))
+// ปรับจำนวนตู้ได้: มวล แรงต้าน กำลัง (สำหรับรถที่มีมอเตอร์กระจายทุกคัน) คำนวณใหม่ตามจำนวนตู้
+const CARS = { loco: 12, dmu: 3, emu: 6, hsr: 10 };
+const CAR_RANGE = { loco: [1, 20, "ตู้โดยสาร"], dmu: [2, 6, "คัน"], emu: [3, 12, "คัน"], hsr: [4, 16, "คัน"] };
+const fmtN = (x) => Math.round(x).toLocaleString("en-US");
+function makeTrain(k, n) {
+  let t, list;
+  if (k === "loco") {
+    list = [{ type: "loco", len: 20 }].concat(Array.from({ length: n }, () => ({ type: "coach", len: 20.5 })));
+    const mt = 90 + 44.25 * n;
+    t = { name: `รถจักรดีเซล + ตู้โดยสาร ${n} คัน`, sub: `ขบวนรถเร็ว/ด่วน · ${fmtN(mt)} ตัน · 2,400 kW`, kind: "diesel",
+      mass: mt * 1e3, power: 2000e3, fmax: 380e3, adhMass: 88e3, vDesign: 120 / KMH, rot: 1.06, hcg: 1.8,
+      A: mt * 12, B: mt * 0.35, bServ: 0.85, bEmer: 1.25, airLag: 1.6 + n * 0.13, dyn: 0, regen: false, tracLag: 2.5,
+      stopMin: 1, dwell: 60, eye: 3.7, dial: 160 };
+  } else if (k === "dmu") {
+    list = Array.from({ length: n }, (_, i) => ({ type: "dmu", len: 20.5, cab: i === 0 ? 1 : 0, cabRear: i === n - 1 ? 1 : 0 }));
+    const mt = 45 * n;
+    t = { name: `รถดีเซลราง ${n} คัน`, sub: `ขบวนท้องถิ่น/ชานเมือง · ${fmtN(mt)} ตัน · ${fmtN(330 * n)} kW`, kind: "dmu",
+      mass: mt * 1e3, power: 267e3 * n, fmax: 36.7e3 * n, adhMass: mt * 1e3 * 0.52, vDesign: 120 / KMH, rot: 1.07, hcg: 1.7,
+      A: mt * 13, B: mt * 0.4, bServ: 1.0, bEmer: 1.35, airLag: 1.1 + n * 0.1, dyn: 0, regen: false, tracLag: 1.8,
+      stopMin: 0, dwell: 30, eye: 3.1, dial: 160 };
+  } else if (k === "emu") {
+    list = Array.from({ length: n }, (_, i) => ({ type: "emu", len: 20, cab: i === 0 ? 1 : 0, cabRear: i === n - 1 ? 1 : 0, panto: i % 3 === 1 ? 1 : 0 }));
+    const mt = 45 * n;
+    t = { name: `รถไฟฟ้า ${n} คัน (EMU)`, sub: `ขบวนด่วนพิเศษไฟฟ้า · ${fmtN(mt)} ตัน · ${fmtN(600 * n)} kW · เบรกคืนพลังงาน`, kind: "emu",
+      mass: mt * 1e3, power: 600e3 * n, fmax: 43.3e3 * n, adhMass: mt * 1e3 * 0.67, vDesign: 160 / KMH, rot: 1.08, hcg: 1.6,
+      A: mt * 11, B: mt * 0.3, bServ: 1.0, bEmer: 1.35, airLag: 0.8 + n * 0.035, dyn: 500e3 * n, regen: true, tracLag: 0.4,
+      stopMin: 1, dwell: 40, eye: 3.1, dial: 200, electric: true };
+  } else {
+    list = [{ type: "hsrNose", len: 27 }].concat(Array.from({ length: n - 2 }, (_, i) => ({ type: "hsr", len: 25, panto: i % 3 === 2 ? 1 : 0 }))).concat([{ type: "hsrNose", len: 27, flip: 1 }]);
+    const mt = 49 * n;
+    t = { name: `รถไฟความเร็วสูง ${n} คัน`, sub: `จอดสถานีหลัก 12 แห่ง · ${fmtN(mt)} ตัน · ${fmtN(960 * n)} kW`, kind: "hsr",
+      mass: mt * 1e3, power: 960e3 * n, fmax: 30e3 * n, adhMass: mt * 1e3 * 0.53, vDesign: 250 / KMH, rot: 1.05, hcg: 1.5,
+      A: mt * 9, B: mt * 0.2, bServ: 0.9, bEmer: 1.3, airLag: 0.6 + n * 0.03, dyn: 800e3 * n, regen: true, tracLag: 0.4,
+      stopMin: 2, dwell: 60, eye: 3.2, eyeX: 6.4, dial: 320, electric: true };
   }
-};
-Object.values(TRAINS).forEach((t) => { const last = t.cars[t.cars.length - 1]; t.length = last.off + last.len / 2; });
+  t.cars = consist(list); t.n = n;
+  const last = t.cars[t.cars.length - 1]; t.length = last.off + last.len / 2;
+  // แรงต้านอากาศ C = ½ρ(Cd·A หน้า + แรงเสียดผิวตามความยาว)
+  const front = { diesel: 6.0, dmu: 3.0, emu: 3.5, hsr: 2.4 }[t.kind], skin = { diesel: 0.0095, dmu: 0.0095, emu: 0.0105, hsr: 0.012 }[t.kind];
+  t.C = front + skin * t.length * 1.0;
+  return t;
+}
+const TRAINS = {};
+Object.keys(CARS).forEach((k) => { TRAINS[k] = makeTrain(k, CARS[k]); });
 
 /* ---------------- สถานะ ---------------- */
 const S = {
@@ -81,7 +94,7 @@ const S = {
   from: 0, to: 0, stops: [], stopIdx: 0, dwell: 0, atStation: null, results: [], warp: 1, ato: false, done: false,
   stopMode: "type", wx: "clear", tod: "day", sound: true, maxV: 0
 };
-const trainKey = () => S.type + (TRAINS[S.type].electric ? "e" : "");
+const trainKey = () => S.type + TRAINS[S.type].n + (TRAINS[S.type].electric ? "e" : "");
 
 /* ---------------- ฟิสิกส์ ---------------- */
 // สัมประสิทธิ์ยึดเกาะ Curtius–Kniffler (v เป็น กม./ชม.) × สภาพราง
@@ -469,8 +482,19 @@ function drawProfile() {
 /* ---------------- แผงควบคุม ---------------- */
 function pressed(groupId, attr, val) { document.querySelectorAll(`#${groupId} button`).forEach((b) => b.setAttribute("aria-pressed", String(b.dataset[attr] === String(val)))); }
 function buildPanel() {
-  $("trains").innerHTML = Object.entries(TRAINS).map(([k, t]) => `<button data-k="${k}" aria-pressed="${k === S.type}"><strong>${t.name}</strong><span>${t.sub}</span></button>`).join("");
-  $("trains").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.type = b.dataset.k; pressed("trains", "k", S.type); fillRoute(); restart(); });
+  renderTrains();
+  $("trains").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.type = b.dataset.k; pressed("trains", "k", S.type); fillRoute(); restart(); updCarUI(); });
+  const setCars = (n) => {
+    const [lo, hi] = CAR_RANGE[S.type]; n = clamp(Math.round(n), lo, hi);
+    if (n === CARS[S.type]) { updCarUI(); return; }
+    CARS[S.type] = n; TRAINS[S.type] = makeTrain(S.type, n); renderTrains(); restart(); updCarUI();
+    flash(`ปรับเป็น ${TRAINS[S.type].name} — เริ่มใหม่ที่สถานี${geo.stations[S.from].n}`, "info", 3000);
+  };
+  $("carMinus").addEventListener("click", () => setCars(CARS[S.type] - 1));
+  $("carPlus").addEventListener("click", () => setCars(CARS[S.type] + 1));
+  $("carRange").addEventListener("input", () => updCarUI(+$("carRange").value));
+  $("carRange").addEventListener("change", () => setCars(+$("carRange").value));
+  updCarUI();
   fillRoute();
   $("from").addEventListener("change", () => { S.from = +$("from").value; if (S.to <= S.from) { S.to = geo.stations.length - 1; $("to").value = S.to; } restart(); });
   $("to").addEventListener("change", () => { S.to = +$("to").value; if (S.to <= S.from) { S.from = 0; $("from").value = 0; } restart(); });
@@ -493,6 +517,20 @@ function buildPanel() {
     const r = $("profile").getBoundingClientRect(), s = clamp((e.clientX - r.left) / r.width * TOTAL, TRAINS[S.type].length, TOTAL - 50);
     jumpTo(s); flash(`ย้ายรถไปที่ กม. ${(s / 1000).toFixed(1)}`, "info");
   });
+}
+function renderTrains() { $("trains").innerHTML = Object.entries(TRAINS).map(([k, t]) => `<button data-k="${k}" aria-pressed="${k === S.type}"><strong>${t.name}</strong><span>${t.sub}</span></button>`).join(""); }
+// แสดงจำนวนตู้ + ผลทางฟิสิกส์ของการเพิ่ม/ลดตู้ (ยังไม่กดยืนยัน = แสดงค่าที่จะได้)
+function updCarUI(preview) {
+  const [lo, hi, unit] = CAR_RANGE[S.type], n = preview || CARS[S.type], tr = preview ? makeTrain(S.type, n) : TRAINS[S.type];
+  const r = $("carRange"); r.min = lo; r.max = hi; if (!preview) r.value = n;
+  $("carN").textContent = `${n} ${unit}`;
+  $("carMinus").disabled = n <= lo; $("carPlus").disabled = n >= hi;
+  const kwt = tr.power / tr.mass, need = tr.mass * G * 0.026 + tr.A + tr.mass * G * 0.0015, adh = mu(8) * tr.adhMass * G;
+  const climb = Math.min(tr.fmax, adh) > need;
+  $("carInfo").innerHTML = `ยาว ${Math.round(tr.length)} ม. · หนัก ${fmtN(tr.mass / 1000)} ตัน · ${(kwt).toFixed(1)} kW/ตัน<br>
+    ความเร็วสูงสุดทางราบ ~${Math.round(vMaxFlat(tr) * KMH)} กม./ชม. · ระยะเบรกจาก 100 กม./ชม. ~${Math.round(tr.airLag * 27.8 * 0.5 + 27.8 * 27.8 / (2 * tr.bServ))} ม.<br>
+    ${climb ? `ขึ้นทางชันสุด 2.6% (ดอยขุนตาน) ได้ — แรงที่ใช้ ${fmtN(need / 1000)} kN / แรงฉุดได้ ${fmtN(Math.min(tr.fmax, adh) / 1000)} kN` : `<b style="color:var(--bad)">หนักเกิน! ขึ้นทางชัน 2.6% ไม่ไหว — ต้องใช้ ${fmtN(need / 1000)} kN แต่ล้อยึดเกาะได้แค่ ${fmtN(Math.min(tr.fmax, adh) / 1000)} kN (ล้อจะฟรี)</b>`}
+    ${tr.length > 230 ? "<br>ขบวนยาวกว่าชานชาลาสถานีหลัก (~220 ม.) ท้ายขบวนจะเลยชานชาลา" : ""}`;
 }
 function fillRoute() {
   const tr = TRAINS[S.type];

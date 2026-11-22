@@ -80,6 +80,11 @@
   .train button strong { display: block; font-size: .84rem; font-weight: 600; }
   .train button span { font-size: .7rem; color: var(--muted); }
   .train button[aria-pressed="true"] { border-color: var(--acc); background: rgba(245,179,1,.14); }
+  .cnt { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .cnt b { flex: 1; text-align: center; font-size: 1rem; }
+  .cnt .pill { width: 38px; justify-content: center; font-size: 1.1rem; padding: 0; }
+  .cnt .pill:disabled { opacity: .35; cursor: default; }
+  #carRange { width: 100%; accent-color: var(--acc); }
   .note { font-size: .7rem; color: var(--muted); line-height: 1.5; }
   table.phys { width: 100%; font-size: .76rem; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   table.phys td { padding: 3px 0; border-bottom: 1px solid var(--line); }
@@ -173,6 +178,12 @@
     <div class="train" id="trains"></div>
   </section>
   <section>
+    <h2>จำนวนตู้ (ปรับเองได้)</h2>
+    <div class="cnt"><button class="pill" id="carMinus" title="ลดตู้">−</button><b id="carN"></b><button class="pill" id="carPlus" title="เพิ่มตู้">+</button></div>
+    <input type="range" id="carRange" step="1" aria-label="จำนวนตู้">
+    <p class="note" id="carInfo"></p>
+  </section>
+  <section>
     <h2>เส้นทาง</h2>
     <select id="from"></select>
     <div style="height:6px"></div>
@@ -227,6 +238,6 @@
 <div id="big"><div id="bigText"></div></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script type="module" src="./train_sim.js?v=20261126-6"></script>
+<script type="module" src="./train_sim.js?v=20261126-7"></script>
 </body>
 </html>
