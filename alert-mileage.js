@@ -12,7 +12,7 @@ const STATUS = {
 
 // ====== ตัวช่วย ======
 const $ = id => document.getElementById(id);
-const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&','<':'<','>':'>','"':'"'}[c]));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num = v => { const n = parseFloat(String(v ?? '').replace(/[^\d.\-]/g,'')); return isFinite(n) ? n : 0; };
 const fmt = (n,d=0) => n.toLocaleString('th-TH',{minimumFractionDigits:d,maximumFractionDigits:d});
 const norm = s => String(s).trim().toLowerCase();

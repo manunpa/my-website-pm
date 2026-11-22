@@ -24,6 +24,8 @@ DEMO-0002|CAR-01|นายสมมติ ตัวอย่างหนึ่�
 DEMO-0001|CAR-01|นายสมมติ ตัวอย่างหนึ่ง|1กข1001|31/10/2026 13:22:40|31/10/2026 14:42:34|01:19:54|จอดนอกจุด|หนองแค, สระบุรี|9000000013|พิจารณาแล้ว|อนุมัติ|A|31/10/2026 14:56:06|REVIEWER|ไม่ได้วิ่งงาน|2 (1/1)`;
 
 const $ = id => document.getElementById(id);
+// Sheet text goes into innerHTML below: escape it so a cell like <img onerror=...> shows as text, never runs.
+const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 let ROWS = [], sortKey = 'start', sortDir = -1, mode = 'demo', timer;
 
 /* ---------- ธีม ---------- */
@@ -162,7 +164,7 @@ function fillSelects(){
     const el = $(id);
     if(!el) return;
     const cur = el.value;
-    el.innerHTML = `<option value="">${label}</option>` + [...new Set(vals)].filter(Boolean).sort().map(v => `<option>${v}</option>`).join('');
+    el.innerHTML = `<option value="">${label}</option>` + [...new Set(vals)].filter(Boolean).sort().map(v => `<option>${esc(v)}</option>`).join('');
     el.value = cur;
   };
   fill('fDriver', ROWS.map(r => r.driver), 'ทั้งหมด');
@@ -212,7 +214,7 @@ function hbars(id, data, n=6){
   const el = $(id);
   if(!el) return;
   const top = data.slice(0,n), max = top[0] ? top[0][1] : 1;
-  el.innerHTML = top.length ? top.map(([k,v]) => `<div class="hbar"><span class="t" title="${k}">${k}</span><div class="tr"><div class="f" style="width:${v/max*100}%"></div></div><b>${v}</b></div>`).join('') : '<div class="empty">ไม่มีข้อมูล</div>';
+  el.innerHTML = top.length ? top.map(([k,v]) => `<div class="hbar"><span class="t" title="${esc(k)}">${esc(k)}</span><div class="tr"><div class="f" style="width:${v/max*100}%"></div></div><b>${v}</b></div>`).join('') : '<div class="empty">ไม่มีข้อมูล</div>';
 }
 const MTH = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 function drawBars(id, items){
@@ -267,7 +269,7 @@ function render(){
       ['จอดนานสุด', longest ? longest.dur : '-', longest ? longest.case : ''],
       ['คนขับที่เกี่ยวข้อง', new Set(d.map(r=>r.driver)).size, 'คน'],
       ['เวลาปลดเฉลี่ยหลังจบเคส', fmtDur(avgLag), 'จากเวลาสิ้นสุดถึงวันที่ปลด']
-    ].map(k => `<div class="panel kpi"><div class="l">${k[0]}</div><div class="v">${k[1]}</div><div class="s">${k[2]}</div></div>`).join('');
+    ].map(k => `<div class="panel kpi"><div class="l">${k[0]}</div><div class="v">${esc(k[1])}</div><div class="s">${esc(k[2])}</div></div>`).join('');
   }
 
   const hrs = Array(24).fill(0); d.forEach(r => hrs[r.startD.getHours()]++);
@@ -291,7 +293,7 @@ function render(){
   if(theadEl) theadEl.innerHTML = COLS.map(c => `<th data-k="${c[0]}">${c[1]}${sortKey===c[0]?(sortDir>0?' ▲':' ▼'):''}</th>`).join('');
   if(tbodyEl){
     tbodyEl.innerHTML = d.length ? d.map((r,i) => `<tr data-i="${ROWS.indexOf(r)}">` + COLS.map(c => {
-      let v = r[c[0]];
+      let v = esc(r[c[0]]);
       if(c[0]==='dur') v = `<span class="${r.sec>1800?'long':''}">${v}</span>`;
       else if(c[0]==='appr') v = `<span class="tag">${v}</span>`;
       else if(c[0]==='req') v = `<span class="tag warn">${v}</span>`;
@@ -323,7 +325,7 @@ if(tbodyEl){
     const r = ROWS[+tr.dataset.i];
     const mTitle = $('mTitle'), mBody = $('mBody'), modal = $('modal');
     if(mTitle) mTitle.textContent = r.case;
-    if(mBody) mBody.innerHTML = COLS.map(c => `<b>${c[1]}</b><span>${r[c[0]] || '-'}</span>`).join('');
+    if(mBody) mBody.innerHTML = COLS.map(c => `<b>${c[1]}</b><span>${esc(r[c[0]] || '-')}</span>`).join('');
     if(modal) modal.classList.add('show');
   };
 }
