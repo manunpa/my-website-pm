@@ -52,8 +52,8 @@ const COMFORT = 0.65;  // ม./วินาที² แรงเหวี่ย�
 /* ---------------- ชนิดรถไฟ (ค่าประมาณตามประเภท) ---------------- */
 function consist(list) { let acc = 0; return list.map((c) => { const o = Object.assign({}, c, { off: acc + c.len / 2 }); acc += c.len + 0.8; return o; }); }
 // ปรับจำนวนตู้ได้: มวล แรงต้าน กำลัง (สำหรับรถที่มีมอเตอร์กระจายทุกคัน) คำนวณใหม่ตามจำนวนตู้
-const CARS = { loco: 12, dmu: 3, emu: 6, hsr: 10 };
-const CAR_RANGE = { loco: [1, 20, "ตู้โดยสาร"], dmu: [2, 6, "คัน"], emu: [3, 16, "คัน"], hsr: [4, 16, "คัน"] };
+const CARS = { loco: 12, dmu: 3, emu: 6, emuModern: 6, hsr: 10 };
+const CAR_RANGE = { loco: [1, 20, "ตู้โดยสาร"], dmu: [2, 6, "คัน"], emu: [3, 16, "คัน"], emuModern: [3, 16, "คัน"], hsr: [4, 16, "คัน"] };
 const fmtN = (x) => Math.round(x).toLocaleString("en-US");
 function makeTrain(k, n) {
   let t, list;
@@ -71,10 +71,11 @@ function makeTrain(k, n) {
       mass: mt * 1e3, power: 267e3 * n, fmax: 36.7e3 * n, adhMass: mt * 1e3 * 0.52, vDesign: 120 / KMH, rot: 1.07, hcg: 1.7,
       A: mt * 13, B: mt * 0.4, bServ: 1.0, bEmer: 1.35, airLag: 1.1 + n * 0.1, dyn: 0, regen: false, tracLag: 1.8,
       stopMin: 0, dwell: 30, eye: 3.1, dial: 160 };
-  } else if (k === "emu") {
-    list = Array.from({ length: n }, (_, i) => ({ type: "emu", len: 20, cab: i === 0 ? 1 : 0, cabRear: i === n - 1 ? 1 : 0, panto: i % 3 === 1 ? 1 : 0 }));
+  } else if (k === "emu" || k === "emuModern") {
+    const modern = k === "emuModern";
+    list = Array.from({ length: n }, (_, i) => ({ type: modern ? "emuModern" : "emu", len: 20, cab: i === 0 ? 1 : 0, cabRear: i === n - 1 ? 1 : 0, panto: i % 3 === 1 ? 1 : 0 }));
     const mt = 45 * n;
-    t = { name: `รถไฟฟ้า ${n} คัน (EMU)`, sub: `ขบวนด่วนพิเศษไฟฟ้า · ${fmtN(mt)} ตัน · ${fmtN(600 * n)} kW · เบรกคืนพลังงาน`, kind: "emu",
+    t = { name: modern ? `รถไฟฟ้า EMU Modern ${n} คัน` : `รถไฟฟ้า ${n} คัน (EMU)`, sub: `ขบวนด่วนพิเศษไฟฟ้า · ${fmtN(mt)} ตัน · ${fmtN(600 * n)} kW · เบรกคืนพลังงาน`, kind: "emu",
       mass: mt * 1e3, power: 600e3 * n, fmax: 43.3e3 * n, adhMass: mt * 1e3 * 0.67, vDesign: 160 / KMH, rot: 1.08, hcg: 1.6,
       A: mt * 11, B: mt * 0.3, bServ: 1.0, bEmer: 1.35, airLag: 0.8 + n * 0.035, dyn: 500e3 * n, regen: true, tracLag: 0.4,
       stopMin: 1, dwell: 40, eye: 3.1, dial: 200, electric: true };
@@ -347,7 +348,7 @@ const sfx = (() => {
         }
       } catch (e) { /* ignore */ }
     },
-    horn() { init(); if (!ctx || !S.sound) return; const hi = S.type === "hsr" || S.type === "emu"; [hi ? 466 : 311, hi ? 587 : 370].forEach((f) => burst(f, 1.3, 0.12, "sawtooth")); },
+    horn() { init(); if (!ctx || !S.sound) return; const hi = S.type === "hsr" || S.type === "emu" || S.type === "emuModern"; [hi ? 466 : 311, hi ? 587 : 370].forEach((f) => burst(f, 1.3, 0.12, "sawtooth")); },
     chime(open) { if (!ctx || !S.sound) return; (open ? [988, 1319] : [1319, 988, 1319, 988]).forEach((f, i) => setTimeout(() => burst(f, 0.28, 0.07, "sine"), i * (open ? 260 : 330))); setTimeout(() => burst(240, 0.5, 0.05), open ? 500 : 1500); },
     bell() { if (!ctx || !S.sound) return; [0, 0.35, 0.7].forEach((t) => setTimeout(() => burst(1320, 0.4, 0.08, "sine"), t * 1000)); },
     beep() { if (!ctx || !S.sound) return; burst(880, 0.15, 0.08, "square"); },
@@ -712,7 +713,7 @@ async function start() {
   pressed("trains", "k", S.type);
   buildPanel(); initMap(); updAtoBtn();
   try {
-    const mod = await import("./train_sim_3d.js?v=20261127-1");
+    const mod = await import("./train_sim_3d.js?v=20261127-2");
     const bld = await loadBuildings();
     const branch = branchFor();
     world = mod.createWorld($("view"), { geo, bld, branch, urban: (a, b) => countBld(bld, a, b) > 25, electric: () => !!TRAINS[S.type].electric });
