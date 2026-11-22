@@ -10,7 +10,7 @@
   gtag('js', new Date());
   gtag('config', 'G-MEC0JTJ5QJ');
 </script>
-<title>HUB</title>
+<title>Access Hub</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Cdefs%3E%3ClinearGradient id=%27g%27 x1=%270%27 y1=%270%27 x2=%271%27 y2=%271%27%3E%3Cstop offset=%270%27 stop-color=%27%234776ff%27/%3E%3Cstop offset=%271%27 stop-color=%27%238d5cf6%27/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27url(%23g)%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%277%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272.4%27/%3E%3Cpath d=%27M16 5v6M16 21v6M5 16h6M21 16h6%27 stroke=%27white%27 stroke-width=%272.4%27 stroke-linecap=%27round%27/%3E%3C/svg%3E">
 <!-- ซ่อนหน้าไว้จนกว่า Firebase จะยืนยันตัวตนเสร็จ (กันหน้ากระพริบ) -->
 <style>html:not(.ready) body { visibility: hidden; }</style>
@@ -348,14 +348,45 @@
   <div id="quick" class="reveal" style="--i:3"></div>
 
   <!-- การ์ดแต่ละใบ: data-cat = หมวดสำหรับชิปกรอง (gps cctv sea tool scg), data-kw = คำค้นเพิ่มเติม -->
-  <section class="reveal" data-sec="scg" style="--i:3">
-    <h2>ระบบสนับสนุน เทคโนโลยีสารสนเทศกลุ่มบริษัท SC Group</h2>
+  <section class="reveal" data-sec="ours" style="--i:3">
+    <h2>เครื่องมือของเรา</h2>
     <div class="grid">
       <a class="btn primary" data-cat="tool" data-kw="map ปั๊ม น้ำมัน สถานี geofence" href="access-maps.html">
         <div class="icon">🧭</div>
         <div class="label"><strong>แผนที่</strong><span>รวมข้อมูลสถานี</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
+      <a class="btn" data-cat="tool" data-kw="บางจาก ปลดล็อค รายงาน" href="leo_dashboard.html">
+        <div class="icon">📑</div>
+        <div class="label"><strong>Test LEO</strong><span>ทดสอบการดึงข้อมูลรายงาน</span></div>
+        <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
+      </a>
+      <a class="btn" data-cat="tool" data-kw="แจ้งเตือน ระยะทาง ไมล์ รายงาน" href="alert-mileage.html">
+        <div class="icon">📑</div>
+        <div class="label"><strong>Test Mileage</strong><span>ทดสอบการดึงข้อมูลรายงาน</span></div>
+        <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
+      </a>
+      <a class="btn soon" data-cat="tool" data-kw="แจ้งเตือน ระยะทาง" aria-disabled="true" title="ยังไม่เปิดใช้งาน" data-soon="alert-rate.html">
+        <div class="icon">📑</div>
+        <div class="label"><strong>alert-rate</strong><span>คำนวณอัตราการแจ้งเตือนต่อระยะทาง</span></div>
+        <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
+      </a>
+      <a class="btn soon" data-cat="tool" data-kw="sos ฉุกเฉิน รายงาน" aria-disabled="true" title="ยังไม่เปิดใช้งาน" data-soon="sos-dashboard.html">
+        <div class="icon">📑</div>
+        <div class="label"><strong>Test SOS</strong><span>ทดสอบการดึงข้อมูลรายงาน</span></div>
+        <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
+      </a>
+      <a class="btn soon" data-cat="tool" data-kw="จำลอง simulator มุมอับ" aria-disabled="true" title="ยังไม่เปิดใช้งาน" data-soon="truck_blind_spot_simulator.html">
+        <div class="icon">🎮</div>
+        <div class="label"><strong>ฝึกขับรถ</strong><span>simulator มุมอับสายตา</span></div>
+        <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
+      </a>
+    </div>
+  </section>
+
+  <section class="reveal" data-sec="scg" style="--i:3">
+    <h2>ระบบสนับสนุน เทคโนโลยีสารสนเทศกลุ่มบริษัท SC Group</h2>
+    <div class="grid">
       <a class="btn" data-cat="scg" data-kw="แจ้งซ่อม ซ่อม จองรถ vr" href="https://app.scgroupthai.com/scg999/" target="_blank" rel="noopener">
         <div class="icon">🛠️</div>
         <div class="label"><strong>iTMIS</strong><span>แจ้งซ่อม บันทึกVR จองรถ</span></div>
@@ -509,34 +540,9 @@
   <section class="reveal" data-sec="support" style="--i:6">
     <h2>ระบบสนับสนุน</h2>
     <div class="grid">
-      <a class="btn soon" data-cat="tool" data-kw="แจ้งเตือน ระยะทาง" aria-disabled="true" title="ยังไม่เปิดใช้งาน" data-soon="alert-rate.html">
-        <div class="icon">📑</div>
-        <div class="label"><strong>alert-rate</strong><span>คำนวนอัตตราการแจ้งเตือนต่อระยะทาง</span></div>
-        <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
-      </a>
-      <a class="btn" data-cat="tool" data-kw="บางจาก ปลดล็อค รายงาน" href="leo_dashboard.html" target="_blank" rel="noopener">
-        <div class="icon">📑</div>
-        <div class="label"><strong>Test LEO</strong><span>ทดสอบการดึงข้อมูลรายงาน</span></div>
-        <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
-      </a>
-      <a class="btn" data-cat="tool" data-kw="แจ้งเตือน ระยะทาง ไมล์ รายงาน" href="alert-mileage.html" target="_blank" rel="noopener">
-        <div class="icon">📑</div>
-        <div class="label"><strong>Test Mileage</strong><span>ทดสอบการดึงข้อมูลรายงาน</span></div>
-        <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
-      </a>
-      <a class="btn soon" data-cat="tool" data-kw="sos ฉุกเฉิน รายงาน" aria-disabled="true" title="ยังไม่เปิดใช้งาน" data-soon="sos-dashboard.html">
-        <div class="icon">📑</div>
-        <div class="label"><strong>Test SOS</strong><span>ทดสอบการดึงข้อมูลรายงาน</span></div>
-        <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
-      </a>
       <a class="btn" data-cat="tool" data-kw="รีโมท remote" href="https://account.teamviewer.com/" target="_blank" rel="noopener">
         <div class="icon">🔄</div>
         <div class="label"><strong>TeamViewer</strong><span>ใช้ออนเว็บไซต์ได้เลย</span></div>
-        <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
-      </a>
-      <a class="btn soon" data-cat="tool" data-kw="จำลอง simulator มุมอับ" aria-disabled="true" title="ยังไม่เปิดใช้งาน" data-soon="truck_blind_spot_simulator.html">
-        <div class="icon">🎮</div>
-        <div class="label"><strong>ฝึกขับรถ</strong><span>simulator มุมอับสายตา</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
       <a class="btn" data-cat="cctv sea" data-kw="ชายฝั่ง gistda" href="https://coastalradar.gistda.or.th/app/map/router.php?page=cctv" target="_blank" rel="noopener">
@@ -561,7 +567,7 @@
 </div>
 
 <!-- เรียกใช้งานไฟล์ JavaScript ภายนอกที่แยกออกมา -->
-<script type="module" src="./hub.js?v=20261122-user"></script>
+<script type="module" src="./hub.js?v=20261122-ours"></script>
 <!-- ลูกเล่นเทศกาลลอยกระทง (ชั่วคราว เปิด/ปิดเองตามวันที่ในไฟล์) -->
 <script src="./festival-loykrathong.js" defer></script>
 <script src="./festival-atm.js" defer></script>
