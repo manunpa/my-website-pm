@@ -771,11 +771,13 @@ export function createWorld(host, api) {
     box(gp, frameM, 0.5, 0.35, 0.4, len / 2 + 0.2, 1.05, 0); box(gp, frameM, 0.5, 0.35, 0.4, -len / 2 - 0.2, 1.05, 0);
   }
   function makeMU(gp, len, kind, cab, panto) {
-    const dmu = kind === "dmu", y0 = 1.12, y1 = 4.05;
+    const dmu = kind === "dmu", modern = kind === "emuModern", y0 = 1.12, y1 = 4.05;
     const base = dmu ? 0xeef2f5 : 0xf2f3f4, baseS = dmu ? "#eef2f5" : "#f2f3f4";
     const bands = dmu
       ? [[1.35, 1.8, 0x1f5fa8], [1.83, 1.92, 0xf2c230], [2.28, 3.25, 0x1c2633], [3.9, 9, 0xc9cdd2]]
-      : [[1.42, 1.78, 0x0a9f9a], [1.83, 1.91, 0xd7b66b], [2.28, 3.3, 0x10243a], [3.5, 3.58, 0x20c7bb], [3.9, 9, 0xe3e9ef]];
+      : modern
+        ? [[1.42, 1.78, 0x0a9f9a], [1.83, 1.91, 0xd7b66b], [2.28, 3.3, 0x10243a], [3.5, 3.58, 0x20c7bb], [3.9, 9, 0xe3e9ef]]
+        : [[1.45, 1.85, 0xc8102e], [2.28, 3.3, 0x20252d], [3.5, 3.58, 0xc8102e], [3.9, 9, 0xc4c8cd]];
     const noseL = dmu ? 1.6 : 2.2;
     const prof = (s) => {
       s.moveTo(-len / 2, y0);
@@ -793,9 +795,9 @@ export function createWorld(host, api) {
     };
     const geo = bodyGeo(kind + len + (cab ? "c" : ""), 2.9, 0.3, prof, zs, wallC);
     const tex = livery(kind + len, len, y0, y1, (L) => {
-      L.band(y0, y1, dmu ? baseS : "#edf1f4");
+      L.band(y0, y1, modern ? "#edf1f4" : baseS);
       bands.forEach(([a, b, c]) => L.band(a, Math.min(b, y1), "#" + c.toString(16).padStart(6, "0")));
-      if (!dmu) {
+      if (modern) {
         // Premium teal sweep with a fine champagne pinstripe along the lower body.
         const { g, X, Y } = L;
         const sweep = g.createLinearGradient(X(-len / 2), 0, X(len / 2), 0);
@@ -819,10 +821,10 @@ export function createWorld(host, api) {
         if (doors.some((d) => x > d - 0.5 && x < d + dw + 0.5)) continue;
         L.win(x - 0.55, x + 0.55, 2.4, 3.15, 0.12);
       }
-      doors.forEach((d) => L.door(d, d + dw, 1.25, 3.45, dmu ? "#dfe5ea" : "#dfe6eb", 2));
+      doors.forEach((d) => L.door(d, d + dw, 1.25, 3.45, dmu ? "#dfe5ea" : modern ? "#dfe6eb" : "#d0d3d6", 2));
       L.panelLines(dmu ? 2.6 : 3.4); L.dirt();
     });
-    body(gp, kind, geo, tex, { metalness: dmu ? 0.3 : 0.5, roughness: dmu ? 0.38 : 0.24 });
+    body(gp, kind, geo, tex, { metalness: dmu ? 0.3 : modern ? 0.5 : 0.45, roughness: dmu ? 0.38 : modern ? 0.24 : 0.3 });
     box(gp, under, len - 7, 0.55, 2.2, 0, 0.9, 0);
     if (dmu) { box(gp, mat(0x9ba0a6, { metalness: 0.4 }), 2.2, 0.3, 1.4, -2, y1 + 0.1, 0, true); rod(gp, mat(0x1a1a1a), new THREE.Vector3(-len / 2 + 2.2, y1, 0.7), new THREE.Vector3(-len / 2 + 2.2, y1 + 0.45, 0.7), 0.1); }
     else box(gp, mat(0xa9adb2, { metalness: 0.4 }), 3.2, 0.3, 1.6, -3, y1 + 0.1, 0, true);
@@ -872,7 +874,7 @@ export function createWorld(host, api) {
   function doorSpec(type, len) {
     if (type === "coach") return { w: 2.9, y0: 1.3, y1: 3.45, col: 0xddd7ca, list: [[-len / 2 + 0.75, 1.0, 1], [len / 2 - 1.75, 1.0, 1]] };
     if (type === "dmu") return { w: 2.9, y0: 1.25, y1: 3.45, col: 0xdfe5ea, list: [[-len / 2 + 0.9, 1.2, 2], [len / 2 - 2.1, 1.2, 2]] };
-    if (type === "emu") return { w: 2.9, y0: 1.25, y1: 3.45, col: 0xdfe6eb, list: [[-len / 4 - 0.65, 1.3, 2], [len / 4 - 0.65, 1.3, 2]] };
+    if (type === "emu" || type === "emuModern") return { w: 2.9, y0: 1.25, y1: 3.45, col: type === "emuModern" ? 0xe5edf1 : 0xdfe6eb, list: [[-len / 4 - 0.65, 1.3, 2], [len / 4 - 0.65, 1.3, 2]] };
     if (type === "hsr") return { w: 3.05, y0: 1.3, y1: 3.4, col: 0xeceef0, list: [[-len / 2 + 0.7, 0.85, 1], [len / 2 - 1.55, 0.85, 1]] };
     if (type === "hsrNose") return { w: 3.05, y0: 1.3, y1: 3.4, col: 0xeceef0, list: [[-len / 2 + 0.7, 0.85, 1]] };
     return null;
@@ -904,7 +906,7 @@ export function createWorld(host, api) {
       const flip = !!(c.flip || c.cabRear);
       if (c.type === "loco") makeLoco(gp, len);
       else if (c.type === "coach") makeCoach(gp, len);
-      else if (c.type === "dmu" || c.type === "emu") makeMU(gp, len, c.type, !!(c.cab || c.cabRear), !!c.panto);
+      else if (c.type === "dmu" || c.type === "emu" || c.type === "emuModern") makeMU(gp, len, c.type, !!(c.cab || c.cabRear), !!c.panto);
       else makeHSR(gp, len, c.type === "hsrNose", !!c.panto);
       // คันท้าย: ไฟหน้ากลายเป็นไฟท้ายสีแดง
       if (flip) gp.traverse((o) => { if (o.material === lampW) o.material = lampR; });
