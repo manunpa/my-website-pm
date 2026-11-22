@@ -8,7 +8,14 @@
      · โค้ง: แรงเหวี่ยงที่ไม่ถูกชดเชย a = v²/R − g·(ยกโค้ง) ถ้าเกินขีดพลิกคว่ำ g·(G/2)/h_cg นานพอ → ตกราง
    ===================================================================== */
 import { requireLogin } from "./firebase-guard.js?v=20261122-cut";
-import { LINE } from "./train_line_north.js?v=20261126-1";
+// เลือกสายจาก ?line= : north = สายเหนือ กรุงเทพ–เชียงใหม่ · arl = สายสนามบิน กรุงเทพ–อุรุพงษ์–ทางยกระดับ–สุวรรณภูมิ
+const QS = new URLSearchParams(location.search);
+const LINE_ID = QS.get("line") === "arl" ? "arl" : "north";
+const LINES = {
+  north: { name: "สายเหนือ กรุงเทพ–เชียงใหม่", data: "./train_line_north.js?v=20261126-1", bld: "./bkk_bld_north.js?v=20261127-1", train: "loco" },
+  arl: { name: "สายสนามบิน กรุงเทพ–อุรุพงษ์–สุวรรณภูมิ", data: "./train_line_arl.js?v=20261127-1", bld: "./bkk_bld_arl.js?v=20261127-1", train: "emu" }
+};
+const { LINE } = await import(LINES[LINE_ID].data);
 
 const $ = (id) => document.getElementById(id);
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -16,8 +23,9 @@ const G = 9.81, KMH = 3.6;
 
 /* ---------------- ถอดข้อมูลเส้นทาง ---------------- */
 const N = LINE.n, STEP = LINE.step;
-const LAT = new Float64Array(N), LON = new Float64Array(N), Z = new Float32Array(N);
+const LAT = new Float64Array(N), LON = new Float64Array(N), Z = new Float32Array(N), GZ = new Float32Array(N);
 { let a = 0, b = 0, c = 0; for (let i = 0; i < N; i++) { a += LINE.lat[i]; b += LINE.lon[i]; c += LINE.z[i]; LAT[i] = a / 1e5; LON[i] = b / 1e5; Z[i] = c / 10; } }
+{ let g = 0; for (let i = 0; i < N; i++) { if (LINE.g) { g += LINE.g[i]; GZ[i] = g / 10; } else GZ[i] = Z[i]; } }   // ระดับพื้นดิน (ต่างจากราง = ทางยกระดับ/ใต้ดิน)
 const TOTAL = (N - 1) * STEP;
 const K = new Float32Array(N); for (let i = 0; i < N; i++) { const r = LINE.r[i]; K[i] = r ? Math.sign(r) / Math.max(150, Math.abs(r)) : 0; }
 const cr = (a, b, c, d, t) => { const t2 = t * t, t3 = t2 * t; return 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (3 * b - a - 3 * c + d) * t3); };
@@ -30,6 +38,7 @@ const geo = {
     return { lat: cr(LAT[i0], LAT[i], LAT[i + 1], LAT[i3], t), lon: cr(LON[i0], LON[i], LON[i + 1], LON[i3], t), z: cr(Z[i0], Z[i], Z[i + 1], Z[i3], t) };
   },
   z(s) { s = clamp(s, 0, TOTAL); const x = s / STEP, i = Math.min(N - 2, Math.floor(x)), t = x - i; return Z[i] + (Z[i + 1] - Z[i]) * t; },
+  ground(s) { s = clamp(s, 0, TOTAL); const x = s / STEP, i = Math.min(N - 2, Math.floor(x)), t = x - i; return GZ[i] + (GZ[i + 1] - GZ[i]) * t; },
   flag(s) { return LINE.f[clamp(Math.round(s / STEP), 0, N - 1)]; },
   // ความโค้ง (1/R) แบบต่อเนื่อง: ประมาณค่าเชิงเส้นระหว่างจุด แล้วเฉลี่ยช่วง ±30 ม. → ไม่กระตุกเป็นขั้นทุก 50 ม.
   curv(s) { const x = clamp(s, 0, TOTAL) / STEP, i = Math.min(N - 2, Math.floor(x)), t = x - i; return K[i] + (K[i + 1] - K[i]) * t; },
@@ -89,7 +98,7 @@ Object.keys(CARS).forEach((k) => { TRAINS[k] = makeTrain(k, CARS[k]); });
 
 /* ---------------- สถานะ ---------------- */
 const S = {
-  type: "loco", tr: null, s: 0, v: 0, a: 0, lever: 0, emer: false, trac: 0, brk: 0, fT: 0, fB: 0, fR: 0, fG: 0, fC: 0,
+  type: LINES[LINE_ID].train, tr: null, s: 0, v: 0, a: 0, lever: 0, emer: false, trac: 0, brk: 0, fT: 0, fB: 0, fR: 0, fG: 0, fC: 0,
   slip: 0, slide: 0, au: 0, auT: 0, derailed: null, t: 0, energy: 0, regenE: 0, fuel: 0,
   from: 0, to: 0, stops: [], stopIdx: 0, dwell: 0, atStation: null, results: [], warp: 1, ato: false, done: false,
   stopMode: "type", wx: "clear", tod: "day", sound: true, maxV: 0
@@ -119,7 +128,7 @@ function stepPhysics(dt) {
   }
   // คันบังคับ → คำสั่งกำลัง/เบรก (ค่อย ๆ ตอบสนอง)
   const n = S.emer ? -9 : S.lever;
-  const tracCmd = n > 0 ? n : 0, brkCmd = S.emer ? tr.bEmer / tr.bServ : n < 0 ? -n / 8 : 0;
+  const tracCmd = n > 0 && S.doorT === 0 && !S.doorOpen ? n : 0, brkCmd = S.emer ? tr.bEmer / tr.bServ : n < 0 ? -n / 8 : 0;
   S.trac += (tracCmd - S.trac) * Math.min(1, dt / tr.tracLag);
   if (tracCmd < S.trac && tr.kind !== "diesel") S.trac = tracCmd;   // ตัดกำลังไฟฟ้าได้ทันที
   S.brk += (brkCmd - S.brk) * Math.min(1, dt / (brkCmd > S.brk ? tr.airLag : tr.airLag * 1.6));
@@ -194,13 +203,45 @@ function stopsFor() {
     return !st.h && st.m >= tr.stopMin;
   });
 }
-const stopMark = (st) => Math.min(TOTAL - 5, st.s + Math.min(TRAINS[S.type].length / 2, 105));
+const stopMark = (st) => Math.min(TOTAL - 30, st.s + Math.min(TRAINS[S.type].length / 2, 105));   // สถานีปลายทาง: เผื่อระยะก่อนกันชนท้ายราง
 function nextStation() { return geo.stations.find((st) => st.s > S.s + 5); }
+/* ---------------- ประตู ----------------
+   เปิดได้เฉพาะตอนรถหยุดนิ่งที่ชานชาลา · ประตูยังไม่ปิดสนิท = ตัดกำลังขับเคลื่อน (interlock แบบรถจริง)
+   นับเวลาจอดเมื่อประตูเปิดสุด · ครบเวลาแล้วปิดประตูจึงออกได้ · โหมด ATO เปิด/ปิดให้เอง */
+const DOOR_TIME = 2.5;
+function doorTick(dt) {
+  const tgt = S.doorOpen ? 1 : 0;
+  if (S.doorT !== tgt) S.doorT = clamp(S.doorT + Math.sign(tgt - S.doorT) * dt / DOOR_TIME, 0, 1);
+}
+function setDoors(open, auto) {
+  if (open === S.doorOpen) return;
+  if (open) {
+    if (Math.abs(S.v) > 0.05) { flash("เปิดประตูไม่ได้ขณะรถเคลื่อนที่", "", 1800); return; }
+    if (!S.atStation) { flash("ยังไม่ได้จอดที่ชานชาลา — เปิดประตูไม่ได้", "", 2000); return; }
+    S.doorOpen = true; S.doorUsed = true; sfx.chime(true);
+    flash((auto ? "ATO: " : "") + "เปิดประตู" + (S.dwell > 0 ? ` — จอดรับส่งผู้โดยสาร ${Math.ceil(S.dwell)} วินาที` : ""), "ok", 2200);
+  } else { S.doorOpen = false; sfx.chime(false); flash((auto ? "ATO: " : "") + "ปิดประตู — ระวังประตูปิด", "info", 1800); }
+  updDoorBtn();
+}
+function updDoorBtn() { const b = $("doorTop"); if (b) { b.setAttribute("aria-pressed", String(S.doorOpen)); b.querySelector(".lbl").textContent = S.doorOpen ? "ปิดประตู" : "เปิดประตู"; } }
 function checkStops(dt) {
+  doorTick(dt);
   const st = S.stops[S.stopIdx];
-  if (S.dwell > 0) {
-    S.dwell -= dt;
-    if (S.dwell <= 0) { S.dwell = 0; flash("ปิดประตูแล้ว — ออกได้", "ok", 2500); sfx.bell(); S.stopIdx++; if (S.ato) S.atoHold = false; }
+  if (S.dwell > 0 || S.dwellDone) {
+    // ATO: จอดนิ่งแล้ว 1.5 วินาที → เปิดประตูเอง
+    if (S.ato && !S.doorOpen && !S.dwellDone && S.v === 0) { S.autoT += dt; if (S.autoT > 1.5) { S.autoT = 0; setDoors(true, true); } }
+    if (S.doorT >= 1 && S.dwell > 0) {
+      S.dwell -= dt;
+      if (S.dwell <= 0) { S.dwell = 0; S.dwellDone = true; sfx.bell(); if (S.ato) setDoors(false, true); else flash("ครบเวลาจอด — ปิดประตู (D) แล้วออกได้", "info", 3500); }
+    }
+    // ประตูปิดสนิทหลังรับส่งผู้โดยสาร → ไปสถานีถัดไป
+    if (S.doorUsed && !S.doorOpen && S.doorT === 0) { S.dwell = 0; S.dwellDone = false; S.doorUsed = false; S.stopIdx++; flash("ประตูปิดสนิท — ออกได้", "ok", 2000); }
+    // ออกจากสถานีโดยไม่เปิดประตู
+    else if (S.atStation && Math.abs(stopMark(S.atStation) - S.s) > 30) {
+      flash(`ออกจาก${S.atStation.n}โดยไม่ได้เปิดประตู — ผู้โดยสารไม่ได้ขึ้นลง!`, "", 3500);
+      const r = S.results[S.results.length - 1]; if (r) r.noDoor = true;
+      S.dwell = 0; S.dwellDone = false; S.doorUsed = false; S.stopIdx++; S.atStation = null;
+    }
     return;
   }
   if (!st) return;
@@ -212,7 +253,7 @@ function checkStops(dt) {
     const last = st === geo.stations[S.to];
     flash(`จอด${st.n} ${err >= 0 ? "เลย" : "ก่อน"}จุดจอด ${Math.abs(err).toFixed(1)} ม. · ${grade}`, Math.abs(err) <= 5 ? "ok" : "info", 4000);
     if (last) { S.done = true; S.ato = false; updAtoBtn(); big(`ถึงสถานี${st.n}<br><small style="font-size:1.1rem">${fmtTime(S.t)} · จอดตรงจุด ${S.results.filter((r) => r.ok && Math.abs(r.err) <= 5).length}/${S.results.length} สถานี</small>`, 7000); }
-    else S.dwell = TRAINS[S.type].dwell;
+    else { S.dwell = TRAINS[S.type].dwell; S.autoT = 0; if (!S.ato) flash(`จอด${st.n}แล้ว — กด D เปิดประตู`, "info", 3000); }
   }
   if (S.atStation && Math.abs(stopMark(S.atStation) - S.s) > 30) S.atStation = null;
   if (d < -25 && S.atStation !== st) {
@@ -236,13 +277,14 @@ function atoTarget() {
   const st = S.stops[S.stopIdx];
   if (st && S.dwell === 0) {
     const d = stopMark(st) - S.s;
-    if (d > -20) { const v = Math.sqrt(2 * b * Math.max(0, d - 1.5 - S.v * tr.airLag * 0.6)); if (v < vAllow) { vAllow = v; why = `จอด${st.n} อีก ${Math.max(0, Math.round(d))} ม.`; } }
+    if (d > -20) { const bs = Math.max(0.2, b - G * Math.max(0, -gradeAvg(S.s + Math.max(0, d) / 2, tr.length))), v = Math.sqrt(2 * bs * Math.max(0, d - 1.5 - S.v * tr.airLag * 0.6)); if (v < vAllow) { vAllow = v; why = `จอด${st.n} อีก ${Math.max(0, Math.round(d))} ม.`; } }
   }
   return { v: vAllow, why };
 }
 function runAto() {
   const tr = TRAINS[S.type];
-  if (S.dwell > 0 || S.done) { S.lever = -4; return; }
+  if (S.done) { S.lever = -4; if (S.v === 0 && !S.doorUsed) setDoors(true, true); return; }
+  if (S.dwell > 0 || S.dwellDone || S.doorOpen || S.doorT > 0) { S.lever = -4; return; }
   const T = atoTarget(); S.atoV = T.v; S.atoWhy = T.why;
   const st = S.stops[S.stopIdx], d = st ? stopMark(st) - S.s : 1e9;
   // ช่วงเข้าจอด: เบรกตามความหน่วงที่ต้องการ a = v²/2d
@@ -306,6 +348,7 @@ const sfx = (() => {
       } catch (e) { /* ignore */ }
     },
     horn() { init(); if (!ctx || !S.sound) return; const hi = S.type === "hsr" || S.type === "emu"; [hi ? 466 : 311, hi ? 587 : 370].forEach((f) => burst(f, 1.3, 0.12, "sawtooth")); },
+    chime(open) { if (!ctx || !S.sound) return; (open ? [988, 1319] : [1319, 988, 1319, 988]).forEach((f, i) => setTimeout(() => burst(f, 0.28, 0.07, "sine"), i * (open ? 260 : 330))); setTimeout(() => burst(240, 0.5, 0.05), open ? 500 : 1500); },
     bell() { if (!ctx || !S.sound) return; [0, 0.35, 0.7].forEach((t) => setTimeout(() => burst(1320, 0.4, 0.08, "sine"), t * 1000)); },
     beep() { if (!ctx || !S.sound) return; burst(880, 0.15, 0.08, "square"); },
     crash() { if (!ctx || !S.sound) return; burst(120, 2.5, 0.6); burst(600, 1.5, 0.3); }
@@ -362,6 +405,7 @@ function drawReadouts() {
     ["แรงฉุด", kN(S.fT || 0) + (S.slip ? " ⚠ล้อฟรี" : "")],
     ["แรงเบรก", kN(S.fB || 0) + (S.slide ? " ⚠ล้อไถล" : "") + (S.fDyn ? ` (ไฟฟ้า ${kN(S.fDyn)})` : "")],
     ["กำลังที่ล้อ", ((S.fT || 0) * Math.abs(S.v) / 1000).toFixed(0) + " kW", 1],
+    ["ประตู", S.doorT === 0 ? "ปิดสนิท" : S.doorT === 1 ? "เปิด" : S.doorOpen ? "กำลังเปิด…" : "กำลังปิด…"],
     ["เวลา", fmtTime(S.t) + (S.warp > 1 ? ` (×${S.warp})` : "")],
     [tr.electric ? "พลังงานไฟฟ้า" : "น้ำมัน", tr.electric ? `${S.energy.toFixed(0)} kWh${tr.regen ? ` (คืน ${S.regenE.toFixed(0)})` : ""}` : `${S.fuel.toFixed(0)} ลิตร`, 1]
   ];
@@ -371,7 +415,7 @@ function drawNext() {
   const st = S.stops[S.stopIdx], nx = nextStation();
   let h = "";
   if (S.done) h = `<div class="k">ถึงปลายทางแล้ว</div><div class="nm">${geo.stations[S.to].n}</div><div class="row"><span>ใช้เวลา</span><b>${fmtTime(S.t)}</b></div><div class="row"><span>เร็วสุด</span><b>${Math.round(S.maxV * KMH)} กม./ชม.</b></div>`;
-  else if (S.dwell > 0) h = `<div class="k">จอดอยู่ที่</div><div class="nm">${S.atStation ? S.atStation.n : ""}</div><div class="row"><span>ออกได้ในอีก</span><b>${Math.ceil(S.dwell)} วิ</b></div>`;
+  else if (S.dwell > 0 || S.dwellDone) h = `<div class="k">จอดอยู่ที่</div><div class="nm">${S.atStation ? S.atStation.n : ""}</div><div class="row"><span>${S.dwellDone ? "ครบเวลาจอด" : S.doorT < 1 ? "เปิดประตู (D) เพื่อรับส่งผู้โดยสาร" : "รับส่งผู้โดยสาร อีก"}</span><b>${S.dwellDone ? (S.doorT > 0 ? "ปิดประตู (D)" : "ออกได้") : S.doorT < 1 ? "" : Math.ceil(S.dwell) + " วิ"}</b></div>`;
   else if (st) {
     const d = stopMark(st) - S.s, sd = stopDist(Math.abs(S.v), TRAINS[S.type].bServ);
     h = `<div class="k">สถานีจอดถัดไป</div><div class="nm">${st.n}</div><div class="en">${st.e || ""} · กม. ${(st.s / 1000).toFixed(1)}</div>
@@ -499,6 +543,7 @@ function buildPanel() {
   $("from").addEventListener("change", () => { S.from = +$("from").value; if (S.to <= S.from) { S.to = geo.stations.length - 1; $("to").value = S.to; } restart(); });
   $("to").addEventListener("change", () => { S.to = +$("to").value; if (S.to <= S.from) { S.from = 0; $("from").value = 0; } restart(); });
   $("stopMode").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.stopMode = b.dataset.m; pressed("stopMode", "m", S.stopMode); S.stops = stopsFor().filter((st) => stopMark(st) > S.s - 25); S.stopIdx = 0; flash("ปรับรูปแบบการจอดแล้ว", "info"); });
+  $("doorTop").addEventListener("click", () => { setDoors(!S.doorOpen); $("doorTop").blur(); });
   $("btnStart").addEventListener("click", () => { restart(); showPanel(false); });
   $("camBtn").addEventListener("click", () => { const i = CAMS.indexOf(world ? world.mode : "cab"); setCam(CAMS[(i + 1) % CAMS.length]); $("camBtn").blur(); });
   $("cams").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; setCam(b.dataset.c); });
@@ -550,7 +595,8 @@ const CAMS = ["cab", "chase", "side", "drone", "track"];
 const CAM_NAME = { cab: "ห้องคนขับ", chase: "ไล่หลัง", side: "ข้างขบวน", drone: "โดรน", track: "ข้างราง" };
 function setCam(c) { pressed("cams", "c", c); world && world.setCam(c); $("camBtn").querySelector(".lbl").textContent = CAM_NAME[c]; }
 function resetRun(sStart) {
-  Object.assign(S, { v: 0, a: 0, lever: -8, emer: false, trac: 0, brk: 1, slip: 0, slide: 0, au: 0, auT: 0, derailed: null, t: 0, energy: 0, regenE: 0, fuel: 0, dwell: 0, atStation: null, results: [], done: false, maxV: 0 });
+  Object.assign(S, { v: 0, a: 0, lever: -8, emer: false, trac: 0, brk: 1, slip: 0, slide: 0, au: 0, auT: 0, derailed: null, t: 0, energy: 0, regenE: 0, fuel: 0, dwell: 0, atStation: null, results: [], done: false, maxV: 0, doorOpen: false, doorT: 0, doorUsed: false, dwellDone: false, autoT: 0 });
+  updDoorBtn();
   S.s = clamp(sStart, TRAINS[S.type].length, TOTAL);
 }
 function restart() {
@@ -589,6 +635,7 @@ window.addEventListener("keydown", (e) => {
   else if (k === "h") sfx.horn();
   else if (k === "c") { const i = CAMS.indexOf(world ? world.mode : "cab"); setCam(CAMS[(i + 1) % CAMS.length]); }
   else if (k === "a") toggleAto();
+  else if (k === "d") setDoors(!S.doorOpen);
   else if (k === "m") showMap($("mapWrap").hidden);
   else if (k === "tab") { showPanel($("panel").classList.contains("closed")); e.preventDefault(); }
 });
@@ -604,6 +651,7 @@ function pollPad(dt) {
   if (edge(1)) { S.emer = true; S.ato = false; updAtoBtn(); }
   if (edge(3)) { const i = CAMS.indexOf(world.mode); setCam(CAMS[(i + 1) % CAMS.length]); }
   if (edge(2)) toggleAto();
+  if (edge(4)) setDoors(!S.doorOpen);
   if (edge(12)) moveLever(1); if (edge(13)) moveLever(-1);
   padPrev = p.buttons.map((x) => x.pressed);
 }
@@ -628,20 +676,46 @@ function frame(now) {
     if (S.au > S.auLim * 0.8) { flash(`อันตราย! แรงเหวี่ยง ${S.au.toFixed(2)} ม./วิ² ใกล้ขีดพลิกคว่ำ ${S.auLim.toFixed(2)} — ลดความเร็วด่วน`, "", 1200); sfx.beep(); warnT = 0.6; }
     else if (S.au > COMFORT) { flash(`แรงเหวี่ยงเกินระดับสบาย (${S.au.toFixed(2)} > ${COMFORT}) — ผู้โดยสารเซ`, "info", 1200); warnT = 1.5; }
     else if (S.slip) { flash("ล้อฟรี! ลดกำลังลง (แรงฉุดเกินแรงยึดเกาะ)", "info", 1200); warnT = 1.5; }
+    else if (S.lever > 0 && (S.doorOpen || S.doorT > 0)) { flash("ประตูยังไม่ปิด — ระบบตัดกำลังขับเคลื่อน", "", 1200); warnT = 1.5; }
     else if (S.slide) { flash("ล้อไถล! เบรกแรงเกินแรงยึดเกาะ ระยะเบรกจะยาวขึ้น", "info", 1200); warnT = 1.5; }
   }
   sfx.update(dtR);
-  if (world) world.update(dtR, { s: S.s, v: S.v, trainKey: trainKey(), train: TRAINS[S.type], rollFor, derailed: S.derailed });
+  if (world) world.update(dtR, { s: S.s, v: S.v, trainKey: trainKey(), train: TRAINS[S.type], rollFor, derailed: S.derailed, door: S.doorT });
   drawSpeedo();
   hudT -= dtR; slowT -= dtR;
   if (hudT <= 0) { hudT = 0.12; drawReadouts(); drawNext(); }
   if (slowT <= 0) { slowT = 0.5; drawPhys(); drawAhead(); updMap(); drawProfile(); }
 }
+// ตึกจริงตามแนวทาง (OpenStreetMap) — เรียงตามระยะทาง s เพื่อดึงเฉพาะช่วงที่กำลังสร้างฉาก
+async function loadBuildings() {
+  try {
+    const { BLD } = await import(LINES[LINE_ID].bld);
+    const n = BLD.h.length, s = new Float64Array(n), x = new Float64Array(n), y = new Float64Array(n), o = new Int32Array(n + 1);
+    let a = 0, b = 0, c = 0;
+    for (let i = 0; i < n; i++) { a += BLD.s[i]; b += BLD.x[i]; c += BLD.y[i]; s[i] = a; x[i] = b / 10; y[i] = c / 10; o[i + 1] = o[i] + BLD.n[i]; }
+    return { n, s, x, y, o, h: BLD.h.map((v) => v / 10), p: BLD.p, k: BLD.k, lat0: BLD.lat0, lon0: BLD.lon0, kx: Math.cos(BLD.lat0 * Math.PI / 180) * 111320 };
+  } catch (e) { console.warn("buildings", e); return null; }
+}
+function lowerBound(arr, v) { let lo = 0, hi = arr.length; while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < v) lo = m + 1; else hi = m; } return lo; }
+function countBld(b, s0, s1) { return b ? lowerBound(b.s, s1) - lowerBound(b.s, s0) : 0; }
+// ทางแยกที่อุรุพงษ์: ทางรถไฟสายตะวันออก (ระดับดิน) แยกออกไปข้างทางลาดขึ้นทางยกระดับ
+function branchFor() {
+  if (LINE_ID !== "arl") return null;
+  const u = geo.stations.find((st) => st.n === "อุรุพงษ์");
+  return u ? { s0: u.s + 10, s1: u.s + 2600, div: 220, off: 9, side: 1 } : null;
+}
 async function start() {
+  document.querySelector("h1 .t").textContent = "จำลองขับรถไฟ" + LINES[LINE_ID].name;
+  document.title = "จำลองขับรถไฟ" + LINES[LINE_ID].name;
+  $("line").innerHTML = Object.entries(LINES).map(([k, l]) => `<option value="${k}"${k === LINE_ID ? " selected" : ""}>${l.name}</option>`).join("");
+  $("line").addEventListener("change", () => { QS.set("line", $("line").value); location.search = QS.toString(); });
+  pressed("trains", "k", S.type);
   buildPanel(); initMap(); updAtoBtn();
   try {
-    const mod = await import("./train_sim_3d.js?v=20261126-7");
-    world = mod.createWorld($("view"), { geo, electric: () => !!TRAINS[S.type].electric });
+    const mod = await import("./train_sim_3d.js?v=20261127-1");
+    const bld = await loadBuildings();
+    const branch = branchFor();
+    world = mod.createWorld($("view"), { geo, bld, branch, urban: (a, b) => countBld(bld, a, b) > 25, electric: () => !!TRAINS[S.type].electric });
     window.addEventListener("resize", () => world.resize());
     world.setEnv({ tod: S.tod, wx: S.wx });
   } catch (e) { console.error(e); flash("โหลดกราฟิก 3 มิติไม่สำเร็จ — ยังขับได้จากหน้าปัดและแผนที่", "", 6000); }

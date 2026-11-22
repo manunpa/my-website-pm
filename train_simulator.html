@@ -148,6 +148,7 @@
   <a class="pill" href="Access-Hub.html" title="กลับหน้า Hub">← Hub</a>
   <h1><span class="t">จำลองขับรถไฟสายเหนือ กรุงเทพ–เชียงใหม่</span><span class="beta">กำลังพัฒนา</span></h1>
   <button class="pill" id="camBtn" title="สลับมุมกล้อง (C)">🎥 <span class="lbl">ห้องคนขับ</span></button>
+  <button class="pill" id="doorTop" aria-pressed="false" title="เปิด/ปิดประตู (D)">🚪 <span class="lbl">เปิดประตู</span></button>
   <button class="pill" id="atoTop" aria-pressed="false" title="ขับอัตโนมัติ (A)">🤖 <span class="lbl">ATO</span></button>
   <button class="pill" id="mapTop" aria-pressed="true" title="แผนที่ (M)">🗺 <span class="lbl">แผนที่</span></button>
   <button class="pill" id="panelTop" aria-pressed="true" title="ตั้งค่า / เลือกรถ (Tab)">⚙ <span class="lbl">ตั้งค่า</span></button>
@@ -184,6 +185,9 @@
     <p class="note" id="carInfo"></p>
   </section>
   <section>
+    <h2>สายรถไฟ</h2>
+    <select id="line" aria-label="เลือกสาย"></select>
+    <div style="height:10px"></div>
     <h2>เส้นทาง</h2>
     <select id="from"></select>
     <div style="height:6px"></div>
@@ -223,6 +227,7 @@
       <kbd>↓ / S</kbd><span>คันบังคับลง (ลดกำลัง → เพิ่มเบรก)</span>
       <kbd>Space</kbd><span>เบรกฉุกเฉิน</span>
       <kbd>0</kbd><span>คันบังคับกลาง (N)</span>
+      <kbd>D</kbd><span>เปิด/ปิดประตู (ตอนจอดที่ชานชาลา)</span>
       <kbd>H</kbd><span>หวูด</span>
       <kbd>C</kbd><span>สลับมุมกล้อง</span>
       <kbd>A</kbd><span>เปิด/ปิดขับอัตโนมัติ</span>
@@ -238,6 +243,6 @@
 <div id="big"><div id="bigText"></div></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script type="module" src="./train_sim.js?v=cut-20261122"></script>
+<script type="module" src="./train_sim.js?v=20261127-1"></script>
 </body>
 </html>
