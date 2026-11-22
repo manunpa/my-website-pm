@@ -103,6 +103,12 @@ export function createAudio() {
     // ชน / พลิก
     if (s.ev.hits !== st.hits) { st.hits = s.ev.hits; crash(); }
     if (s.ev.rolls !== st.rolls) { st.rolls = s.ev.rolls; crash(); setTimeout(crash, 700); }
+    // เตือนความเร็ว: ใกล้กำหนด = ติ๊ด 1 ครั้ง/วินาที · เกินกำหนด = ติ๊ด-ติ๊ด ถี่ขึ้น
+    if (s.overspeed) {
+      st.spdT = (st.spdT || 0) + dt;
+      const period = s.overspeed === "over" ? 0.6 : 1.0;
+      if (st.spdT > period) { st.spdT = 0; tone(2400, 0.09, 0.08, "sine"); if (s.overspeed === "over") setTimeout(() => tone(2400, 0.09, 0.08, "sine"), 140); }
+    } else st.spdT = 0.95;
     // เซนเซอร์มุมอับ: บี๊บถี่ ๆ
     if (s.bsd) { st.bsdT += dt; if (st.bsdT > 0.22) { st.bsdT = 0; tone(1600, 0.08, 0.06, "sine"); } } else st.bsdT = 0.2;
   }

@@ -763,12 +763,14 @@ export function create3D(host, api) {
       }
       if (info.interior) {
         info.interior.visible = inCab; info.steeringWheel.rotation.z = S.steer * 20 / 8;
-        const kmh = Math.round(Math.abs(S.v) * 3.6), gear = S.v < -0.05 ? "R" : S.v > 0.05 ? "D" : "N", key = kmh + gear + (braking ? "B" : "");
+        const kmh = Math.round(Math.abs(S.v) * 3.6), gear = S.v < -0.05 ? "R" : S.v > 0.05 ? "D" : "N", key = kmh + gear + (braking ? "B" : "") + (S.overspeed || "") + (blink ? 1 : 0);
         if (inCab && key !== info.dash.last) {
           info.dash.last = key;
           const g2 = info.dash.c.getContext("2d");
           g2.fillStyle = "#05070a"; g2.fillRect(0, 0, 256, 128);
-          g2.fillStyle = "#7df3ff"; g2.font = "700 74px system-ui, sans-serif"; g2.textAlign = "right"; g2.textBaseline = "middle"; g2.fillText(kmh, 170, 58);
+          if (S.overspeed && blink) { g2.strokeStyle = S.overspeed === "over" ? "#ff3b3b" : "#ffb020"; g2.lineWidth = 8; g2.strokeRect(4, 4, 248, 120); }
+          g2.fillStyle = "#9fb3c8"; g2.font = "600 18px system-ui, sans-serif"; g2.textAlign = "left"; g2.textBaseline = "middle"; g2.fillText("LIMIT " + api.speedLimit(), 14, 22);
+          g2.fillStyle = S.overspeed === "over" ? "#ff5a5a" : S.overspeed ? "#ffc04d" : "#7df3ff"; g2.font = "700 74px system-ui, sans-serif"; g2.textAlign = "right"; g2.textBaseline = "middle"; g2.fillText(kmh, 170, 58);
           g2.font = "600 22px system-ui, sans-serif"; g2.fillStyle = "#9fb3c8"; g2.textAlign = "left"; g2.fillText("km/h", 178, 74);
           g2.font = "700 30px system-ui, sans-serif"; g2.fillStyle = gear === "R" ? "#ffffff" : "#ffd54a"; g2.fillText(gear, 190, 36);
           if (braking) { g2.fillStyle = "#ff3b3b"; g2.fillRect(14, 104, 228, 12); }

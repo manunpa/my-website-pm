@@ -1,5 +1,5 @@
 import { requireLogin } from "./firebase-guard.js?v=20261122-sim";
-import { createAudio } from "./truck_sim_audio.js?v=20261124-1";
+import { createAudio } from "./truck_sim_audio.js?v=20261124-2";
 
 /* =====================================================================
    จำลองมุมอับรถบรรทุก (มุมมองจากด้านบน)
@@ -19,7 +19,7 @@ const SILL = { f: 1.85, l: 1.95, r: 1.9 };  // ความสูงขอบล
 const VIEW_LEFT = 110 * DEG, VIEW_RIGHT = -135 * DEG; // หันมองได้ถึงไหน (หลังจากนี้ติดผนังหลังเก๋ง) ฝั่งคนขับเอี้ยวคอได้มากกว่า
 const MIRROR_RANGE = 45;
 const CELL = 0.3;                    // ความละเอียดตารางคำนวณมุมอับ
-const MAX_FWD = 100 / 3.6, MAX_REV = 9 / 3.6;
+const MAX_FWD = 130 / 3.6, MAX_REV = 9 / 3.6;   // เพดานทางฟิสิกส์เท่านั้น — ความเร็วตามกฎใช้เป็น "การเตือน" (ดู limit ในแต่ละรถ)
 const GRAV = 9.81;
 const T_REACT = 1.0;                 // เวลาคนขับเห็นเหตุ → ยกเท้าไปเหยียบเบรก (วินาที)
 const T_LAG = 0.4;                   // ลมเบรกรถใหญ่ใช้เวลาสร้างแรงดันจนเบรกเต็มที่ (วินาที)
@@ -42,7 +42,7 @@ const CROSS_X = 75;                  // ตำแหน่งสี่แยก
 
 const RIGS = {
   tanker: {
-    name: "รถบรรทุกน้ำมัน 10 ล้อ", key: "1",
+    name: "รถบรรทุกน้ำมัน 10 ล้อ", key: "1", limit: 80,
     units: [{
       kind: "truck", wb: 5.6, maxSteer: 38, front: 7.0, rear: -3.0, cabFront: 7.0, cabBack: 4.8, color: "#c8392f",
       axles: [{ x: 5.6, steer: true }, { x: 0.65, dual: true }, { x: -0.65, dual: true }],
@@ -50,7 +50,7 @@ const RIGS = {
     }]
   },
   semi: {
-    name: "รถหัวลาก 10 ล้อ + หางพ่วงน้ำมัน", key: "2",
+    name: "รถหัวลาก 10 ล้อ + หางพ่วงน้ำมัน", key: "2", limit: 60,
     units: [{
       kind: "truck", wb: 3.9, maxSteer: 32, front: 5.3, rear: -1.0, cabFront: 5.3, cabBack: 3.0, hitch: 0.4, color: "#2f63c8",
       axles: [{ x: 3.9, steer: true }, { x: 0.65, dual: true }, { x: -0.65, dual: true }],
@@ -63,7 +63,7 @@ const RIGS = {
   },
   carrier: {
     // ตัวลูกเป็นพ่วงแกนกลาง: ล้อ 8 ล้อ (2 เพลา ล้อคู่) อยู่กลางตัว ไม่มีล้อเลี้ยว ต่อกับตัวแม่ด้วยคานลากแข็ง
-    name: "รถขนรถยนต์ + พ่วงแกนกลาง (ตัวแม่ + ตัวลูก)", key: "3",
+    name: "รถขนรถยนต์ + พ่วงแกนกลาง (ตัวแม่ + ตัวลูก)", key: "3", limit: 60,
     units: [{
       kind: "truck", wb: 5.8, maxSteer: 38, front: 7.2, rear: -2.2, cabFront: 7.2, cabBack: 5.0, hitch: -2.5, color: "#eef0f2",
       axles: [{ x: 5.8, steer: true }, { x: 0.65, dual: true }, { x: -0.65, dual: true }],
@@ -577,6 +577,7 @@ function step(dt) {
   if (S.test) testTrack();
   updateSmoke(dt);
   updateAssist(dt);
+  updateSpeedWarn();
   scnUpdate(dt);
   // ความโค้งของเส้นทางข้างหน้า ไล่ตามพวงมาลัยแบบนุ่ม ๆ (โซนหน้า/จุดหยุดรถโค้งตามการเลี้ยว)
   const kNow = Math.tan(S.steer) / d.wb;
@@ -592,6 +593,16 @@ function updateSlosh(dt, aLong, aLatS) {
   sl.vx += (-w * w * sl.x - 2 * z * w * sl.vx - aLong) * dt; sl.x = Math.max(-0.7, Math.min(0.7, sl.x + sl.vx * dt));
   sl.vy += (-wl * wl * sl.y - 2 * z * wl * sl.vy - aLatS * GRAV) * dt; sl.y = Math.max(-0.4, Math.min(0.4, sl.y + sl.vy * dt));
   return PH.ms * (w * w * sl.x + 2 * z * w * sl.vx) / PH.mTot;
+}
+/* เตือนความเร็ว: ไม่บังคับลดความเร็ว แค่เตือน
+   รถ 10 ล้อ จำกัด 80 กม./ชม. (เริ่มเตือนที่ 78) · รถหัวลาก/รถพ่วง จำกัด 60 (เริ่มเตือนที่ 58) */
+function speedLimit() { return RIGS[S.rigKey].limit || 80; }
+function updateSpeedWarn() {
+  const kmh = Math.round(Math.abs(S.v) * 3.6), lim = speedLimit();   // ใช้เลขเดียวกับที่โชว์บนหน้าปัด
+  const was = S.overspeed;
+  S.overspeed = kmh >= lim - 2 ? (kmh > lim ? "over" : "near") : null;
+  if (S.overspeed && !was) flash((kmh > lim ? "เกินความเร็วกำหนด " : "ใกล้ความเร็วกำหนด ") + lim + " กม./ชม. — ลดความเร็ว");
+  if (S.scn && S.scn.phase === "run" && kmh > lim && !S.scn.pen.includes("ขับเร็วเกินกำหนด " + lim + " กม./ชม.")) S.scn.pen.push("ขับเร็วเกินกำหนด " + lim + " กม./ชม.");
 }
 // ส่วนที่เติมในขั้นถัดไป (จราจร / อุปกรณ์ช่วยขับ / ภารกิจ)
 /* ---------------- จราจรจริง: รถ มอเตอร์ไซค์ คนข้ามถนน และไฟจราจร ----------------
@@ -868,13 +879,13 @@ const SCENARIOS = [
   },
   {
     id: "swerve", rig: "carrier", noTraffic: true, name: "ถนนเปียก รถเสียขวางเลน",
-    desc: "รถขนรถยนต์ 80 กม./ชม. บนถนนเปียก ข้างหน้ามีรถเสียจอดขวางเลน",
+    desc: "รถขนรถยนต์ 60 กม./ชม. (ความเร็วสูงสุดตามกำหนด) บนถนนเปียก ข้างหน้ามีรถเสียจอดขวางเลน",
     goal: "หลบหรือหยุดให้ปลอดภัย โดยไม่ให้หางปัด (มุมหักข้อต่อยิ่งน้อยยิ่งดี)",
     pose: { x: -320, y: 5.25, th: 0 },
     setup(sc) {
       const b = document.querySelector('#road button[data-mu="0.45"]'); if (b) b.click();
       S.objects.push({ t: "car", x: -170, y: 5.25, th: 0.15, v: 0, col: "#9aa1a8" });
-      S.v = 80 / 3.6;
+      S.v = 60 / 3.6;
     },
     check(sc) {
       const lb = lastBody(), rx = toWorld(lb, lb.def.rear, 0)[0];
@@ -1946,7 +1957,9 @@ function updateAssistPanel() {
 }
 function updateHud() {
   const kmh = Math.abs(S.v * 3.6), gear = S.v < -0.05 || (S.analog.active && S.analog.rev) ? "R" : S.v > 0.05 ? "D" : "N";
-  $("hud").innerHTML = '<div class="big">' + kmh.toFixed(0) + "<small>กม./ชม. · " + gear + "</small></div>" +
+  const lim = speedLimit();
+  $("hud").classList.toggle("over", S.overspeed === "over"); $("hud").classList.toggle("near", S.overspeed === "near");
+  $("hud").innerHTML = '<div class="big">' + kmh.toFixed(0) + "<small>กม./ชม. · " + gear + '</small><i class="lim">' + lim + "</i></div>" +
     "<span>ล้อหน้า</span><b>" + (S.steer / DEG).toFixed(0) + "°</b>" +
     (S.bsdAlert ? '<span class="bsd">⚠ เซนเซอร์: มีวัตถุ' + ({ left: "ด้านซ้าย", right: "ด้านขวา", both: "ทั้งสองข้าง" })[S.bsdAlert] + "</span>" : "") +
     (S.analog.active ? '<span class="pad">ใช้พวงมาลัย/จอย</span>' : "");
@@ -2038,6 +2051,14 @@ function bindControls() {
   $("btnNight").addEventListener("click", (e) => { setNight(!S.night); e.currentTarget.blur(); });
   $("btnRain").addEventListener("click", (e) => { setWeather(S.weather !== "rain"); e.currentTarget.blur(); });
   $("btnReplay").addEventListener("click", (e) => { startReplay(); e.currentTarget.blur(); });
+  // ปุ่มแผนที่จริง: เลื่อนไปที่หัวข้อแผนที่จริง ไฮไลต์ แล้วพร้อมพิมพ์พิกัด
+  $("btnMap").addEventListener("click", (e) => {
+    e.currentTarget.blur();
+    const sec = $("osmSec");
+    sec.scrollIntoView({ block: "center" });
+    sec.classList.remove("flash"); void sec.offsetWidth; sec.classList.add("flash");
+    setTimeout(() => $("osmCoord").focus({ preventScroll: true }), 450);
+  });
   $("osmLoad").addEventListener("click", (e) => {
     const m = $("osmCoord").value.match(/(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/);
     if (!m) { $("osmStatus").textContent = "ใส่พิกัดแบบ 13.7563, 100.5018 (ก๊อปจาก Google Maps ได้)"; return; }
@@ -2151,7 +2172,7 @@ function setSound(on) {
 function audioTick(dt) {
   if (!AUDIO || !S.sound) return;
   try { AUDIO.update(dt, { v: S.v, ctl: S.ctl, brakeA: S.brakeA, aMax: PH.aMax, phys: S.phys, steer: S.steer,
-    horn: S.keys.has("horn") || S.analog.horn, ev: S.ev, rolled: S.rolled, bsd: S.bsdAlert }); } catch (e) { console.warn(e); }
+    horn: S.keys.has("horn") || S.analog.horn, ev: S.ev, rolled: S.rolled, bsd: S.bsdAlert, overspeed: S.overspeed }); } catch (e) { console.warn(e); }
 }
 
 /* ---------------- แผนที่จริงจาก OpenStreetMap ----------------
@@ -2238,13 +2259,13 @@ function drawOsm(vx1, vx2, vy1, vy2) {
 
 /* ---------------- มุมมอง 3D (โหลดเมื่อใช้ครั้งแรก) ---------------- */
 let three = null, threeLoading = false;
-const API3D = { S, P, G, HW, CELL, CROSS_X, EYE_H, toWorld, blindOutline, city: CITY, placeAt, zoneRects, stopDistance, predictFront, lightState, signals: SIGNALS, yard: YARD, scnBox: () => S.scn && S.scn.box };
+const API3D = { speedLimit, S, P, G, HW, CELL, CROSS_X, EYE_H, toWorld, blindOutline, city: CITY, placeAt, zoneRects, stopDistance, predictFront, lightState, signals: SIGNALS, yard: YARD, scnBox: () => S.scn && S.scn.box };
 async function setView(v) {
   if (v !== "2d" && !three) {
     if (threeLoading) return;
     threeLoading = true; flash("กำลังโหลดมุมมอง 3 มิติ…");
     try {
-      const mod = await import("./truck_blind_spot_3d.js?v=20261124-5");
+      const mod = await import("./truck_blind_spot_3d.js?v=20261124-6");
       three = mod.create3D($("view3d"), API3D);
       three.setNight(S.night); three.setRain(S.weather === "rain"); if (S.osm) three.setOSM(S.osm);
     } catch (err) {

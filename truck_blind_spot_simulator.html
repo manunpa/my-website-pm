@@ -53,6 +53,7 @@
     background: var(--surface); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap;
   }
   .pill:hover { border-color: var(--muted); }
+  .pill[hidden] { display: none; }
   .user { font-size: .8rem; color: var(--muted); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 340px; }
@@ -74,6 +75,11 @@
   .mir.cam { cursor: default; border-color: #0f766e !important; }
   .hud, .msg { z-index: 3; }
   .hud .big { font-size: 1.6rem; line-height: 1.1; font-weight: 600; grid-column: 1 / -1; }
+  .hud .lim { font-style: normal; display: inline-grid; place-items: center; width: 30px; height: 30px; margin-left: 8px; border-radius: 50%; border: 3px solid #d93036; background: #fff; color: #111; font-size: .78rem; font-weight: 700; vertical-align: 4px; }
+  .hud.near { box-shadow: 0 0 0 3px #f5a524; }
+  .hud.over { box-shadow: 0 0 0 3px #e5484d; animation: overblink .6s steps(1) infinite; }
+  .hud.over .big { color: #e5484d; }
+  @keyframes overblink { 50% { box-shadow: 0 0 0 3px transparent; } }
   .hud .big small { font-size: .8rem; font-weight: 400; color: var(--muted); margin-left: 4px; }
   .msg {
     position: absolute; left: 50%; top: 14px; transform: translateX(-50%);
@@ -181,6 +187,8 @@
   td:last-child { text-align: right; font-weight: 500; }
   tr.warn td:last-child { color: var(--bad); }
   .note { font-size: .74rem; color: var(--muted); font-weight: 300; margin-top: 6px; }
+  #osmSec.flash { animation: secflash 1.6s ease-out; border-radius: 12px; }
+  @keyframes secflash { 0%, 40% { box-shadow: 0 0 0 3px #f5b301; background: rgba(245,179,1,.08); } 100% { box-shadow: 0 0 0 3px transparent; } }
   .txt { width: 100%; font: inherit; font-size: .86rem; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text); }
   .sub { font-size: .8rem; color: var(--muted); margin: 10px 0 6px; }
   .result { font-size: .84rem; margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
@@ -251,6 +259,7 @@
       <button data-view="chase" aria-pressed="false" title="กล้อง 3 มิติไล่ตามหลังรถ">3D ไล่หลัง</button>
       <button data-view="driver" aria-pressed="false" title="มองจากที่นั่งคนขับ พร้อมกระจกมองข้าง">มุมคนขับ</button>
       <button id="btnNight" aria-pressed="false" title="สลับกลางวัน/กลางคืน (N)">กลางคืน</button>
+      <button id="btnMap" title="ฝึกขับบนถนนจริงจาก OpenStreetMap">แผนที่จริง</button>
       <button id="btnReplay" title="ย้อนดู 15 วินาทีล่าสุดแบบแบ่งจอ (P)">รีเพลย์</button>
       <button id="btnRain" aria-pressed="false" title="ฝนตก: ถนนลื่น กระจกเห็นใกล้ลง">ฝนตก</button>
       <button id="btnSound" aria-pressed="true" title="เปิด/ปิดเสียง">เสียง เปิด</button>
@@ -407,7 +416,7 @@
       <label class="opt"><input type="checkbox" id="optCenter" checked> คืนพวงมาลัยเองเมื่อปล่อยปุ่ม</label>
     </section>
 
-    <section>
+    <section id="osmSec">
       <h2>แผนที่จริง (OpenStreetMap)</h2>
       <input type="text" id="osmCoord" class="txt" placeholder="พิกัด เช่น 13.7563, 100.5018" autocomplete="off">
       <div class="btns">
@@ -453,6 +462,6 @@
   </aside>
 </div>
 
-<script type="module" src="./truck_blind_spot_simulator.js?v=20261124-1"></script>
+<script type="module" src="./truck_blind_spot_simulator.js?v=20261124-3"></script>
 </body>
 </html>
