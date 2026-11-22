@@ -44,7 +44,7 @@ const COMFORT = 0.65;  // ม./วินาที² แรงเหวี่ย�
 function consist(list) { let acc = 0; return list.map((c) => { const o = Object.assign({}, c, { off: acc + c.len / 2 }); acc += c.len + 0.8; return o; }); }
 // ปรับจำนวนตู้ได้: มวล แรงต้าน กำลัง (สำหรับรถที่มีมอเตอร์กระจายทุกคัน) คำนวณใหม่ตามจำนวนตู้
 const CARS = { loco: 12, dmu: 3, emu: 6, hsr: 10 };
-const CAR_RANGE = { loco: [1, 20, "ตู้โดยสาร"], dmu: [2, 6, "คัน"], emu: [3, 12, "คัน"], hsr: [4, 16, "คัน"] };
+const CAR_RANGE = { loco: [1, 20, "ตู้โดยสาร"], dmu: [2, 6, "คัน"], emu: [3, 16, "คัน"], hsr: [4, 16, "คัน"] };
 const fmtN = (x) => Math.round(x).toLocaleString("en-US");
 function makeTrain(k, n) {
   let t, list;
