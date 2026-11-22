@@ -850,17 +850,19 @@ export function createWorld(host, api) {
         box(gp, lampW, 0.045, 0.075, 1.86, len / 2 + 0.064, 1.77, 0);
         lamp(gp, lampW, len / 2 + 0.05, 2.24, 1.17, 0.11); lamp(gp, lampW, len / 2 + 0.05, 2.24, -1.17, 0.11);
         box(gp, mat(0x087f8a, { metalness: 0.35, roughness: 0.3 }), 0.12, 0.22, 2.45, len / 2 - 0.02, y0 + 0.18, 0, true);
-        // Streamlined side skirts bridge the bogies and repeat the teal signature line.
-        [-1, 1].forEach((side) => {
-          box(gp, mat(0xb2bec7, { metalness: 0.32, roughness: 0.36 }), len - 8.5, 0.34, 0.12, 0, 1.02, side * 1.48);
-          box(gp, mat(0x16aaa5, { metalness: 0.25, roughness: 0.3 }), len - 8.5, 0.045, 0.13, 0, 1.23, side * 1.49);
-        });
       } else {
         lamp(gp, lampW, len / 2 + 0.005, 1.95, 0.9); lamp(gp, lampW, len / 2 + 0.005, 1.95, -0.9);
         box(gp, frameM, 0.4, 0.3, 2.4, len / 2 - 0.1, y0 - 0.12, 0);
       }
       gangway(gp, -len / 2 - 0.2);
     } else { gangway(gp, len / 2 + 0.2); gangway(gp, -len / 2 - 0.2); }
+    if (modern) {
+      // Streamlined side skirts bridge the bogies and repeat the teal signature line on every car.
+      [-1, 1].forEach((side) => {
+        box(gp, mat(0xb2bec7, { metalness: 0.32, roughness: 0.36 }), len - 8.5, 0.34, 0.12, 0, 1.02, side * 1.48);
+        box(gp, mat(0x16aaa5, { metalness: 0.25, roughness: 0.3 }), len - 8.5, 0.045, 0.13, 0, 1.23, side * 1.49);
+      });
+    }
   }
   function makeHSR(gp, len, nose, panto) {
     const y0 = 1.0, y1 = 4.0, NL = 11;
