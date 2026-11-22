@@ -348,6 +348,54 @@ export function create3D(host, api) {
       const sp = signSprite(sg.text, o.flat); sp.position.set(sg.x, gz + 4.0, -sg.y); G3.add(sp);
     });
   }
+  /* ตึกจากแผนที่จริง (OpenStreetMap ฟรี): รวมเป็นก้อนเดียว ผนังมีหน้าต่างตามขนาดจริง (ช่วงเสา 3 ม. × ชั้น 3.2 ม.)
+     ตึกสูง ≥ 32 ม. ส่วนใหญ่เป็นผนังกระจก · กลางคืนไฟหน้าต่างเปิดบางห้อง */
+  const glassTex = canvasTex(128, 256, (g, w, h) => {
+    g.fillStyle = "#a9b9c6"; g.fillRect(0, 0, w, h);
+    for (let y = 0; y < h; y += 32) for (let x = 0; x < w; x += 32) { const gr = g.createLinearGradient(x, y, x + 32, y + 32); gr.addColorStop(0, "#6a8aa3"); gr.addColorStop(1, "#24394c"); g.fillStyle = gr; g.fillRect(x + 1, y + 2, 30, 27); }
+  }, [1, 1]);
+  const glassLit = canvasTex(128, 256, (g, w, h) => {
+    g.fillStyle = "#000"; g.fillRect(0, 0, w, h); const r = rnd(41);
+    for (let y = 0; y < h; y += 32) for (let x = 0; x < w; x += 32) if (r() < 0.5) { g.fillStyle = r() < 0.5 ? "#ffe2a8" : "#fff4d8"; g.fillRect(x + 1, y + 2, 30, 27); }
+  }, [1, 1]);
+  const osmWall = mat(0xffffff, { map: winTex.clone(), emissive: 0xffffff, emissiveMap: winLit.clone(), emissiveIntensity: 0, roughness: 0.85, vertexColors: true });
+  const osmGlass = mat(0xffffff, { map: glassTex, emissive: 0xffffff, emissiveMap: glassLit, emissiveIntensity: 0, roughness: 0.12, metalness: 0.45, vertexColors: true });
+  const osmRoof = mat(0xffffff, { roughness: 0.9, vertexColors: true });
+  [osmWall.map, osmWall.emissiveMap, glassTex, glassLit].forEach((t) => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; });
+  buildMats.push(osmWall, osmGlass);
+  function osmBuildings(list, group) {
+    const bk = () => ({ pos: [], nrm: [], uv: [], col: [] });
+    const Wc = bk(), Wg = bk(), Rf = bk(), col = new THREE.Color(), rc = new THREE.Color();
+    list.forEach((b, i) => {
+      let pts = b.pts.slice();
+      if (pts.length > 2 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) pts.pop();
+      if (pts.length < 3) return;
+      let ar = 0; pts.forEach((p, j) => { const q = pts[(j + 1) % pts.length]; ar += p[0] * q[1] - q[0] * p[1]; });
+      if (ar < 0) pts.reverse();
+      const H = b.h, hs = ((i * 2654435761) >>> 0) / 4294967296, glassy = H >= 32 && hs < 0.65, T = glassy ? Wg : Wc;
+      if (glassy) col.setHSL(0.55 + hs * 0.08, 0.15 + hs * 0.2, 0.6 + hs * 0.25); else col.setHex(PAL[i % PAL.length]);
+      let per = 0;
+      pts.forEach((p, j) => {
+        const q = pts[(j + 1) % pts.length], L = Math.hypot(q[0] - p[0], q[1] - p[1]); if (L < 0.05) return;
+        const nx = (q[1] - p[1]) / L, nz = (q[0] - p[0]) / L, u0 = per / 12, u1 = (per + L) / 12, v1 = H / 25.6; per += L;
+        const A = [p[0], 0, -p[1]], B = [q[0], 0, -q[1]], B2 = [q[0], H, -q[1]], A2 = [p[0], H, -p[1]];
+        [[A, u0, 0], [B, u1, 0], [B2, u1, v1], [A, u0, 0], [B2, u1, v1], [A2, u0, v1]].forEach(([v, u, w]) => { T.pos.push(...v); T.nrm.push(nx, 0, nz); T.uv.push(u, w); T.col.push(col.r, col.g, col.b); });
+      });
+      rc.setHSL(0.1, 0.03, 0.42 + hs * 0.2);
+      THREE.ShapeUtils.triangulateShape(pts.map((p) => new THREE.Vector2(p[0], p[1])), []).forEach((t) => {
+        let [a, c, d] = t; const p0 = pts[a], p1 = pts[c], p2 = pts[d];
+        if ((p1[0] - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (p1[1] - p0[1]) < 0) [c, d] = [d, c];
+        [a, c, d].forEach((k) => { Rf.pos.push(pts[k][0], H, -pts[k][1]); Rf.nrm.push(0, 1, 0); Rf.uv.push(0, 0); Rf.col.push(rc.r, rc.g, rc.b); });
+      });
+    });
+    [[Wc, osmWall], [Wg, osmGlass], [Rf, osmRoof]].forEach(([T, m]) => {
+      if (!T.pos.length) return;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.Float32BufferAttribute(T.pos, 3)); g.setAttribute("normal", new THREE.Float32BufferAttribute(T.nrm, 3));
+      g.setAttribute("uv", new THREE.Float32BufferAttribute(T.uv, 2)); g.setAttribute("color", new THREE.Float32BufferAttribute(T.col, 3));
+      const me = new THREE.Mesh(g, m); me.castShadow = me.receiveShadow = true; group.add(me);
+    });
+  }
   function setOSM(o) {
     if (osmGroup) { scene.remove(osmGroup); osmGroup.traverse((c) => { if (c.geometry) c.geometry.dispose(); }); osmGroup = null; }
     cityObjs.forEach((c) => { c.visible = !o; });
@@ -355,12 +403,7 @@ export function create3D(host, api) {
     osmGroup = new THREE.Group();
     if (o.custom) {
       buildCustom(o);
-      const bm = [0xd8d2c4, 0xc7cbd1, 0xe2d6c2, 0xb9c2c9, 0xd6c9b6].map((c) => mat(c, { roughness: 0.85 }));
-      o.buildings.forEach((b, i) => {
-        const shape = new THREE.Shape(b.pts.map(([x, y]) => new THREE.Vector2(x, y)));
-        const geo = new THREE.ExtrudeGeometry(shape, { depth: b.h, bevelEnabled: false }); geo.rotateX(-Math.PI / 2);
-        const m = new THREE.Mesh(geo, bm[i % bm.length]); m.castShadow = m.receiveShadow = true; osmGroup.add(m);
-      });
+      osmBuildings(o.buildings, osmGroup);
       scene.add(osmGroup);
       return;
     }
@@ -370,14 +413,7 @@ export function create3D(host, api) {
     o.roads.forEach((r) => { if (r.w >= 6) osmGroup.add(ribbon(r.pts, r.w + 3.4, 0.004, walkM)); });
     o.roads.forEach((r) => osmGroup.add(ribbon(r.pts, r.w, 0.012, asph)));
     o.roads.forEach((r) => { if (r.w >= 7) osmGroup.add(ribbon(r.pts, 0.16, 0.02, r.w >= 10 && !r.oneway ? lineY : lineW)); });
-    const bm = [0xd8d2c4, 0xc7cbd1, 0xe2d6c2, 0xb9c2c9, 0xd6c9b6].map((c) => mat(c, { roughness: 0.85 }));
-    o.buildings.forEach((b, i) => {
-      if (b.pts.length < 4) return;
-      const shape = new THREE.Shape(b.pts.map(([x, y]) => new THREE.Vector2(x, y)));
-      const geo = new THREE.ExtrudeGeometry(shape, { depth: b.h, bevelEnabled: false });
-      geo.rotateX(-Math.PI / 2);
-      const m = new THREE.Mesh(geo, bm[i % bm.length]); m.castShadow = m.receiveShadow = true; osmGroup.add(m);
-    });
+    osmBuildings(o.buildings, osmGroup);
     scene.add(osmGroup);
   }
 

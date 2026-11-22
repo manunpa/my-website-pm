@@ -2241,7 +2241,7 @@ async function loadOSM(lat, lng) {
   const st = $("osmStatus");
   st.textContent = "กำลังโหลดถนนจริงจาก OpenStreetMap…";
   const q = '[out:json][timeout:25];(way["highway"~"^(' + Object.keys(OSM_W).join("|") + ')$"](around:520,' + lat + "," + lng +
-    ');way["building"](around:360,' + lat + "," + lng + "););out geom;";
+    ');way["building"](around:650,' + lat + "," + lng + "););out geom;";
   // เซิร์ฟเวอร์ Overpass สาธารณะบางตัวอาจยุ่ง → ลองตัวสำรองต่อ
   const SERVERS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter"];
   let data = null, lastErr = "";
@@ -2265,7 +2265,10 @@ async function loadOSM(lat, lng) {
       roads.push({ pts: conv(el.geometry), w, type: tg.highway, oneway: tg.oneway === "yes" });
     } else if (tg.building) {
       const lv = parseFloat(tg["building:levels"]), hh = parseFloat(tg.height);
-      buildings.push({ pts: conv(el.geometry), h: hh > 0 ? hh : lv > 0 ? lv * 3.2 : 6 + (el.id % 5) * 2 });
+      // ไม่มีข้อมูลความสูง → ประมาณจากขนาดตึก (ตึกใหญ่มักสูงกว่า)
+      const pts = conv(el.geometry); let ar = 0; pts.forEach((p, i) => { const q = pts[(i + 1) % pts.length]; ar += p[0] * q[1] - q[0] * p[1]; }); ar = Math.abs(ar) / 2;
+      const sd = (el.id % 997) / 997, est = ar < 150 ? 4 + sd * 4 : ar < 450 ? 7 + sd * 7 : ar < 2000 ? 10 + sd * 18 : 14 + sd * 40;
+      buildings.push({ pts, h: hh > 0 ? hh : lv > 0 ? lv * 3.2 : est });
     }
   });
   if (!roads.length) { st.textContent = "ไม่พบถนนรอบพิกัดนี้ — ลองพิกัดอื่น"; return; }
@@ -2448,7 +2451,7 @@ async function setView(v) {
     if (threeLoading) return;
     threeLoading = true; flash("กำลังโหลดมุมมอง 3 มิติ…");
     try {
-      const mod = await import("./truck_blind_spot_3d.js?v=20261125-2");
+      const mod = await import("./truck_blind_spot_3d.js?v=20261127-1");
       three = mod.create3D($("view3d"), API3D);
       three.setNight(S.night); three.setRain(S.weather === "rain"); if (S.osm) three.setOSM(S.osm);
     } catch (err) {
