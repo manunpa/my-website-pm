@@ -864,7 +864,77 @@ export function createWorld(host, api) {
       });
     }
   }
-  function makeHSR(gp, len, nose, panto) {
+  /* ลายใหม่ของรถไฟความเร็วสูง (ลายเดิม "classic" ใช้โค้ดเดิมด้านล่างทุกค่า)
+     NL = ความยาวจมูก · tw/tp/hp = ความเรียวของจมูก (กว้าง / โค้ง / ด้านบน) · bands = แถบสี [ล่าง, บน, สี] */
+  const HSR_LOOK = {
+    gold: { NL: 13, tw: 0.66, tp: 1.4, hp: 0.46, base: 0xf8f6f0, bands: [[0, 1.28, 0xbdb7a8], [1.6, 1.98, 0xe2a11a], [2.02, 2.08, 0x1d3a78], [3.86, 9, 0xe9e5dc]], door: 0xefebe1, glass: [10.6, 5.8, 3.0], metal: 0.4, rough: 0.2 },
+    night: { NL: 10, tw: 0.58, tp: 1.75, hp: 0.34, base: 0x1c2433, glassC: 0x4d6a86, bands: [[0, 1.3, 0x10151e], [1.74, 1.8, 0xd4af37], [2.44, 2.48, 0x9c8a4a], [3.27, 3.31, 0x9c8a4a], [3.6, 3.65, 0xd4af37], [3.86, 9, 0x283044]], door: 0x232c3c, glass: [8.2, 4.3, 2.92], metal: 0.6, rough: 0.16 },
+    sea: { NL: 12, tw: 0.64, tp: 1.5, hp: 0.44, base: 0xf4f8fa, bands: [[0, 1.3, 0x0b4f7a], [1.99, 2.05, 0x0b4f7a], [3.86, 9, 0xe2ebef]], door: 0xeef4f7, glass: [9.6, 5.2, 3.0], metal: 0.42, rough: 0.2 }
+  };
+  const hex = (c) => "#" + c.toString(16).padStart(6, "0");
+  function makeHSRStyled(gp, len, nose, panto, style) {
+    const K = HSR_LOOK[style], y0 = 1.0, y1 = 4.0, NL = K.NL, xn = len / 2 - NL;
+    const prof = (s) => {
+      s.moveTo(-len / 2, y0);
+      if (!nose) { s.lineTo(len / 2, y0); s.lineTo(len / 2, y1); }
+      else { s.lineTo(len / 2 - 1.2, y0); s.quadraticCurveTo(len / 2, y0 + 0.02, len / 2, style === "night" ? 1.7 : 1.5); s.bezierCurveTo(len / 2 - NL * 0.2, style === "night" ? 2.35 : 2.0, len / 2 - NL * 0.6, 3.78, xn, y1); }
+      s.lineTo(-len / 2, y1); s.closePath();
+    };
+    const zs = nose ? (x, y) => { if (x <= xn) return 1; const t = (x - xn) / NL, h = Math.max(0, (y - y0) / (y1 - y0)); return (1 - K.tw * Math.pow(t, K.tp)) * (1 - K.hp * Math.pow(t, 0.8) * h * h); } : null;
+    // แถบคลื่นอันดามันบนจมูก/หลังคาให้ต่อเนื่องกับด้านข้าง
+    const wave = (x) => 1.72 + 0.16 * Math.sin(x * 0.22 + 0.8);
+    const stripe = STRIPE(K.bands, K.base);
+    const wallC = (x, y) => {
+      if (nose && x > len / 2 - K.glass[0] && x < len / 2 - K.glass[1] && y > K.glass[2]) return K.glassC || 0x0a0f14;
+      if (style === "sea" && y > wave(x) - 0.22 && y < wave(x) + 0.2) return y > wave(x) ? 0x12a6c9 : 0x0d7fb0;
+      return stripe(x, y);
+    };
+    const key = "hsr-" + style + len + (nose ? "n" : "");
+    const geo = bodyGeo(key, 3.05, 0.5, prof, zs, wallC);
+    const tex = livery(key, len, y0, y1, (L) => {
+      const { g, X, Y } = L;
+      L.band(y0, y1, hex(K.base)); K.bands.forEach(([a, b, c]) => L.band(a, Math.min(b, y1), hex(c)));
+      if (style === "gold") {
+        // ช่อราชพฤกษ์: แถบทองกวาดขึ้นจากจมูกแล้วค่อย ๆ เรียวไปท้ายตู้
+        const gr = g.createLinearGradient(X(len / 2), 0, X(-len / 2), 0); gr.addColorStop(0, "#f6c22a"); gr.addColorStop(0.5, "#e2a11a"); gr.addColorStop(1, "#b97c0c");
+        g.beginPath(); g.moveTo(X(len / 2), Y(nose ? 2.55 : 2.0)); g.bezierCurveTo(X(len / 4), Y(2.3), X(-len / 4), Y(2.02), X(-len / 2), Y(1.98));
+        g.lineTo(X(-len / 2), Y(1.6)); g.bezierCurveTo(X(-len / 4), Y(1.6), X(len / 4), Y(1.62), X(len / 2), Y(nose ? 1.7 : 1.6)); g.closePath(); g.fillStyle = gr; g.fill();
+        g.strokeStyle = "#1d3a78"; g.lineWidth = 5; g.beginPath(); g.moveTo(X(len / 2), Y(nose ? 2.62 : 2.05)); g.bezierCurveTo(X(len / 4), Y(2.36), X(-len / 4), Y(2.08), X(-len / 2), Y(2.05)); g.stroke();
+      } else if (style === "night") {
+        // เส้นทองบางโค้งขึ้นรอบกระจกห้องขับ เหมือนเกล็ดพญานาค
+        g.strokeStyle = "#d4af37"; g.lineWidth = 4;
+        if (nose) { g.beginPath(); g.moveTo(X(xn - 6), Y(1.77)); g.bezierCurveTo(X(xn), Y(1.77), X(len / 2 - K.glass[0] - 0.6), Y(2.4), X(len / 2 - K.glass[0] + 0.2), Y(3.62)); g.stroke(); }
+        g.fillStyle = "rgba(212,175,55,.10)"; for (let x = -len / 2 + 1; x < (nose ? xn - 1 : len / 2 - 1); x += 1.6) { g.beginPath(); g.arc(X(x), Y(1.45), 9, Math.PI, 0); g.fill(); }
+      } else if (style === "sea") {
+        // คลื่นไล่สีฟ้าคราม → น้ำเงินเข้ม พร้อมฟองคลื่นสีขาว
+        const gr = g.createLinearGradient(X(len / 2), 0, X(-len / 2), 0); gr.addColorStop(0, "#19c3d8"); gr.addColorStop(1, "#0b5f96");
+        g.beginPath(); for (let x = -len / 2; x <= len / 2; x += 0.25) { const y = Y(wave(x) + 0.2); x === -len / 2 ? g.moveTo(X(x), y) : g.lineTo(X(x), y); }
+        for (let x = len / 2; x >= -len / 2; x -= 0.25) g.lineTo(X(x), Y(wave(x) - 0.22)); g.closePath(); g.fillStyle = gr; g.fill();
+        g.strokeStyle = "rgba(255,255,255,.9)"; g.lineWidth = 3; g.beginPath(); for (let x = -len / 2; x <= len / 2; x += 0.25) { const y = Y(wave(x) + 0.26); x === -len / 2 ? g.moveTo(X(x), y) : g.lineTo(X(x), y); } g.stroke();
+      }
+      const xe = nose ? xn - 0.6 : len / 2 - 2.2;
+      for (let x = -len / 2 + 2.4; x + 0.8 < xe; x += 1.12) L.win(x, x + 0.8, 2.55, 3.2, 0.16);
+      L.door(-len / 2 + 0.7, -len / 2 + 1.55, 1.3, 3.4, hex(K.door));
+      if (!nose) L.door(len / 2 - 1.55, len / 2 - 0.7, 1.3, 3.4, hex(K.door));
+      else L.win(len / 2 - K.glass[0] + 1.2, len / 2 - K.glass[0] + 2.9, 3.02, 3.5, 0.2, false);
+      L.panelLines(5);
+    });
+    body(gp, key, geo, tex, { metalness: K.metal, roughness: K.rough });
+    const skirtC = K.bands[0][2];
+    box(gp, mat(skirtC, { metalness: 0.3 }), nose ? len - NL - 1 : len - 2, 0.55, 2.7, nose ? -NL / 2 - 0.5 : 0, 0.95, 0);
+    if (panto) { pantograph(gp, 2, y1); box(gp, mat(style === "night" ? 0x2c3546 : 0xd8dbde, { metalness: 0.3 }), 4.2, 0.35, 2.0, 2, y1 + 0.1, 0, true); }
+    bogie(gp, len / 2 - (nose ? 4 : 2.7), null); bogie(gp, -len / 2 + 2.7, null);
+    if (nose) {
+      const ly = style === "night" ? 1.62 : 1.45, lz = style === "gold" ? 0.42 : 0.52;
+      lamp(gp, lampW, len / 2 - 1.05, ly, lz, 0.12); lamp(gp, lampW, len / 2 - 1.05, ly, -lz, 0.12);
+      if (style === "night") { lamp(gp, lampW, len / 2 - 1.3, ly + 0.22, 0.62, 0.07); lamp(gp, lampW, len / 2 - 1.3, ly + 0.22, -0.62, 0.07); }
+      [1, -1].forEach((sd) => { const sk = box(gp, mat(skirtC, { metalness: 0.3 }), 6.5, 0.6, 0.06, len / 2 - 4.4, 0.95, sd * 1.05); sk.rotation.y = sd * 0.07; });
+      box(gp, mat(0x9aa0a6, { metalness: 0.3 }), 1.6, 0.35, 1.6, len / 2 - 1.2, 0.85, 0);
+      gangway(gp, -len / 2 - 0.2);
+    } else { gangway(gp, len / 2 + 0.2); gangway(gp, -len / 2 - 0.2); }
+  }
+  function makeHSR(gp, len, nose, panto, style) {
+    if (style && style !== "classic" && HSR_LOOK[style]) return makeHSRStyled(gp, len, nose, panto, style);
     const y0 = 1.0, y1 = 4.0, NL = 11;
     const xn = len / 2 - NL;
     const prof = (s) => {
@@ -899,17 +969,18 @@ export function createWorld(host, api) {
     } else { gangway(gp, len / 2 + 0.2); gangway(gp, -len / 2 - 0.2); }
   }
   // ตำแหน่งประตูของแต่ละแบบ (ตรงกับลายที่วาดบนตัวรถ): [x เริ่ม, ความกว้าง, จำนวนบาน]
-  function doorSpec(type, len) {
+  function doorSpec(type, len, style) {
+    const hd = style && HSR_LOOK[style] ? HSR_LOOK[style].door : 0xeceef0;
     if (type === "coach") return { w: 2.9, y0: 1.3, y1: 3.45, col: 0xddd7ca, list: [[-len / 2 + 0.75, 1.0, 1], [len / 2 - 1.75, 1.0, 1]] };
     if (type === "dmu") return { w: 2.9, y0: 1.25, y1: 3.45, col: 0xdfe5ea, list: [[-len / 2 + 0.9, 1.2, 2], [len / 2 - 2.1, 1.2, 2]] };
     if (type === "emu" || type === "emuModern") return { w: 2.9, y0: 1.25, y1: 3.45, col: type === "emuModern" ? 0xe5edf1 : 0xdfe6eb, list: [[-len / 4 - 0.65, 1.3, 2], [len / 4 - 0.65, 1.3, 2]] };
-    if (type === "hsr") return { w: 3.05, y0: 1.3, y1: 3.4, col: 0xeceef0, list: [[-len / 2 + 0.7, 0.85, 1], [len / 2 - 1.55, 0.85, 1]] };
-    if (type === "hsrNose") return { w: 3.05, y0: 1.3, y1: 3.4, col: 0xeceef0, list: [[-len / 2 + 0.7, 0.85, 1]] };
+    if (type === "hsr") return { w: 3.05, y0: 1.3, y1: 3.4, col: hd, list: [[-len / 2 + 0.7, 0.85, 1], [len / 2 - 1.55, 0.85, 1]] };
+    if (type === "hsrNose") return { w: 3.05, y0: 1.3, y1: 3.4, col: hd, list: [[-len / 2 + 0.7, 0.85, 1]] };
     return null;
   }
   const doorMats = new Map();
-  function addDoors(gp, type, len, side) {
-    const sp = doorSpec(type, len); if (!sp) return [];
+  function addDoors(gp, type, len, side, style) {
+    const sp = doorSpec(type, len, style); if (!sp) return [];
     if (!doorMats.has(sp.col)) doorMats.set(sp.col, mat(sp.col, { metalness: 0.4, roughness: 0.35 }));
     const dm = doorMats.get(sp.col), out = [], h = sp.y1 - sp.y0, zc = side * (sp.w / 2);
     sp.list.forEach(([x0, dw, n]) => {
@@ -935,11 +1006,11 @@ export function createWorld(host, api) {
       if (c.type === "loco") makeLoco(gp, len);
       else if (c.type === "coach") makeCoach(gp, len);
       else if (c.type === "dmu" || c.type === "emu" || c.type === "emuModern") makeMU(gp, len, c.type, !!(c.cab || c.cabRear), !!c.panto);
-      else makeHSR(gp, len, c.type === "hsrNose", !!c.panto);
+      else makeHSR(gp, len, c.type === "hsrNose", !!c.panto, c.style);
       // คันท้าย: ไฟหน้ากลายเป็นไฟท้ายสีแดง
       if (flip) gp.traverse((o) => { if (o.material === lampW) o.material = lampR; });
       // ประตูเปิดฝั่งซ้ายตามทิศวิ่ง (ฝั่งชานชาลา) — คันที่กลับหัว ฝั่งซ้ายคือ +z ของตัวเอง
-      const doors = addDoors(gp, c.type, len, flip ? 1 : -1);
+      const doors = addDoors(gp, c.type, len, flip ? 1 : -1, c.style);
       let outer = gp;
       if (flip) { outer = new THREE.Group(); gp.rotation.y = Math.PI; outer.add(gp); }
       trainRoot.add(outer); cars.push({ g: outer, len: c.len, off: c.off, doors });

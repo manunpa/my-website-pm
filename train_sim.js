@@ -53,6 +53,14 @@ const COMFORT = 0.65;  // ม./วินาที² แรงเหวี่ย�
 function consist(list) { let acc = 0; return list.map((c) => { const o = Object.assign({}, c, { off: acc + c.len / 2 }); acc += c.len + 0.8; return o; }); }
 // ปรับจำนวนตู้ได้: มวล แรงต้าน กำลัง (สำหรับรถที่มีมอเตอร์กระจายทุกคัน) คำนวณใหม่ตามจำนวนตู้
 const CARS = { loco: 12, dmu: 3, emu: 6, emuModern: 6, hsr: 10 };
+// ลายรถไฟความเร็วสูง: "classic" = ลายเดิม (ค่าเริ่มต้น) · ลายใหม่เป็นตัวเลือกเพิ่ม ไม่ได้แทนของเดิม
+const HSR_STYLES = {
+  classic: { name: "ดั้งเดิม", note: "ขาว แถบเขียว–ทอง จมูก 11 ม." },
+  gold: { name: "ราชพฤกษ์", note: "ขาวงาช้าง แถบเหลืองทองตัดน้ำเงิน จมูกยาว 13 ม. เรียวแหลม" },
+  night: { name: "ราตรี", note: "กรมท่าเข้ม เส้นทองบาง ๆ โค้งรอบกระจก จมูกสั้น 10 ม. ทรงดุดัน" },
+  sea: { name: "อันดามัน", note: "ขาว คลื่นฟ้าครามไล่สีพาดตลอดขบวน จมูก 12 ม." }
+};
+let hsrStyle = "classic";
 const CAR_RANGE = { loco: [1, 20, "ตู้โดยสาร"], dmu: [2, 6, "คัน"], emu: [3, 16, "คัน"], emuModern: [3, 16, "คัน"], hsr: [4, 16, "คัน"] };
 const fmtN = (x) => Math.round(x).toLocaleString("en-US");
 function makeTrain(k, n) {
@@ -80,7 +88,7 @@ function makeTrain(k, n) {
       A: mt * 11, B: mt * 0.3, bServ: 1.0, bEmer: 1.35, airLag: 0.8 + n * 0.035, dyn: 500e3 * n, regen: true, tracLag: 0.4,
       stopMin: 1, dwell: 40, eye: 3.1, dial: 200, electric: true };
   } else {
-    list = [{ type: "hsrNose", len: 27 }].concat(Array.from({ length: n - 2 }, (_, i) => ({ type: "hsr", len: 25, panto: i % 3 === 2 ? 1 : 0 }))).concat([{ type: "hsrNose", len: 27, flip: 1 }]);
+    list = [{ type: "hsrNose", len: 27, style: hsrStyle }].concat(Array.from({ length: n - 2 }, (_, i) => ({ type: "hsr", len: 25, panto: i % 3 === 2 ? 1 : 0, style: hsrStyle }))).concat([{ type: "hsrNose", len: 27, flip: 1, style: hsrStyle }]);
     const mt = 49 * n;
     t = { name: `รถไฟความเร็วสูง ${n} คัน`, sub: `จอดสถานีหลัก 12 แห่ง · ${fmtN(mt)} ตัน · ${fmtN(960 * n)} kW`, kind: "hsr",
       mass: mt * 1e3, power: 960e3 * n, fmax: 30e3 * n, adhMass: mt * 1e3 * 0.53, vDesign: 250 / KMH, rot: 1.05, hcg: 1.5,
@@ -104,7 +112,7 @@ const S = {
   from: 0, to: 0, stops: [], stopIdx: 0, dwell: 0, atStation: null, results: [], warp: 1, ato: false, done: false,
   stopMode: "type", wx: "clear", tod: "day", sound: true, maxV: 0
 };
-const trainKey = () => S.type + TRAINS[S.type].n + (TRAINS[S.type].electric ? "e" : "");
+const trainKey = () => S.type + TRAINS[S.type].n + (TRAINS[S.type].electric ? "e" : "") + (S.type === "hsr" ? hsrStyle : "");
 
 /* ---------------- ฟิสิกส์ ---------------- */
 // สัมประสิทธิ์ยึดเกาะ Curtius–Kniffler (v เป็น กม./ชม.) × สภาพราง
@@ -528,7 +536,14 @@ function drawProfile() {
 function pressed(groupId, attr, val) { document.querySelectorAll(`#${groupId} button`).forEach((b) => b.setAttribute("aria-pressed", String(b.dataset[attr] === String(val)))); }
 function buildPanel() {
   renderTrains();
-  $("trains").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.type = b.dataset.k; pressed("trains", "k", S.type); fillRoute(); restart(); updCarUI(); });
+  $("trains").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.type = b.dataset.k; pressed("trains", "k", S.type); fillRoute(); restart(); updCarUI(); updStyleUI(); });
+  $("hsrStyle").innerHTML = Object.entries(HSR_STYLES).map(([k, v]) => `<button data-s="${k}" aria-pressed="${k === hsrStyle}">${v.name}</button>`).join("");
+  $("hsrStyle").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    hsrStyle = b.dataset.s; TRAINS.hsr = makeTrain("hsr", CARS.hsr); updStyleUI();   // เปลี่ยนแค่ลาย ฟิสิกส์เหมือนเดิม — โลก 3D สร้างขบวนใหม่เอง
+    flash("ลายรถไฟความเร็วสูง: " + HSR_STYLES[hsrStyle].name, "info", 1800);
+  });
+  updStyleUI();
   const setCars = (n) => {
     const [lo, hi] = CAR_RANGE[S.type]; n = clamp(Math.round(n), lo, hi);
     if (n === CARS[S.type]) { updCarUI(); return; }
@@ -564,6 +579,7 @@ function buildPanel() {
     jumpTo(s); flash(`ย้ายรถไปที่ กม. ${(s / 1000).toFixed(1)}`, "info");
   });
 }
+function updStyleUI() { $("hsrStyleSec").hidden = S.type !== "hsr"; pressed("hsrStyle", "s", hsrStyle); $("hsrStyleNote").textContent = HSR_STYLES[hsrStyle].note; }
 function renderTrains() { $("trains").innerHTML = Object.entries(TRAINS).map(([k, t]) => `<button data-k="${k}" aria-pressed="${k === S.type}"><strong>${t.name}</strong><span>${t.sub}</span></button>`).join(""); }
 // แสดงจำนวนตู้ + ผลทางฟิสิกส์ของการเพิ่ม/ลดตู้ (ยังไม่กดยืนยัน = แสดงค่าที่จะได้)
 function updCarUI(preview) {
@@ -713,7 +729,7 @@ async function start() {
   pressed("trains", "k", S.type);
   buildPanel(); initMap(); updAtoBtn();
   try {
-    const mod = await import("./train_sim_3d.js?v=20261127-4");
+    const mod = await import("./train_sim_3d.js?v=20261127-5");
     const bld = await loadBuildings();
     const branch = branchFor();
     world = mod.createWorld($("view"), { geo, bld, branch, urban: (a, b) => countBld(bld, a, b) > 25, electric: () => !!TRAINS[S.type].electric });
