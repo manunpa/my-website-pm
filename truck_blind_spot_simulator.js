@@ -1,4 +1,5 @@
 import { requireLogin } from "./firebase-guard.js?v=20261122-sim";
+import { createAudio } from "./truck_sim_audio.js?v=20261124-1";
 
 /* =====================================================================
    จำลองมุมอับรถบรรทุก (มุมมองจากด้านบน)
@@ -104,8 +105,11 @@ const CITY = (() => {
     Lm.push({ x: x + 18, y: -9.3, dir: -1, light: Math.abs(x) < 120 });
   }
   Lm.push({ x: CROSS_X - 10, y: 10, dir: 1, light: true }, { x: CROSS_X + 10, y: -10, dir: -1, light: true });
-  return { B, T, Lm };
+  // ลานคลังน้ำมัน (ด่านถอยเข้าช่อง) ทิศเหนือของถนน ช่วง x −135…−45 — เว้นตึก ต้นไม้ และเสาไฟตรงทางเข้า
+  const inYard = (x, y, pad) => x > -135 - pad && x < -45 + pad && y > 0;
+  return { B: B.filter((b) => !inYard(b.x, b.y, b.w / 2)), T: T.filter((t) => !(t.y > 0 && t.x > -114 && t.x < -66)), Lm: Lm.filter((l) => !(l.y > 0 && l.x > -114 && l.x < -66)) };
 })();
+const YARD = { x1: -135, x2: -45, y1: 11, y2: 46, drive1: -112, drive2: -68, bayX: -90, bayY1: 17.5, bayY2: 37, bayW: 4.4, bays: [-102, -90, -78] };
 const BUILD_COLORS = ["#d8d2c4", "#c7cbd1", "#e2d6c2", "#b9c2c9", "#d6c9b6", "#cfd6d9", "#e8e2d6"];
 
 /* ---------------- สถานะ ---------------- */
@@ -114,13 +118,18 @@ const S = {
   keys: new Set(), objects: [], trails: [[], [], [], []], trailAcc: 0,
   cam: { x: 0, y: 0, s: 15 }, msg: "", msgT: 0,
   opts: { prox: false, front: false, showVis: true, trail: true, autoCenter: true, objH: 1.2, range: 8, place: "moto",
-          mu: 0.7, tbrake: "abs", cargo: 13, testSpeed: 80, zone: true },
+          mu: 0.7, tbrake: "abs", cargo: 13, testSpeed: 80, zone: true,
+          mirL: 0, mirR: 0, cam360: false, sideCam: false, bsd: false, traffic: true },
+  sound: true, bsdAlert: null, assistGain: null, weather: "clear",
   brakeA: 0, accel: 0, imbSign: 1, test: null, lastResult: "", warnT: 0,
   view: "2d", night: false, skids: [], skidPrev: {}, smoke: [], hist: [], kS: 0,
+  analog: { active: false, steer: 0, thr: 0, brk: 0, rev: false, horn: false },
+  slosh: { x: 0, vx: 0, y: 0, vy: 0 }, sloshAcc: 0, lean: 0, rolled: null, overT: 0,
+  ev: { hits: 0, hitT: 0, rolls: 0 }, uid: "guest",
   phys: { latUse: 0, push: 0, pushLat: 0, aLat: 0, artRate: 0 }
 };
 const P = {};       // ค่าที่คำนวณล่วงหน้าทุกเฟรม (ตำแหน่งตา กระจก รูปทรงตัวรถ)
-const VIS = { INSIDE: 1, DIRECT: 2, MIRROR: 3, PROX: 4, BLIND: 5 };
+const VIS = { INSIDE: 1, DIRECT: 2, MIRROR: 3, PROX: 4, BLIND: 5, CAM: 6 };
 
 const $ = (id) => document.getElementById(id);
 const cv = $("cv"), ctx = cv.getContext("2d");
@@ -189,6 +198,11 @@ function updateMass() {
   PH.aMax = Math.min(roadA, sysA);
   PH.limitBy = sysA < roadA ? (over > 1 ? "น้ำหนักเกินพิกัด" : "ระบบเบรก+น้ำหนัก") : "ความฝืดถนน";
   PH.over = over;
+  // ของเหลวโยก: ถังเต็มหรือว่างแทบไม่โยก ครึ่งถังโยกมากสุด (มีแผงกั้นในถังจึงคิดแค่ 60%)
+  const tankRig = S.rigKey === "tanker" || S.rigKey === "semi";
+  const fill = Math.max(0, Math.min(1, cargo / (c.cargoDef * 1.05)));
+  PH.fill = tankRig ? fill : 0;
+  PH.ms = tankRig ? cargo * 1000 * 0.6 * 4 * fill * (1 - fill) : 0;
   const tu = S.units.find((u) => u.def.kind === "trailer");
   if (c.trailer && tu) {
     const len = tu.def.front - tu.def.rear, m = PH.mTrailer;
@@ -213,16 +227,18 @@ function stopDistance(v) {
 }
 
 /* ---------------- สร้างรถ / เริ่มใหม่ ---------------- */
-function buildRig(key) {
+function buildRig(key, pose) {
   if (key !== S.rigKey || !PH.cfg) { S.rigKey = key; if ($("cargo")) syncPhysUi(); }
   S.rigKey = key;
   S.units = RIGS[key].units.map((def) => ({ def, x: 0, y: LANE_Y, th: 0 }));
+  if (pose) Object.assign(S.units[0], pose);
   for (let i = 1; i < S.units.length; i++) {
     const p = S.units[i - 1], u = S.units[i];
     const [hx, hy] = toWorld(p, p.def.hitch, 0);
-    u.th = p.th; u.x = hx - u.def.L; u.y = hy;
+    u.th = p.th; u.x = hx - Math.cos(u.th) * u.def.L; u.y = hy - Math.sin(u.th) * u.def.L;
   }
   S.v = 0; S.steer = 0; S.brakeA = 0; S.accel = 0; S.test = null;
+  S.slosh = { x: 0, vx: 0, y: 0, vy: 0 }; S.sloshAcc = 0; S.lean = 0; S.rolled = null; S.overT = 0; S.analog.rev = false;
   S.units.forEach((u) => { u.w = 0; u.vH = null; u.aH = null; });
   S.trails = [[], [], [], []]; S.trailAcc = 0; S.hist = []; S.kS = 0;
   S.skids = []; S.skidPrev = {}; S.smoke = [];
@@ -231,6 +247,7 @@ function buildRig(key) {
   const t = S.units[0];
   S.cam.x = (P.bounds.minX + P.bounds.maxX) / 2; S.cam.y = t.y;
   resetObjects();
+  if (!S.scn) fillTraffic();
   renderRigButtons();
   if (W && !S.autoZoom) S.cam.s = fitScale();
 }
@@ -264,7 +281,13 @@ function prep() {
   P.mirrors = [
     { side: 1, lx: d.cabFront - 0.4, ly: 1.55, min: -1.5 * DEG, max: 32 * DEG },
     { side: -1, lx: d.cabFront - 0.4, ly: -1.55, min: -1.5 * DEG, max: 30 * DEG }
-  ].map((m) => { const [wx, wy] = toWorld(tr, m.lx, m.ly); return Object.assign(m, { wx, wy }); });
+  ].map((m) => {
+    // ปรับกระจก: บวก = กางออกด้านนอก (เห็นช่องข้าง ๆ มากขึ้น แต่เห็นข้างตัวรถน้อยลง)
+    const off = (m.side > 0 ? S.opts.mirL : S.opts.mirR) * DEG;
+    m.min += off; m.max += off;
+    const [wx, wy] = toWorld(tr, m.lx, m.ly); return Object.assign(m, { wx, wy });
+  });
+  P.mirrorRange = S.weather === "rain" ? 26 : MIRROR_RANGE;
   P.mirrorMinBack = Math.max(1.2, 3.5 - 1.2 * S.opts.objH);
   P.foot = []; P.occ = [];
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -316,13 +339,19 @@ function classify(px, py) {
   for (const m of P.mirrors) {
     const vx = lx - m.lx, vy = (ly - m.ly) * m.side;
     // กระจกติดสูง มองลงพื้นใกล้ ๆ ไม่ถึง: วัตถุต้องอยู่หลังกระจกระยะหนึ่ง (วัตถุสูงเห็นได้ใกล้กว่า)
-    if (-vx < P.mirrorMinBack || vx * vx + vy * vy > MIRROR_RANGE * MIRROR_RANGE) continue;
+    if (-vx < P.mirrorMinBack || vx * vx + vy * vy > P.mirrorRange * P.mirrorRange) continue;
     const a = Math.atan2(vy, -vx);
     if (a >= m.min && a <= m.max && !blocked(m.wx, m.wy, px, py)) return VIS.MIRROR;
   }
+  if (S.opts.cam360) for (const f of P.foot) if (polyDist(f, px, py) <= 2.5) return VIS.CAM;
+  if (S.opts.sideCam) for (const u of S.units) {
+    if (u.def.front == null) continue;
+    const c = Math.cos(u.th), sn = Math.sin(u.th), ux = (px - u.x) * c + (py - u.y) * sn, uy = -(px - u.x) * sn + (py - u.y) * c;
+    if (uy >= HW && uy <= HW + 4.5 && ux >= u.def.rear - 1.5 && ux <= u.def.front) return VIS.CAM;
+  }
   return VIS.BLIND;
 }
-const isSeen = (c) => c === VIS.DIRECT || c === VIS.MIRROR || c === VIS.PROX;
+const isSeen = (c) => c === VIS.DIRECT || c === VIS.MIRROR || c === VIS.PROX || c === VIS.CAM;
 
 /* ---------------- ตารางมุมอับ ---------------- */
 const G = { nx: 0, ny: 0, minX: 0, maxY: 0, cls: new Uint8Array(0), img: null, off: document.createElement("canvas"), blindCells: 0 };
@@ -353,6 +382,7 @@ function computeGrid() {
       else if (show && c === VIS.DIRECT) { r = 46; g = 160; bl = 90; a = 42; }
       else if (show && c === VIS.MIRROR) { r = 59; g = 130; bl = 246; a = 48; }
       else if (show && c === VIS.PROX) { r = 168; g = 85; bl = 247; a = 70; }
+      else if (show && c === VIS.CAM) { r = 20; g = 184; bl = 166; a = 75; }
       data[o] = r; data[o + 1] = g; data[o + 2] = bl; data[o + 3] = a;
     }
   }
@@ -450,40 +480,58 @@ const fmtM = (p) => p.d === null ? "> " + p.max + " ม." : p.d < 0.05 ? "มอ
 /* ---------------- การขับ ---------------- */
 function flash(text) { S.msg = text; S.msgT = 2.6; }
 function warn(text) { if (S.warnT <= 0) { flash(text); S.warnT = 3; } }
+function hitEvent(o) { S.ev.hits++; S.ev.hitT = performance.now(); S.ev.last = o; }
 function step(dt) {
+  if (!(dt > 0)) return;            // เฟรมแรก dt = 0 → ข้าม (กันหารศูนย์)
   let k = S.keys;
-  // โหมดทดสอบเบรก: ควบคุมเอง ยกเลิกทันทีถ้าผู้ใช้กดปุ่มขับ
+  const A = S.analog;
+  // โหมดทดสอบเบรก: ควบคุมเอง ยกเลิกทันทีถ้าผู้ใช้กดปุ่มขับหรือเหยียบแป้น
   if (S.test) {
-    if (k.size) { S.test = null; flash("ยกเลิกการทดสอบ — กลับมาขับเอง"); }
+    if (k.size || (A.active && (A.thr > 0.15 || A.brk > 0.15))) { S.test = null; flash("ยกเลิกการทดสอบ — กลับมาขับเอง"); }
     else k = testControl(dt);
   }
-  const d = S.units[0].def, cfg = PH.cfg;
-  const maxS = d.maxSteer * DEG;
-  if (!S.test || !S.test.steerOverride) {
-    if (k.has("left") && !k.has("right")) S.steer = Math.min(maxS, S.steer + 30 * DEG * dt);
-    else if (k.has("right") && !k.has("left")) S.steer = Math.max(-maxS, S.steer - 30 * DEG * dt);
-    else if (S.opts.autoCenter) S.steer = approach(S.steer, 0, 20 * DEG * dt);
-  }
+  if (S.scn && S.scn.phase === "done") k = new Set(["brake"]);
+  const d = S.units[0].def, cfg = PH.cfg, maxS = d.maxSteer * DEG;
+  const an = A.active && !S.test ? A : null;
 
-  // เบรก: ↓ = เบรกปกติ (ราว 55% ของที่ทำได้) · Space = เบรกเต็มที่ · ลมเบรกค่อย ๆ สร้างแรงใน T_LAG วินาที
-  let v = S.v, target = 0;
-  if (k.has("brake")) target = PH.aMax;
-  else if (k.has("down") && v > 0.05) target = 0.55 * PH.aMax;
+  // พวงมาลัย
+  if (S.rolled) { /* พลิกแล้ว คุมไม่ได้ */ }
+  else if (S.test && S.test.steerOverride) { /* ทดสอบขับเอง */ }
+  else if (an) S.steer = approach(S.steer, -an.steer * maxS, 120 * DEG * dt);
+  else if (k.has("left") && !k.has("right")) S.steer = Math.min(maxS, S.steer + 30 * DEG * dt);
+  else if (k.has("right") && !k.has("left")) S.steer = Math.max(-maxS, S.steer - 30 * DEG * dt);
+  else if (S.opts.autoCenter) S.steer = approach(S.steer, 0, 20 * DEG * dt);
+
+  // คันเร่ง / เบรก / ถอย  (thr, brk = 0..1)
+  let v = S.v, thr = 0, brk = 0, rev = false;
+  if (an) { thr = an.thr; brk = an.brk > 0.04 ? an.brk : 0; rev = an.rev; }
+  else {
+    if (k.has("brake")) brk = 1; else if (k.has("down") && v > 0.05) brk = 0.55;
+    if (k.has("up")) thr = 1;
+    rev = k.has("down") && !k.has("up") && v <= 0.05;
+  }
+  if (S.rolled) { thr = 0; brk = 1; }
+  S.ctl = { thr, brk, rev };
+  // ลมเบรกค่อย ๆ สร้างแรงใน T_LAG วินาที
+  const target = brk * PH.aMax;
   if (target > 0 && S.brakeA === 0) S.imbSign = Math.random() < 0.5 ? -1 : 1;
   S.brakeA = target > S.brakeA ? Math.min(target, S.brakeA + PH.aMax / T_LAG * dt) : target;
 
   // แรงต้าน: ยางบดถนน + ลม · แรงขับ: กำลังเครื่องหารด้วยมวล (หนักมาก = ออกตัวช้า)
   const resist = GRAV * 0.007 + 0.5 * 1.2 * cfg.cdA * v * v / PH.mTot;
-  let acc = 0;
-  if (S.brakeA > 0 && v > 0) acc = -S.brakeA - resist;
-  else if (k.has("up") && v >= -0.05) acc = Math.min(1.6, cfg.power * 1000 * 0.85 / (PH.mTot * Math.max(2, v))) - resist;
-  else if (k.has("up")) acc = 3;                            // กำลังถอยแล้วกดเดินหน้า = เบรก
-  else if (k.has("down")) acc = -0.8;                       // ถอย
-  else if (!S.test || S.test.braking) acc = v > 0 ? -(resist + 0.15) : v < 0 ? 0.6 : 0; // ปล่อยไหล + เอนจินเบรก
+  const engine = Math.min(1.6, cfg.power * 1000 * 0.85 / (PH.mTot * Math.max(2, Math.abs(v))));
+  let acc;
+  if (S.rolled) acc = v > 0 ? -6 : 0;                                  // พลิกตะแคงไถลไปกับพื้น
+  else if (S.brakeA > 0 && v > 0.05) acc = -S.brakeA - resist;
+  else if (S.brakeA > 0 && v < -0.05) acc = S.brakeA;
+  else if (rev && (thr > 0 || !an)) acc = v > 0.05 ? -3 : -0.8 * (an ? thr : 1);
+  else if (thr > 0) acc = v < -0.05 ? 3 * thr : thr * engine - resist;
+  else if (S.test && !S.test.braking) acc = 0;                       // ทดสอบ: รักษาความเร็วก่อนเบรก
+  else acc = v > 0 ? -(resist + 0.15) : v < 0 ? 0.6 : 0;              // ปล่อยไหล + เอนจินเบรก
+  acc += S.sloshAcc;                                                   // น้ำมันในถังโยกดันรถ
   let nv = v + acc * dt;
-  if (v > 0 && nv < 0 && !k.has("down")) nv = 0;
-  if (v < 0 && nv > 0) nv = 0;
-  if (v > 0 && nv < 0 && k.has("down") && S.brakeA > 0) nv = 0;
+  if ((v > 0 && nv < 0) || (v < 0 && nv > 0)) nv = 0;
+  if (Math.abs(nv) < 0.02 && thr === 0 && !rev) nv = 0;
   nv = Math.max(-MAX_REV, Math.min(MAX_FWD, nv));
   S.accel = (nv - v) / dt;
   S.v = nv;
@@ -491,27 +539,484 @@ function step(dt) {
   const n = Math.max(1, Math.ceil(Math.abs(nv * dt) / 0.05));
   for (let i = 0; i < n; i++) if (!moveRig(nv * dt / n, dt / n)) { S.v = 0; break; }
 
-  // แรงเหวี่ยงด้านข้าง (เทียบเกณฑ์พลิกคว่ำ)
+  // แรงเหวี่ยงด้านข้าง (มีทิศ: บวก = เลี้ยวซ้าย) + ของเหลวในถังโยก → เกณฑ์พลิกคว่ำ
   const yawT = nv * Math.tan(S.steer) / d.wb, tu = S.units.find((u) => u.def.kind === "trailer");
-  S.phys.aLat = Math.max(Math.abs(nv * yawT), tu ? Math.abs(nv * (tu.w || 0)) : 0) / GRAV;
-  if (S.phys.aLat > cfg.srt) warn("แรงเหวี่ยง " + S.phys.aLat.toFixed(2) + " g เกินเกณฑ์พลิกคว่ำ (≈ " + cfg.srt + " g) — ลดความเร็วก่อนเลี้ยว");
+  const latT = nv * yawT, latTr = tu ? nv * (tu.w || 0) : 0;
+  const aLatS = (Math.abs(latTr) > Math.abs(latT) ? latTr : latT) / GRAV;
+  S.sloshAcc = updateSlosh(dt, S.accel, aLatS);
+  const sloshLat = PH.ms ? (PH.ms / PH.mTot) * (2 * Math.PI * 0.75) ** 2 * Math.abs(S.slosh.y) / GRAV * 1.5 : 0;
+  S.phys.aLat = Math.abs(aLatS) + sloshLat;
+  S.phys.aLatS = aLatS;
+  if (!S.rolled) {
+    S.lean = approach(S.lean, -Math.sign(aLatS) * Math.min(1, S.phys.aLat / cfg.srt) * 6 * DEG, 30 * DEG * dt);
+    if (S.phys.aLat > cfg.srt && Math.abs(nv) > 4) {
+      S.overT += dt;
+      warn("แรงเหวี่ยง " + S.phys.aLat.toFixed(2) + " g เกินเกณฑ์พลิกคว่ำ (≈ " + cfg.srt + " g) — ลดความเร็วก่อนเลี้ยว");
+      if (S.overT > 0.35) {
+        S.rolled = { side: -Math.sign(aLatS) || 1, t: 0 }; S.ev.rolls++;
+        flash("รถพลิกคว่ำ! แรงเหวี่ยง " + S.phys.aLat.toFixed(2) + " g เกินเกณฑ์ " + cfg.srt + " g" + (PH.ms > 500 ? " (น้ำมันในถังโยกซ้ำ)" : ""));
+      }
+    } else S.overT = Math.max(0, S.overT - dt);
+  } else {
+    S.rolled.t += dt;
+    S.lean = S.rolled.side * Math.min(90, Math.pow(S.rolled.t / 1.1, 2) * 90) * DEG;
+  }
   if (S.phys.pushLat > 0 && S.phys.pushLat > 0.35 * S.opts.mu * PH.mTruck * 0.7 * GRAV)
     warn("ตัวลูกดันท้ายตัวแม่แรงมาก — เสี่ยงท้ายตัวแม่ปัด (เบรกตัวลูกน้อยกว่าตัวแม่)");
 
+  updateTraffic(dt);
   S.objects.forEach((o) => {
-    if (!o.v || o.hit) return;
+    if (o.ai || !o.v || o.hit) return;
     o.x += Math.cos(o.th) * o.v * dt; o.y += Math.sin(o.th) * o.v * dt; o.run = (o.run || 0) + o.v * dt;
     prep();
-    if (objPoints(o).some(([x, y]) => P.foot.some((f) => inPoly(f, x, y)))) { o.hit = true; o.v = 0; flash("มอเตอร์ไซค์เฉี่ยวชนรถ — อยู่ในมุมอับที่คนขับมองไม่เห็น"); }
+    if (objPoints(o).some(([x, y]) => P.foot.some((f) => inPoly(f, x, y)))) { o.hit = true; o.v = 0; hitEvent(o); flash(objName(o.t) + "เฉี่ยวชนรถ — อยู่ในมุมอับที่คนขับมองไม่เห็น"); }
   });
   S.objects = S.objects.filter((o) => !o.run || o.run < 260);
   if (S.msgT > 0) S.msgT -= dt;
   if (S.warnT > 0) S.warnT -= dt;
   if (S.test) testTrack();
   updateSmoke(dt);
+  updateAssist(dt);
+  scnUpdate(dt);
   // ความโค้งของเส้นทางข้างหน้า ไล่ตามพวงมาลัยแบบนุ่ม ๆ (โซนหน้า/จุดหยุดรถโค้งตามการเลี้ยว)
   const kNow = Math.tan(S.steer) / d.wb;
   S.kS += (kNow - S.kS) * Math.min(1, dt * 5);
+}
+/* น้ำมันในถังโยก: ลูกตุ้มสปริงหน่วงต่ำ ตามความเร่งหน้า-หลังและด้านข้าง
+   เบรกแรง → น้ำมันพุ่งไปหน้าแล้วดันรถต่อ (หยุดยากขึ้น รถโยกหน้า-หลังหลังหยุด)
+   เลี้ยว → น้ำมันเทไปด้านนอกโค้ง เพิ่มแรงเหวี่ยง → พลิกง่ายขึ้น */
+function updateSlosh(dt, aLong, aLatS) {
+  const sl = S.slosh;
+  if (!PH.ms) { sl.x = sl.vx = sl.y = sl.vy = 0; return 0; }
+  const w = 2 * Math.PI * 0.55, wl = 2 * Math.PI * 0.75, z = 0.12;
+  sl.vx += (-w * w * sl.x - 2 * z * w * sl.vx - aLong) * dt; sl.x = Math.max(-0.7, Math.min(0.7, sl.x + sl.vx * dt));
+  sl.vy += (-wl * wl * sl.y - 2 * z * wl * sl.vy - aLatS * GRAV) * dt; sl.y = Math.max(-0.4, Math.min(0.4, sl.y + sl.vy * dt));
+  return PH.ms * (w * w * sl.x + 2 * z * w * sl.vx) / PH.mTot;
+}
+// ส่วนที่เติมในขั้นถัดไป (จราจร / อุปกรณ์ช่วยขับ / ภารกิจ)
+/* ---------------- จราจรจริง: รถ มอเตอร์ไซค์ คนข้ามถนน และไฟจราจร ----------------
+   - ถนนสองเส้น ขับชิดซ้ายแบบไทย ช่องละ 3.5 ม. + ไหล่ทางให้มอเตอร์ไซค์
+   - รถแต่ละคันใช้แบบจำลองขับตามคันหน้า (IDM): รักษาระยะ หยุดไฟแดง หยุดเมื่อมีรถบรรทุก/คน/วัตถุขวางเลน
+   - มอเตอร์ไซค์วิ่งบนไหล่ทางซ้าย แทรกขึ้นมาข้างรถบรรทุกตอนรถติดไฟแดง (จุดมุมอับคลาสสิก)
+   - คนข้ามทางม้าลายเมื่อรถฝั่งนั้นติดไฟแดง */
+const LIGHT = { t: 6 };
+function lightState(axis) {
+  const t = LIGHT.t % 32;
+  if (axis === "x") return t < 12 ? "G" : t < 15 ? "Y" : "R";
+  return t >= 16 && t < 28 ? "G" : t >= 28 && t < 31 ? "Y" : "R";
+}
+const LANES = [
+  { axis: "x", dir: 1, c: 1.75, kind: "car" }, { axis: "x", dir: 1, c: 5.25, kind: "car" }, { axis: "x", dir: 1, c: 7.8, kind: "moto" },
+  { axis: "x", dir: -1, c: -1.75, kind: "car" }, { axis: "x", dir: -1, c: -5.25, kind: "car" }, { axis: "x", dir: -1, c: -7.8, kind: "moto" },
+  { axis: "y", dir: 1, c: CROSS_X - 1.75, kind: "car" }, { axis: "y", dir: 1, c: CROSS_X - 5.25, kind: "car" }, { axis: "y", dir: 1, c: CROSS_X - 7.8, kind: "moto" },
+  { axis: "y", dir: -1, c: CROSS_X + 1.75, kind: "car" }, { axis: "y", dir: -1, c: CROSS_X + 5.25, kind: "car" }, { axis: "y", dir: -1, c: CROSS_X + 7.8, kind: "moto" }
+];
+LANES.forEach((l, i) => {
+  l.id = i;
+  l.th = l.axis === "x" ? (l.dir > 0 ? 0 : Math.PI) : (l.dir > 0 ? Math.PI / 2 : -Math.PI / 2);
+  l.stop = l.axis === "x" ? CROSS_X - l.dir * 13 : -l.dir * 13;   // เส้นหยุด (ตำแหน่งตามแนวเลน)
+});
+const TCOL = ["#d94a3d", "#f2f2f2", "#2d2f33", "#3a72c9", "#9aa1a8", "#e0b23a", "#1f6f5c", "#7b3fa0"];
+function lanePoint(l, sPos, off) { return l.axis === "x" ? [sPos, l.c + l.dir * (off || 0)] : [l.c - l.dir * (off || 0), sPos]; }
+function laneCenter(l) { const t = S.units[0]; return l.axis === "x" ? t.x : t.y; }
+function laneActive(l) { const t = S.units[0]; return l.axis === "x" ? Math.abs(t.y) < 160 : Math.abs(t.x - CROSS_X) < 200; }
+function spawnCar(l, sPos) {
+  const moto = l.kind === "moto", o = {
+    t: moto ? "moto" : "car", th: l.th, v: 0, col: TCOL[Math.floor(Math.random() * TCOL.length)],
+    ai: { lane: l, s: sPos, v: (moto ? 9 : 8) + Math.random() * 4, v0: moto ? 12 + Math.random() * 5 : 10 + Math.random() * 4.5, len: moto ? 2 : 4.5 }
+  };
+  const [x, y] = lanePoint(l, sPos); o.x = x; o.y = y;
+  S.objects.push(o); return o;
+}
+function clearTraffic() { S.objects = S.objects.filter((o) => !o.ai); }
+function fillTraffic() {
+  clearTraffic();
+  if (!S.opts.traffic || S.osm) return;
+  LANES.forEach((l) => {
+    if (!laneActive(l)) return;
+    const c = laneCenter(l), n = l.kind === "moto" ? 3 : 6;
+    for (let i = 0; i < n; i++) {
+      const sPos = c - 160 + (i + Math.random() * 0.6) * (320 / n);
+      // ไม่วางทับรถบรรทุก
+      const [x, y] = lanePoint(l, sPos);
+      if (P.foot.some((f) => polyDist(f, x, y) < 6)) continue;
+      spawnCar(l, sPos);
+    }
+  });
+  spawnPeds(true);
+}
+function spawnPeds(initial) {
+  const t = S.units[0];
+  if (Math.abs(t.x - CROSS_X) > 120 || Math.abs(t.y) > 120) return;
+  const peds = S.objects.filter((o) => o.ai && o.ai.ped).length;
+  if (peds >= 6 || (!initial && Math.random() > 0.01)) return;
+  // ข้ามถนนแนวนอน (เดินแนวเหนือ-ใต้) ที่ทางม้าลายฝั่งตะวันตก/ตะวันออก หรือข้ามถนนแนวตั้ง
+  const kind = Math.floor(Math.random() * 4), side = Math.random() < 0.5 ? 1 : -1;
+  const o = { t: "ped", v: 0, col: TCOL[Math.floor(Math.random() * TCOL.length)], ai: { ped: true, speed: 1.1 + Math.random() * 0.5 } };
+  if (kind < 2) { o.x = CROSS_X + (kind ? 10.5 : -10.5) + (Math.random() - 0.5); o.y = side * 11.4; o.th = -side * Math.PI / 2; o.ai.axis = "x"; o.ai.goal = -side * 11.6; }
+  else { o.y = (kind === 2 ? 10.5 : -10.5) + (Math.random() - 0.5); o.x = CROSS_X + side * 11.4; o.th = side > 0 ? Math.PI : 0; o.ai.axis = "y"; o.ai.goal = CROSS_X - side * 11.6; }
+  S.objects.push(o);
+}
+// ระยะว่างข้างหน้าตามเลน: รถคันหน้า รถบรรทุก วัตถุ/คนที่ขวางเลน
+function gapAhead(o, l) {
+  const a = o.ai, half = a.len / 2;
+  let gap = 60, vl = 0;
+  S.objects.forEach((q) => {
+    if (q === o || q.hit === undefined && false) return;
+    let ds, lat;
+    if (q.ai && q.ai.lane === l) { ds = (q.ai.s - a.s) * l.dir - (q.ai.len + a.len) / 2; if (ds > -0.5 && ds < gap) { gap = ds; vl = q.ai.v; } return; }
+    if (q.ai && q.ai.lane) return;
+    // คน/วัตถุอื่นที่อยู่ในเลน
+    if (l.axis === "x") { ds = (q.x - a.s) * l.dir - half - 0.6; lat = Math.abs(q.y - l.c); } else { ds = (q.y - a.s) * l.dir - half - 0.6; lat = Math.abs(q.x - l.c); }
+    if (lat < (l.kind === "moto" ? 1.0 : 1.7) && ds > -0.5 && ds < gap) { gap = ds; vl = 0; }
+  });
+  // รถบรรทุก (ทุกท่อน)
+  const offs = l.kind === "moto" ? [0, 0.45, -0.45] : [0, 0.9, -0.9];
+  for (let d = 0.5; d < Math.min(gap, 45); d += 0.75) {
+    const sp = a.s + l.dir * (half + d);
+    if (offs.some((off) => { const [x, y] = lanePoint(l, sp, off); return P.foot.some((f) => inPoly(f, x, y)); })) {
+      gap = d - 0.4; vl = Math.max(0, S.v * Math.cos(wrap(S.units[0].th - l.th))); break;
+    }
+  }
+  // ไฟแดง/เหลือง
+  const light = lightState(l.axis), toStop = (l.stop - a.s) * l.dir - half;
+  if (light !== "G" && toStop > -0.5 && (light === "R" || toStop > a.v * a.v / 6)) { if (toStop < gap) { gap = Math.max(0.1, toStop); vl = 0; } }
+  return { gap, vl };
+}
+function updateTraffic(dt) {
+  LIGHT.t += dt;
+  if (!S.opts.traffic || S.osm || (S.scn && S.scn.def.noTraffic)) { if (S.objects.some((o) => o.ai)) clearTraffic(); return; }
+  if (!S.objects.some((o) => o.ai && o.ai.lane)) fillTraffic();
+  S.objects.forEach((o) => {
+    if (!o.ai || o.hit) return;
+    const a = o.ai;
+    if (a.ped) {
+      // คนข้ามเมื่อรถฝั่งที่ตัดผ่านติดไฟแดง
+      const crossingRoad = a.axis === "x" ? "x" : "y";    // ข้ามถนนแนวนอน = รถแกน x ต้องติดแดง
+      const onRoad = a.axis === "x" ? Math.abs(o.y) < 8.6 : Math.abs(o.x - CROSS_X) < 8.6;
+      const go = onRoad || lightState(crossingRoad) === "R";
+      o.v = go ? a.speed : 0;
+      if (a.axis === "x") { o.y += Math.sign(a.goal - o.y) * o.v * dt; if (Math.abs(o.y - a.goal) < 0.3) o.done = true; }
+      else { o.x += Math.sign(a.goal - o.x) * o.v * dt; if (Math.abs(o.x - a.goal) < 0.3) o.done = true; }
+      return;
+    }
+    const l = a.lane, { gap, vl } = gapAhead(o, l);
+    const moto = l.kind === "moto", A = moto ? 2.2 : 1.6, B = 3, s0 = moto ? 1.2 : 2.2, T = moto ? 0.8 : 1.3;
+    const sStar = s0 + Math.max(0, a.v * T + a.v * (a.v - vl) / (2 * Math.sqrt(A * B)));
+    let acc = A * (1 - Math.pow(a.v / a.v0, 4) - Math.pow(sStar / Math.max(0.1, gap), 2));
+    acc = Math.max(-9, Math.min(A, acc));
+    a.v = Math.max(0, a.v + acc * dt);
+    a.s += l.dir * a.v * dt;
+    const [x, y] = lanePoint(l, a.s); o.x = x; o.y = y; o.th = l.th;
+    // ชนรถบรรทุก (มอเตอร์ไซค์โดนรถบรรทุกเลี้ยวตัดหน้า ฯลฯ)
+    if (objPoints(o).some(([px, py]) => P.foot.some((f) => inPoly(f, px, py)))) {
+      o.hit = true; a.v = 0; hitEvent(o); flash(objName(o.t) + "ชนกับรถบรรทุก — อยู่ในมุมอับหรือไม่ ลองดูรีเพลย์");
+    }
+  });
+  // เอาคันที่ไกลเกิน/ข้ามเสร็จออก แล้วเติมคันใหม่ที่ต้นเลน
+  S.objects = S.objects.filter((o) => {
+    if (!o.ai || o.hit) return true;
+    if (o.ai.ped) return !o.done;
+    return Math.abs(o.ai.s - laneCenter(o.ai.lane)) < 210 && laneActive(o.ai.lane);
+  });
+  LANES.forEach((l) => {
+    if (!laneActive(l)) return;
+    const n = S.objects.filter((o) => o.ai && o.ai.lane === l).length, want = l.kind === "moto" ? 3 : 6;
+    if (n >= want || Math.random() > 0.03) return;
+    const sPos = laneCenter(l) - l.dir * 175;
+    if (S.objects.some((o) => o.ai && o.ai.lane === l && Math.abs(o.ai.s - sPos) < 25)) return;
+    spawnCar(l, sPos);
+  });
+  spawnPeds(false);
+}
+// ไฟจราจรมุมสี่แยก (วางชิดขอบซ้ายของแต่ละขาเข้า)
+const SIGNALS = [
+  { x: CROSS_X - 13.4, y: 9.4, th: Math.PI, axis: "x" }, { x: CROSS_X + 13.4, y: -9.4, th: 0, axis: "x" },
+  { x: CROSS_X - 9.4, y: -13.4, th: -Math.PI / 2, axis: "y" }, { x: CROSS_X + 9.4, y: 13.4, th: Math.PI / 2, axis: "y" }
+];
+function drawSignals() {
+  if (S.osm) return;
+  worldT();
+  const px = 1 / S.cam.s;
+  SIGNALS.forEach((sg) => {
+    const st = lightState(sg.axis);
+    ctx.save(); ctx.translate(sg.x, sg.y); ctx.rotate(sg.th);
+    ctx.fillStyle = "#2b2e33"; ctx.fillRect(-0.15, -0.15, 0.3, 0.3);
+    ctx.fillStyle = "#1c1f24"; rr(-1.0, -0.32, 2.0, 0.64, 0.2); ctx.fill();
+    [["R", "#ff3b30", -0.6], ["Y", "#ffcc00", 0], ["G", "#30d158", 0.6]].forEach(([k, c, x]) => {
+      ctx.fillStyle = st === k ? c : "#3a3d42"; ctx.beginPath(); ctx.arc(x, 0, 0.22, 0, Math.PI * 2); ctx.fill();
+      if (st === k) { const g = ctx.createRadialGradient(x, 0, 0, x, 0, 1.2); g.addColorStop(0, c + "88"); g.addColorStop(1, c + "00"); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, 0, 1.2, 0, Math.PI * 2); ctx.fill(); }
+    });
+    ctx.restore();
+  });
+}
+let assistT = 0;
+function updateAssist(dt) {
+  // เซนเซอร์เรดาร์มุมอับ (BSD): ตรวจวัตถุข้างตัวรถทั้งสองฝั่ง ภายใน 3.5 ม.
+  S.bsdAlert = null;
+  if (S.opts.bsd) {
+    let L = false, R = false;
+    S.objects.forEach((o) => {
+      if (o.hit) return;
+      objPoints(o).forEach(([x, y]) => S.units.forEach((u) => {
+        if (u.def.front == null) return;
+        const c = Math.cos(u.th), sn = Math.sin(u.th), ux = (x - u.x) * c + (y - u.y) * sn, uy = -(x - u.x) * sn + (y - u.y) * c;
+        if (ux < u.def.rear - 3 || ux > u.def.front) return;
+        if (uy > HW && uy < HW + 3.5) L = true;
+        if (uy < -HW && uy > -HW - 3.5) R = true;
+      }));
+    });
+    S.bsdAlert = L && R ? "both" : L ? "left" : R ? "right" : null;
+  }
+  // ทุก 1 วินาที: คิดมุมอับแบบ "ไม่มีอุปกรณ์เสริม + กระจกตั้งศูนย์" เพื่อเทียบ
+  assistT -= dt;
+  const any = S.opts.cam360 || S.opts.sideCam || S.opts.prox || S.opts.front || S.opts.mirL || S.opts.mirR;
+  if (!any) { S.assistGain = null; return; }
+  if (assistT > 0 || !G.nx) return;
+  assistT = 1;
+  const keep = { cam360: S.opts.cam360, sideCam: S.opts.sideCam, prox: S.opts.prox, front: S.opts.front, mirL: S.opts.mirL, mirR: S.opts.mirR };
+  Object.assign(S.opts, { cam360: false, sideCam: false, prox: false, front: false, mirL: 0, mirR: 0 });
+  prep();
+  let base = 0;
+  for (let j = 0; j < G.ny; j++) for (let i = 0; i < G.nx; i++) {
+    if (!G.cls[j * G.nx + i]) continue;
+    if (classify(G.minX + (i + 0.5) * CELL, G.maxY - (j + 0.5) * CELL) === VIS.BLIND) base++;
+  }
+  Object.assign(S.opts, keep); prep();
+  S.assistGain = { base: base * CELL * CELL, now: G.blindCells * CELL * CELL };
+}
+/* ---------------- ภารกิจฝึก ----------------
+   ทุกด่าน: ชน/พลิก = ไม่ผ่าน · ฝ่าไฟแดง / ขึ้นทางเท้า / เร็วเกินในแยก = หักดาว
+   ดาวที่ดีที่สุดเก็บแยกตามบัญชีที่ล็อกอิน (ในเครื่องนี้) */
+const roadAt = (x, y) => Math.abs(y) < 8.6 || Math.abs(x - CROSS_X) < 8.6 ||
+  (x > YARD.x1 && x < YARD.x2 && y > YARD.y1 - 0.3 && y < YARD.y2) || (x > YARD.drive1 && x < YARD.drive2 && y > 8 && y < YARD.y1 + 0.5);
+const SCENARIOS = [
+  {
+    id: "left", rig: "tanker", name: "เลี้ยวซ้ายที่แยก ระวังมอเตอร์ไซค์",
+    desc: "ขับไปเลี้ยวซ้ายเข้าถนนแนวตั้งที่สี่แยก มีมอเตอร์ไซค์แทรกมาทางซ้ายในมุมอับ",
+    goal: "เลี้ยวซ้ายเข้าช่องซ้ายของถนนขาขึ้น (กรอบเขียว) โดยไม่ชน ไม่ฝ่าไฟแดง ไม่ขึ้นทางเท้า",
+    pose: { x: CROSS_X - 58, y: 5.25, th: 0 },
+    setup(sc) {
+      LIGHT.t = 30;
+      if (!S.opts.traffic) { S.opts.traffic = true; $("optTraffic").checked = true; fillTraffic(); }
+      const l = LANES[2], o = spawnCar(l, S.units[0].x - 14); o.ai.v = 6; o.ai.v0 = 10.5;
+      sc.box = { x1: CROSS_X - 7.3, x2: CROSS_X - 0.2, y1: 16, y2: 42 };
+    },
+    check(sc) {
+      const t = S.units[0], [fx, fy] = toWorld(t, t.def.front, 0), b = sc.box;
+      if (fx > b.x1 && fx < b.x2 && fy > b.y1 && fy < b.y2 && Math.abs(wrap(t.th - Math.PI / 2)) < 25 * DEG) return { win: true };
+      if (sc.t > 120) return { fail: "หมดเวลา 2 นาที" };
+      if (fx > CROSS_X + 20 || fy < -20) return { fail: "เลี้ยวผิดทาง" };
+    },
+    score(sc) { const pen = sc.pen.length + (sc.t > 60 ? 1 : 0) + (sc.maxXing > 20 ? 1 : 0); return 3 - Math.min(2, pen); }
+  },
+  {
+    id: "child", rig: "tanker", noTraffic: true, name: "เด็กวิ่งตัดหน้า",
+    desc: "เร่งถึง 60 กม./ชม. บนถนนโล่ง จะมีเด็กวิ่งออกมาจากหลังรถที่จอดข้างทาง",
+    goal: "เร่งให้ถึงราว 60 กม./ชม. แล้วขับต่อไป — ถ้ามีอะไรตัดหน้าให้หยุดให้ทัน",
+    pose: { x: -230, y: 5.25, th: 0 },
+    setup(sc) {
+      [-120, -108, -96, -60, -48].forEach((x, i) => S.objects.push({ t: "car", x, y: 7.95, th: 0, v: 0, col: TCOL[(i * 3) % TCOL.length] }));
+      sc.trigX = -150;
+    },
+    check(sc) {
+      const t = S.units[0], fx = toWorld(t, t.def.front, 0)[0];
+      if (!sc.child && fx > sc.trigX && (S.v > 50 / 3.6 || fx > -80)) {
+        const cx = fx + Math.max(30, stopDistance(S.v).total * 0.92);
+        sc.child = { t: "ped", x: cx, y: 8.6, th: -Math.PI / 2, v: 0, col: "#ff8a00", kid: true };
+        S.objects.push(sc.child); sc.childT = sc.t; sc.childV = S.v;
+        flash("!!!");
+      }
+      if (sc.child) {
+        const c = sc.child;
+        if (c.y > 4.2 && !c.hit) c.y -= 3.2 * (1 / 60);
+        if (sc.brakeT === undefined && S.brakeA > 0) sc.brakeT = sc.t;
+        if (Math.abs(S.v) < 0.05 && sc.t - sc.childT > 0.5) { sc.gap = c.x - fx; return { win: true }; }
+      }
+      if (fx > 40) return { fail: "ไม่ได้หยุด" };
+    },
+    score(sc) { return sc.gap >= 5 ? 3 : sc.gap >= 2 ? 2 : 1; },
+    lines(sc) {
+      return [
+        "ความเร็วตอนเด็กวิ่งออกมา " + Math.round((sc.childV || 0) * 3.6) + " กม./ชม.",
+        "เวลาตัดสินใจ (เห็น → เหยียบเบรก) " + (sc.brakeT !== undefined ? (sc.brakeT - sc.childT).toFixed(2) + " วินาที" : "ไม่ได้เบรก"),
+        sc.gap !== undefined ? "หยุดห่างจากเด็ก " + sc.gap.toFixed(1) + " ม." : ""
+      ];
+    }
+  },
+  {
+    id: "bay", rig: "semi", noTraffic: true, name: "ถอยหางพ่วงเข้าช่องโหลดน้ำมัน",
+    desc: "ถอยหัวลากพ่วงเข้าช่องกลาง (สีเหลือง) ในลานคลังน้ำมัน ข้าง ๆ มีหางจอดอยู่",
+    goal: "ถอยหางพ่วงเข้าช่องเหลืองตรงกลางให้ทั้งคันอยู่ในเส้น หน้ารถหันออกถนน แล้วหยุดนิ่ง",
+    pose: { x: -58, y: 5.25, th: 0 },
+    setup(sc) {
+      [YARD.bays[0], YARD.bays[2]].forEach((bx) => S.objects.push({ t: "tank", x: bx, y: (YARD.bayY1 + YARD.bayY2) / 2 + 0.6, th: Math.PI / 2, v: 0 }));
+      sc.dir = 0; sc.shunts = 0; sc.still = 0;
+    },
+    check(sc) {
+      const dirNow = S.v > 0.3 ? 1 : S.v < -0.3 ? -1 : 0;
+      if (dirNow && dirNow !== sc.dir) { if (sc.dir) sc.shunts++; sc.dir = dirNow; }
+      const tr = S.units[1], f = rectPoly(tr, tr.def.rear, tr.def.front, HW);
+      const inBay = f.pts.every(([x, y]) => Math.abs(x - YARD.bayX) < YARD.bayW / 2 - 0.1 && y > YARD.bayY1 - 0.3 && y < YARD.bayY2 + 0.3);
+      const straight = Math.abs(wrap(tr.th + Math.PI / 2)) < 7 * DEG;
+      sc.still = inBay && straight && Math.abs(S.v) < 0.1 ? sc.still + 1 / 60 : 0;
+      if (sc.still > 1) return { win: true };
+      if (sc.t > 300) return { fail: "หมดเวลา 5 นาที" };
+    },
+    score(sc) { return sc.t < 120 && sc.shunts <= 4 && !sc.pen.length ? 3 : sc.t < 200 && sc.shunts <= 8 ? 2 : 1; },
+    lines(sc) { return ["เปลี่ยนทิศเดินหน้า/ถอย " + sc.shunts + " ครั้ง"]; }
+  },
+  {
+    id: "swerve", rig: "carrier", noTraffic: true, name: "ถนนเปียก รถเสียขวางเลน",
+    desc: "รถขนรถยนต์ 80 กม./ชม. บนถนนเปียก ข้างหน้ามีรถเสียจอดขวางเลน",
+    goal: "หลบหรือหยุดให้ปลอดภัย โดยไม่ให้หางปัด (มุมหักข้อต่อยิ่งน้อยยิ่งดี)",
+    pose: { x: -320, y: 5.25, th: 0 },
+    setup(sc) {
+      const b = document.querySelector('#road button[data-mu="0.45"]'); if (b) b.click();
+      S.objects.push({ t: "car", x: -170, y: 5.25, th: 0.15, v: 0, col: "#9aa1a8" });
+      S.v = 80 / 3.6;
+    },
+    check(sc) {
+      const lb = lastBody(), rx = toWorld(lb, lb.def.rear, 0)[0];
+      if (rx > -160) return { win: true };
+      if (Math.abs(S.v) < 0.05 && sc.t > 2) return { win: true };
+    },
+    score(sc) { return sc.maxArt < 8 ? 3 : sc.maxArt < 15 ? 2 : 1; }
+  }
+];
+let BEST = {};
+function loadBest() { try { BEST = JSON.parse(localStorage.getItem("sim-best:" + S.uid)) || {}; } catch (e) { BEST = {}; } }
+function saveBest() { try { localStorage.setItem("sim-best:" + S.uid, JSON.stringify(BEST)); } catch (e) {} }
+function startScenario(id) {
+  const def = SCENARIOS.find((d) => d.id === id);
+  if (S.replay) stopReplay();
+  $("scnModal").hidden = true;
+  S.scn = { def, t: 0, phase: "run", pen: [], maxXing: 0, maxArt: 0, hits0: 0, rolls0: 0, off: false };
+  buildRig(def.rig, def.pose);
+  S.objects = [];
+  if (!def.noTraffic && S.opts.traffic) fillTraffic();
+  S.scn.hits0 = S.ev.hits; S.scn.rolls0 = S.ev.rolls; S.scn.jack0 = S.ev.jack || 0;
+  def.setup(S.scn);
+  REC.length = 0;
+  setAutoZoom(true);
+  renderScnList();
+}
+function endScenario(res) {
+  const sc = S.scn; sc.phase = "done"; sc.res = res;
+  const stars = res.win ? Math.max(1, sc.def.score(sc)) : 0;
+  if (stars > (BEST[sc.def.id] || 0)) { BEST[sc.def.id] = stars; saveBest(); }
+  const lines = [
+    "เวลา " + sc.t.toFixed(1) + " วินาที",
+    ...(sc.def.lines ? sc.def.lines(sc) : []),
+    sc.maxArt > 1 ? "มุมหักข้อต่อสูงสุด " + sc.maxArt.toFixed(1) + "°" : "",
+    sc.maxXing ? "ความเร็วสูงสุดในแยก " + Math.round(sc.maxXing) + " กม./ชม." : "",
+    ...sc.pen.map((p) => "หักดาว: " + p)
+  ].filter(Boolean);
+  $("scnTitle").textContent = res.win ? "ผ่าน!" : "ไม่ผ่าน";
+  $("scnStars").textContent = "★".repeat(stars) + "☆".repeat(3 - stars);
+  $("scnReason").textContent = res.win ? sc.def.name : res.fail;
+  $("scnLines").innerHTML = lines.map((l) => "<li>" + l + "</li>").join("");
+  $("scnModal").hidden = false; $("scnModal").classList.toggle("fail", !res.win);
+  renderScnList();
+}
+function scnUpdate(dt) {
+  const sc = S.scn;
+  if (!sc) { $("scnBar").hidden = true; return; }
+  $("scnBar").hidden = false;
+  if (sc.phase !== "run") { $("scnBar").textContent = sc.def.name + " — จบแล้ว"; return; }
+  sc.t += dt;
+  const t = S.units[0], [fx, fy] = toWorld(t, t.def.front, 0);
+  // ฝ่าไฟแดง: หน้ารถข้ามเส้นหยุดขณะไฟแดง
+  if (!S.osm) LANES.forEach((l) => {
+    if (l.kind === "moto" || Math.abs(wrap(t.th - l.th)) > 40 * DEG) return;
+    const along = l.axis === "x" ? fx : fy, lat = l.axis === "x" ? Math.abs(fy - l.c) : Math.abs(fx - l.c);
+    if (lat > 2 || sc.prevAlong === undefined) return;
+    if ((sc.prevAlong - l.stop) * l.dir < 0 && (along - l.stop) * l.dir >= 0 && lightState(l.axis) === "R" && !sc.pen.includes("ฝ่าไฟแดง")) { sc.pen.push("ฝ่าไฟแดง"); flash("ฝ่าไฟแดง!"); }
+  });
+  sc.prevAlong = Math.abs(wrap(t.th)) < 40 * DEG || Math.abs(wrap(t.th - Math.PI)) < 40 * DEG ? fx : fy;
+  // ขึ้นทางเท้า
+  const off = P.foot.some((f) => f.pts.some(([x, y]) => !roadAt(x, y)));
+  if (off && !sc.off) { sc.pen.push("ล้อ/ตัวรถขึ้นทางเท้า"); flash("ขึ้นทางเท้า!"); }
+  sc.off = off;
+  if (Math.abs(fx - CROSS_X) < 12 && Math.abs(fy) < 12) sc.maxXing = Math.max(sc.maxXing, Math.abs(S.v) * 3.6);
+  const tu = S.units.find((u) => u.def.kind === "trailer");
+  if (tu) sc.maxArt = Math.max(sc.maxArt, Math.abs(wrap(S.units[0].th - tu.th)) / DEG);
+  const pen = sc.pen.length ? " · หักดาว " + sc.pen.length : "";
+  $("scnBar").textContent = sc.def.name + " · " + sc.def.goal + " · " + sc.t.toFixed(0) + " วิ" + pen;
+  if (S.ev.hits > sc.hits0) return endScenario({ fail: "ชน" + (S.ev.last ? objName(S.ev.last.t) : "") + " — กดดูรีเพลย์เพื่อดูว่าตอนนั้นอยู่ในมุมอับไหม" });
+  if (S.ev.rolls > sc.rolls0) return endScenario({ fail: "รถพลิกคว่ำ — เลี้ยวเร็วเกินไป" });
+  if ((S.ev.jack || 0) > sc.jack0) return endScenario({ fail: "หางปัดชนตัวแม่" });
+  const r = sc.def.check(sc);
+  if (r) endScenario(r);
+}
+function renderScnList() {
+  const box = $("scnList"); if (!box) return;
+  box.innerHTML = SCENARIOS.map((d) => {
+    const b = BEST[d.id] || 0, on = S.scn && S.scn.def.id === d.id && S.scn.phase === "run";
+    return '<div class="scn' + (on ? " on" : "") + '"><div><strong>' + d.name + '</strong><span>' + d.desc + '</span></div>' +
+      '<div class="scn-r"><b class="stars">' + "★".repeat(b) + "☆".repeat(3 - b) + '</b><button class="pill" data-scn="' + d.id + '">' + (on ? "เริ่มใหม่" : "เล่น") + "</button></div></div>";
+  }).join("") + (S.scn ? '<button class="pill" id="scnQuit">ออกจากภารกิจ (ขับอิสระ)</button>' : "");
+  box.querySelectorAll("[data-scn]").forEach((b) => b.addEventListener("click", () => { startScenario(b.dataset.scn); b.blur(); }));
+  const q = $("scnQuit"); if (q) q.addEventListener("click", () => { S.scn = null; $("scnModal").hidden = true; buildRig(S.rigKey); renderScnList(); });
+}
+// กรอบเป้าหมายบนแผนที่
+function drawScnGoal() {
+  const sc = S.scn; if (!sc || !sc.box) return;
+  worldT();
+  const b = sc.box, px = 1 / S.cam.s;
+  ctx.fillStyle = "rgba(48,209,88,.16)"; ctx.strokeStyle = "#30d158"; ctx.lineWidth = 2 * px; ctx.setLineDash([6 * px, 4 * px]);
+  ctx.fillRect(b.x1, b.y1, b.x2 - b.x1, b.y2 - b.y1); ctx.strokeRect(b.x1, b.y1, b.x2 - b.x1, b.y2 - b.y1); ctx.setLineDash([]);
+}
+
+/* ---------------- รีเพลย์แบบแบ่งจอ ----------------
+   เก็บสถานะ 15 วินาทีล่าสุด (30 ครั้ง/วินาที) แล้วเล่นย้อนแบบช้า: ซ้าย = มุมบนลงล่าง ขวา = มุมคนขับ ณ เวลาเดียวกัน */
+const REC = [];
+let recAcc = 0;
+function recordFrame(dt) {
+  recAcc += dt; if (recAcc < 1 / 30) return; recAcc = 0;
+  REC.push({
+    u: S.units.map((u) => [u.x, u.y, u.th, u.w || 0]), steer: S.steer, v: S.v, brakeA: S.brakeA, lean: S.lean, kS: S.kS, light: LIGHT.t,
+    o: S.objects.map((o) => ({ t: o.t, x: o.x, y: o.y, th: o.th, hit: o.hit, col: o.col }))
+  });
+  if (REC.length > 450) REC.shift();
+}
+function applyFrame(f) {
+  f.u.forEach((a, i) => { const u = S.units[i]; if (u) { u.x = a[0]; u.y = a[1]; u.th = a[2]; u.w = a[3]; } });
+  S.steer = f.steer; S.v = f.v; S.brakeA = f.brakeA; S.lean = f.lean; S.kS = f.kS; LIGHT.t = f.light;
+  S.objects = f.o.map((o) => Object.assign({}, o));
+}
+async function startReplay() {
+  if (REC.length < 20) { flash("ยังไม่มีภาพให้ย้อนดู — ขับสักครู่ก่อน"); return; }
+  const saved = {
+    u: S.units.map((u) => ({ x: u.x, y: u.y, th: u.th, w: u.w })), steer: S.steer, v: S.v, brakeA: S.brakeA, lean: S.lean, kS: S.kS, light: LIGHT.t,
+    objects: S.objects, view: S.view
+  };
+  S.replay = { frames: REC.slice(), i: 0, speed: 0.5, playing: true, saved };
+  $("replayBar").hidden = false; $("rpSlider").max = S.replay.frames.length - 1;
+  $("stage").classList.add("split");
+  await setView("driver");
+  if (!S.replay) return;
+  cv.style.display = ""; $("view3d").hidden = false; $("zoomBar").style.display = "none";
+  resize(); if (three) three.resize();
+}
+function stopReplay() {
+  const r = S.replay; if (!r) return;
+  const sv = r.saved;
+  sv.u.forEach((a, i) => { const u = S.units[i]; if (u) Object.assign(u, a); });
+  Object.assign(S, { steer: sv.steer, v: sv.v, brakeA: sv.brakeA, lean: sv.lean, kS: sv.kS, objects: sv.objects });
+  LIGHT.t = sv.light;
+  S.replay = null;
+  $("replayBar").hidden = true; $("stage").classList.remove("split");
+  setView(sv.view);
+  setTimeout(() => { resize(); if (three) three.resize(); }, 0);
+}
+function replayTick(dt) {
+  const r = S.replay;
+  if (r.playing) { r.i += dt * 30 * r.speed; if (r.i >= r.frames.length - 1) { r.i = r.frames.length - 1; r.playing = false; } }
+  applyFrame(r.frames[Math.floor(r.i)]);
+  $("rpSlider").value = Math.floor(r.i);
+  $("rpTime").textContent = "−" + ((r.frames.length - 1 - r.i) / 30).toFixed(1) + " วิ";
+  $("rpPlay").textContent = r.playing ? "หยุด" : "เล่น";
 }
 
 /* หางแบบไดนามิก (ใช้ตอนวิ่งเร็วกว่า 3 ม./วิ เดินหน้า)
@@ -562,11 +1067,12 @@ function moveRig(ds, h) {
       S.phys.push = 0; S.phys.pushLat = 0; S.phys.latUse = 0; S.phys.locked = false;
     }
     const art = wrap(p.th - u.th), lim = u.def.limit * DEG;
+    if (Math.abs(art) < lim * 0.8) u.jackOn = false;
     if (Math.abs(art) > lim) {
       if (ds < 0) { restore(); flash("ถอยจนหางพับ (Jackknife) — หยุดถอย แล้วเดินหน้าเพื่อดึงหางให้ตรง"); return false; }
       u.th = p.th - Math.sign(art) * lim; u.w = 0;
       u.x = hx - Math.cos(u.th) * u.def.L; u.y = hy - Math.sin(u.th) * u.def.L;
-      if (S.v > 3) { flash("หางปัดจนชนตัวแม่! (" + Math.round(S.v * 3.6) + " กม./ชม.)"); if (S.test) S.test.crashed = true; }
+      if (S.v > 3) { if (!u.jackOn) { S.ev.jack = (S.ev.jack || 0) + 1; u.jackOn = true; } flash("หางปัดจนชนตัวแม่! (" + Math.round(S.v * 3.6) + " กม./ชม.)"); if (S.test) S.test.crashed = true; }
       else flash("หางพับชิดตัวหน้าแล้ว — คืนพวงมาลัย");
     }
   }
@@ -574,8 +1080,9 @@ function moveRig(ds, h) {
   prep();
   for (const o of S.objects) {
     if (o.hit) continue;
-    if (objPoints(o).some(([x, y]) => P.foot.some((f) => inPoly(f, x, y)))) {
-      restore(); prep(); o.hit = true;
+    const big = o.t === "tank" && P.foot.some((f) => f.pts.some(([x, y]) => inObj(o, x, y)));
+    if (big || objPoints(o).some(([x, y]) => P.foot.some((f) => inPoly(f, x, y)))) {
+      restore(); prep(); if (o.t !== "tank") o.hit = true; hitEvent(o);
       flash("ชน" + objName(o.t) + "! — ตอนนั้นอยู่ในมุมอับหรือไม่ ลองดูสีบนแผนที่");
       return false;
     }
@@ -626,6 +1133,82 @@ function updateSmoke(dt) {
   S.smoke = S.smoke.filter((pt) => pt.life > 0).slice(-400);
 }
 
+/* ---------------- จอยเกม / พวงมาลัยจริง ----------------
+   - จอยมาตรฐาน (Xbox/PS): ก้านซ้าย = เลี้ยว · RT = คันเร่ง · LT = เบรก · A = สลับเกียร์ถอย · B = แตร · Y = สลับมุมมอง
+   - พวงมาลัย (เช่น Logitech G29): กด "ตั้งค่าพวงมาลัย" แล้วทำตาม 3 ขั้น ระบบจะหาแกนของพวงมาลัย/คันเร่ง/เบรกเอง
+   ค่าที่ตั้งไว้เก็บในเครื่องนี้ */
+const GP = { map: null, calib: null, prev: [], name: "" };
+try { GP.map = JSON.parse(localStorage.getItem("sim-gp-map")); } catch (e) {}
+function pedal(v, rest, full) { const r = (v - rest) / ((full - rest) || 1); return Math.max(0, Math.min(1, r)); }
+function pollGamepad() {
+  const pads = navigator.getGamepads ? Array.prototype.filter.call(navigator.getGamepads(), Boolean) : [];
+  const gp = pads[0], A = S.analog;
+  if (!gp) { if (GP.name) { GP.name = ""; updateGpUi(); } A.active = false; return; }
+  if (gp.id !== GP.name) { GP.name = gp.id; updateGpUi(); }
+  if (GP.calib) { calibSample(gp); return; }
+  const m = GP.map && GP.map.id === gp.id ? GP.map : null;
+  let steer = 0, thr = 0, brk = 0;
+  if (m) {
+    steer = (gp.axes[m.steer] - m.center) / (m.half || 1);
+    thr = pedal(gp.axes[m.thr], m.thrRest, m.thrFull);
+    brk = pedal(gp.axes[m.brk], m.brkRest, m.brkFull);
+  } else if (gp.mapping === "standard") {
+    steer = gp.axes[0] || 0; thr = gp.buttons[7] ? gp.buttons[7].value : 0; brk = gp.buttons[6] ? gp.buttons[6].value : 0;
+  } else steer = gp.axes[0] || 0;
+  if (Math.abs(steer) < 0.04) steer = 0;
+  A.steer = Math.max(-1, Math.min(1, steer)); A.thr = thr < 0.03 ? 0 : thr; A.brk = brk;
+  if (Math.abs(steer) > 0.08 || thr > 0.08 || brk > 0.08) A.active = true;
+  const pressed = (i) => gp.buttons[i] && gp.buttons[i].pressed;
+  const edge = (i) => pressed(i) && !GP.prev[i];
+  if (edge(0)) { A.rev = !A.rev; flash(A.rev ? "เกียร์ถอย (R)" : "เกียร์เดินหน้า (D)"); A.active = true; }
+  if (edge(3)) setView({ "2d": "chase", chase: "driver", driver: "2d" }[S.view]);
+  A.horn = pressed(1);
+  GP.prev = gp.buttons.map((b) => b.pressed);
+}
+const CALIB_STEPS = [
+  { key: "steer", text: "1/3 หมุนพวงมาลัยไปซ้ายสุดและขวาสุด 2–3 รอบ แล้วกด ถัดไป" },
+  { key: "thr", text: "2/3 ปล่อยทุกแป้น แล้วเหยียบ คันเร่ง จนสุดค้างไว้ แล้วกด ถัดไป" },
+  { key: "brk", text: "3/3 ปล่อยทุกแป้น แล้วเหยียบ เบรก จนสุดค้างไว้ แล้วกด เสร็จ" }
+];
+function startCalib() {
+  const pads = navigator.getGamepads ? Array.prototype.filter.call(navigator.getGamepads(), Boolean) : [];
+  if (!pads[0]) { flash("ยังไม่พบพวงมาลัย/จอย — เสียบสายแล้วกดปุ่มใดก็ได้บนอุปกรณ์หนึ่งครั้ง"); return; }
+  GP.calib = { step: 0, id: pads[0].id, base: null, min: [], max: [], map: { id: pads[0].id } };
+  updateGpUi();
+}
+function calibSample(gp) {
+  const c = GP.calib;
+  if (!c.base) { c.base = gp.axes.slice(); c.min = gp.axes.slice(); c.max = gp.axes.slice(); }
+  gp.axes.forEach((v, i) => { c.min[i] = Math.min(c.min[i], v); c.max[i] = Math.max(c.max[i], v); c.last = gp.axes.slice(); });
+}
+function calibNext() {
+  const c = GP.calib; if (!c || !c.base) return;
+  const key = CALIB_STEPS[c.step].key, used = [c.map.steer, c.map.thr].filter((x) => x !== undefined);
+  let best = -1, range = 0;
+  c.base.forEach((b, i) => {
+    if (used.includes(i)) return;
+    const r = key === "steer" ? c.max[i] - c.min[i] : Math.abs((c.last || c.base)[i] - b);
+    if (r > range) { range = r; best = i; }
+  });
+  if (best < 0 || range < 0.2) { flash("ไม่เห็นการขยับ — ลองใหม่อีกครั้ง"); c.base = null; return; }
+  if (key === "steer") { c.map.steer = best; c.map.center = (c.max[best] + c.min[best]) / 2; c.map.half = (c.max[best] - c.min[best]) / 2; }
+  else { c.map[key] = best; c.map[key + "Rest"] = c.base[best]; c.map[key + "Full"] = (c.last || c.base)[best]; }
+  c.step++; c.base = null;
+  if (c.step >= CALIB_STEPS.length) {
+    GP.map = c.map; GP.calib = null;
+    try { localStorage.setItem("sim-gp-map", JSON.stringify(GP.map)); } catch (e) {}
+    flash("ตั้งค่าพวงมาลัยเรียบร้อย — ลองขับได้เลย");
+  }
+  updateGpUi();
+}
+function updateGpUi() {
+  const st = $("gpStatus"); if (!st) return;
+  const c = GP.calib;
+  st.textContent = c ? CALIB_STEPS[c.step].text : GP.name ? "พบอุปกรณ์: " + GP.name.slice(0, 60) + (GP.map && GP.map.id === GP.name ? " (ตั้งค่าแล้ว)" : "") : "ยังไม่พบ — เสียบพวงมาลัย/จอยแล้วกดปุ่มใดก็ได้บนอุปกรณ์";
+  $("gpNext").hidden = !c; $("gpNext").textContent = c && c.step === CALIB_STEPS.length - 1 ? "เสร็จ" : "ถัดไป";
+  $("gpCalib").hidden = !!c;
+}
+
 /* ---------------- ทดสอบเบรกกะทันหัน ---------------- */
 function startTest(type) {
   buildRig(S.rigKey);
@@ -665,13 +1248,17 @@ function testTrack() {
 }
 
 /* ---------------- วัตถุ ---------------- */
-const OBJ = { ped: [0.55, 0.55], moto: [2.0, 0.8], car: [4.5, 1.8] };
-function objName(t) { return t === "ped" ? "คนเดิน" : t === "moto" ? "มอเตอร์ไซค์" : "รถเก๋ง"; }
+const OBJ = { ped: [0.55, 0.55], moto: [2.0, 0.8], car: [4.5, 1.8], tank: [12.2, 2.5] };
+function objName(t) { return t === "ped" ? "คนเดิน" : t === "moto" ? "มอเตอร์ไซค์" : t === "tank" ? "หางพ่วงที่จอดอยู่" : "รถเก๋ง"; }
 function objPoints(o) {
   const [l, w] = OBJ[o.t], c = Math.cos(o.th), s = Math.sin(o.th);
   const pts = [[o.x, o.y]];
   [[l / 2, w / 2], [l / 2, -w / 2], [-l / 2, w / 2], [-l / 2, -w / 2]].forEach(([a, b]) => pts.push([o.x + a * c - b * s, o.y + a * s + b * c]));
   return pts;
+}
+function inObj(o, x, y) {
+  const [l, w] = OBJ[o.t], c = Math.cos(o.th), sn = Math.sin(o.th), dx = x - o.x, dy = y - o.y;
+  return Math.abs(dx * c + dy * sn) < l / 2 && Math.abs(-dx * sn + dy * c) < w / 2;
 }
 function objState(o) {
   if (o.hit) return "hit";
@@ -712,7 +1299,7 @@ function makePatterns() {
 function patFill(pat) { pat.setTransform(new DOMMatrix().scale(pat.m)); ctx.fillStyle = pat; }
 function resize() {
   if (three) three.resize();
-  const r = cv.parentElement.getBoundingClientRect();
+  const r = cv.style.display === "none" ? cv.parentElement.getBoundingClientRect() : cv.getBoundingClientRect();
   DPR = Math.min(2, window.devicePixelRatio || 1);
   W = Math.max(1, r.width); H = Math.max(1, r.height);
   cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
@@ -735,6 +1322,7 @@ function drawWorld() {
   const vx1 = S.cam.x - W / 2 / s - 5, vx2 = S.cam.x + W / 2 / s + 5;
   const vy1 = S.cam.y - H / 2 / s - 5, vy2 = S.cam.y + H / 2 / s + 5;
   worldT();
+  if (S.osm) { drawOsm(vx1, vx2, vy1, vy2); return; }
   if (PAT.ground) patFill(PAT.ground); else ctx.fillStyle = COL.ground;
   ctx.fillRect(vx1, vy1, vx2 - vx1, vy2 - vy1);
   // เส้นตาราง 5 ม.
@@ -776,7 +1364,26 @@ function drawWorld() {
   for (let y = -7.5; y < 7.5; y += 1) { ctx.fillRect(CROSS_X - 12, y, 3, 0.5); ctx.fillRect(CROSS_X + 9, y, 3, 0.5); }
   for (let x = CROSS_X - 7.5; x < CROSS_X + 7.5; x += 1) { ctx.fillRect(x, 9, 0.5, 3); ctx.fillRect(x, -12, 0.5, 3); }
   ctx.fillRect(CROSS_X - 12.8, 0, 0.4, 7); ctx.fillRect(CROSS_X + 12.4, -7, 0.4, 7);
+  drawYard();
   drawDecor(vx1, vx2, vy1, vy2);
+}
+function drawYard() {
+  if (S.osm) return;
+  const Y = YARD;
+  ctx.fillStyle = "#b9b6ad"; ctx.fillRect(Y.x1, Y.y1, Y.x2 - Y.x1, Y.y2 - Y.y1);
+  ctx.fillStyle = "rgba(0,0,0,.06)";
+  for (let x = Y.x1; x < Y.x2; x += 6) ctx.fillRect(x, Y.y1, 0.08, Y.y2 - Y.y1);
+  if (PAT.road) patFill(PAT.road); else ctx.fillStyle = COL.road;
+  ctx.fillRect(Y.drive1, 8.5, Y.drive2 - Y.drive1, Y.y1 - 8.5 + 0.2);
+  ctx.strokeStyle = "#4b5057"; ctx.lineWidth = 0.15; ctx.setLineDash([0.6, 0.4]);
+  ctx.beginPath(); ctx.moveTo(Y.x1, Y.y1); ctx.lineTo(Y.x1, Y.y2); ctx.lineTo(Y.x2, Y.y2); ctx.lineTo(Y.x2, Y.y1);
+  ctx.moveTo(Y.x1, Y.y1); ctx.lineTo(Y.drive1, Y.y1); ctx.moveTo(Y.drive2, Y.y1); ctx.lineTo(Y.x2, Y.y1); ctx.stroke(); ctx.setLineDash([]);
+  ctx.strokeStyle = "#f0c02c"; ctx.lineWidth = 0.15;
+  Y.bays.forEach((bx) => { ctx.strokeRect(bx - Y.bayW / 2, Y.bayY1, Y.bayW, Y.bayY2 - Y.bayY1); });
+  ctx.fillStyle = "rgba(240,192,44,.18)"; ctx.fillRect(Y.bayX - Y.bayW / 2, Y.bayY1, Y.bayW, Y.bayY2 - Y.bayY1);
+  // ป้ายชื่อลาน
+  ctx.save(); ctx.translate(Y.x1 + 4, Y.y2 - 3); ctx.scale(1, -1);
+  ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.font = "bold 2.2px 'IBM Plex Sans Thai', system-ui"; ctx.fillText("ลานคลังน้ำมัน", 0, 0); ctx.restore();
 }
 // ตึก (หลังคา + เงา) ต้นไม้ เสาไฟ — แสงแดดมาจากซ้ายบน เงาทอดไปขวาล่าง
 function drawDecor(vx1, vx2, vy1, vy2) {
@@ -1075,16 +1682,21 @@ function drawObjects(states) {
     }
     ctx.lineWidth = 1.5 * px; ctx.strokeStyle = "rgba(0,0,0,.55)";
     if (o.t === "ped") {
-      ctx.fillStyle = st === "seen" ? "#3b6fd8" : col;
+      ctx.fillStyle = st === "seen" ? (o.col || "#3b6fd8") : col;
       ctx.beginPath(); ctx.ellipse(0, 0, 0.22, 0.3, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       ctx.fillStyle = "#f2c9a0"; ctx.beginPath(); ctx.arc(0, 0, 0.12, 0, Math.PI * 2); ctx.fill();
     } else if (o.t === "moto") {
       ctx.fillStyle = "#222"; rr(-1.0, -0.12, 2.0, 0.24, 0.1); ctx.fill();
-      ctx.fillStyle = st === "seen" ? "#3b6fd8" : col; rr(-0.55, -0.3, 1.05, 0.6, 0.25); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = st === "seen" ? (o.col || "#3b6fd8") : col; rr(-0.55, -0.3, 1.05, 0.6, 0.25); ctx.fill(); ctx.stroke();
       ctx.fillStyle = "#333"; ctx.fillRect(0.45, -0.38, 0.08, 0.76);
       ctx.fillStyle = "#f2c9a0"; ctx.beginPath(); ctx.arc(-0.05, 0, 0.16, 0, Math.PI * 2); ctx.fill();
+    } else if (o.t === "tank") {
+      const tg = ctx.createLinearGradient(0, -w / 2, 0, w / 2);
+      tg.addColorStop(0, "#9ea6ad"); tg.addColorStop(0.5, "#f4f6f7"); tg.addColorStop(1, "#aeb6bd");
+      ctx.fillStyle = tg; ctx.strokeStyle = "#7d868e"; rr(-l / 2, -w / 2, l, w, 0.9); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = "#6cb200"; ctx.fillRect(-l / 2 + 0.3, w / 2 - 0.14, l - 0.6, 0.14); ctx.fillRect(-l / 2 + 0.3, -w / 2, l - 0.6, 0.14);
     } else {
-      ctx.fillStyle = st === "seen" ? "#5b7fbf" : col; rr(-l / 2, -w / 2, l, w, 0.5); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = st === "seen" ? (o.col || "#5b7fbf") : col; rr(-l / 2, -w / 2, l, w, 0.5); ctx.fill(); ctx.stroke();
       ctx.fillStyle = "rgba(20,30,45,.7)"; rr(0.45, -0.75, 0.75, 1.5, 0.2); ctx.fill(); rr(-1.6, -0.72, 0.5, 1.44, 0.2); ctx.fill();
     }
     if (st === "hit") {
@@ -1301,10 +1913,43 @@ function syncPhysUi() {
   $("tbWrap").style.display = cfg.trailer ? "" : "none";
   $("cargov").textContent = S.opts.cargo.toFixed(1) + " ตัน";
 }
+function drawSloshGauge() {
+  const cvs = $("sloshCv"), wrap = $("sloshWrap");
+  if (!cvs) return;
+  wrap.hidden = !PH.fill;
+  if (!PH.fill) return;
+  const g = cvs.getContext("2d"), w = cvs.width, h = cvs.height;
+  g.clearRect(0, 0, w, h);
+  const drawTank = (x, y, tw, th, level, tilt, round) => {
+    g.save(); g.beginPath();
+    if (round) g.ellipse(x + tw / 2, y + th / 2, tw / 2, th / 2, 0, 0, Math.PI * 2); else g.roundRect(x, y, tw, th, th / 2);
+    g.fillStyle = "#e8ecef"; g.fill(); g.clip();
+    const cx = x + tw / 2, surf = y + th * (1 - level);
+    g.translate(cx, surf); g.rotate(tilt);
+    const grd = g.createLinearGradient(0, 0, 0, th); grd.addColorStop(0, "#f0b232"); grd.addColorStop(1, "#c77d12");
+    g.fillStyle = grd; g.fillRect(-tw, 0, tw * 2, th * 2);
+    g.restore();
+    g.beginPath(); if (round) g.ellipse(x + tw / 2, y + th / 2, tw / 2, th / 2, 0, 0, Math.PI * 2); else g.roundRect(x, y, tw, th, th / 2);
+    g.strokeStyle = "#7d868e"; g.lineWidth = 2; g.stroke();
+  };
+  drawTank(8, 18, w * 0.62, h - 30, PH.fill, Math.atan(S.slosh.x * 0.9), false);
+  drawTank(w * 0.72, 18, h - 30, h - 30, PH.fill, Math.atan(S.slosh.y * 2.2), true);
+  g.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--muted"); g.font = "11px system-ui";
+  g.fillText("ด้านข้าง (หน้า →)", 10, 12); g.fillText("ด้านหลัง", w * 0.72, 12);
+}
+function updateAssistPanel() {
+  const el = $("assistGain"); if (!el) return;
+  const a = S.assistGain;
+  el.textContent = !a ? "เปิดอุปกรณ์หรือปรับกระจกเพื่อดูผล" : a.base > 0
+    ? "มุมอับ " + Math.round(a.now) + " ตร.ม. จากเดิม " + Math.round(a.base) + " ตร.ม. (ลดลง " + Math.max(0, Math.round((1 - a.now / a.base) * 100)) + "%)"
+    : "–";
+}
 function updateHud() {
-  const kmh = Math.abs(S.v * 3.6), gear = S.v < -0.05 ? "R" : S.v > 0.05 ? "D" : "N";
+  const kmh = Math.abs(S.v * 3.6), gear = S.v < -0.05 || (S.analog.active && S.analog.rev) ? "R" : S.v > 0.05 ? "D" : "N";
   $("hud").innerHTML = '<div class="big">' + kmh.toFixed(0) + "<small>กม./ชม. · " + gear + "</small></div>" +
-    "<span>ล้อหน้า</span><b>" + (S.steer / DEG).toFixed(0) + "°</b>";
+    "<span>ล้อหน้า</span><b>" + (S.steer / DEG).toFixed(0) + "°</b>" +
+    (S.bsdAlert ? '<span class="bsd">⚠ เซนเซอร์: มีวัตถุ' + ({ left: "ด้านซ้าย", right: "ด้านขวา", both: "ทั้งสองข้าง" })[S.bsdAlert] + "</span>" : "") +
+    (S.analog.active ? '<span class="pad">ใช้พวงมาลัย/จอย</span>' : "");
   const m = $("msg");
   if (S.msgT > 0) { m.textContent = S.msg; m.classList.add("show"); } else m.classList.remove("show");
 }
@@ -1313,7 +1958,8 @@ function updateHud() {
 let last = 0, panelT = 0, lastM = null;
 function frame(t) {
   const dt = Math.min(0.05, (t - last) / 1000 || 0); last = t;
-  step(dt);
+  if (S.replay) replayTick(dt);
+  else { pollGamepad(); step(dt); audioTick(dt); recordFrame(dt); }
   prep();
   // กล้องตามรถ: กลางคันรถทั้งชุด
   const b = P.bounds, tx = (b.minX + b.maxX) / 2, ty = (b.minY + b.maxY) / 2, k = Math.min(1, dt * 4);
@@ -1326,38 +1972,43 @@ function frame(t) {
 
   const zr = zoneRects();
   if (panelT - dt <= 0) S.zoneStats = zr.length ? zoneStats(zr) : null;
-  if (S.view !== "2d" && three) {
-    placeMirrorLabels(three.render(dt, states, true));
-  } else {
+  const show3d = three && (S.replay || S.view !== "2d"), show2d = !!S.replay || !show3d;
+  if (show3d) placeMirrorLabels(three.render(dt, states, true));
+  if (show2d) {
     screenT(); ctx.clearRect(0, 0, W, H);
     drawWorld();
     drawSkids();
     if (S.night) {
       // กลางคืน: วาดรถกับวัตถุก่อน แล้วค่อยทาความมืด จากนั้นวางชั้นมุมอับ/ป้ายไว้บนสุดให้ยังอ่านได้
-      drawObjects(states); drawRig(); drawSmoke(); drawNight(); drawLights();
+      drawObjects(states); drawRig(); drawSmoke(); drawSignals(); drawNight(); drawLights();
       drawVisibility(); drawTrails(); drawZones(zr); drawStopMarker();
     } else {
       drawVisibility(); drawTrails(); drawZones(zr); drawStopMarker();
-      drawObjects(states); drawRig(); drawSmoke(); drawLights();
+      drawObjects(states); drawRig(); drawSmoke(); drawSignals(); drawLights();
     }
+    drawRain2D(dt);
+    drawScnGoal();
     drawProbes(M);
     drawRegionLabels();
     drawScale();
   }
 
   panelT -= dt;
-  if (panelT <= 0) { panelT = 0.15; updatePanel(M); updatePhysPanel(); updateZonePanel(); updateHud(); zoomLabel(); }
+  if (panelT <= 0) { panelT = 0.15; updatePanel(M); updatePhysPanel(); updateZonePanel(); updateHud(); zoomLabel(); updateAssistPanel(); }
+  drawSloshGauge();
   lastM = M;
   requestAnimationFrame(frame);
 }
 
 /* ---------------- ปุ่มและการควบคุม ---------------- */
-const KEYMAP = { ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down", ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right", Space: "brake" };
+const KEYMAP = { ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down", ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right", Space: "brake", KeyH: "horn" };
 function bindControls() {
+  ["pointerdown", "keydown"].forEach((ev) => window.addEventListener(ev, ensureAudio));
   window.addEventListener("keydown", (e) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target && e.target.tagName === "INPUT" && e.target.type === "text") return;
     const k = KEYMAP[e.code];
-    if (k) { S.keys.add(k); e.preventDefault(); if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur(); return; }
+    if (k) { S.keys.add(k); S.analog.active = false; e.preventDefault(); if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur(); return; }
     if (e.repeat) return;
     if (e.code === "KeyR") buildRig(S.rigKey);
     else if (e.code === "Digit1") buildRig("tanker");
@@ -1368,6 +2019,7 @@ function bindControls() {
     else if (e.code === "KeyZ") setOpt("zone", !S.opts.zone, "optZone");
     else if (e.code === "KeyC") setView({ "2d": "chase", chase: "driver", driver: "2d" }[S.view]);
     else if (e.code === "KeyN") setNight(!S.night);
+    else if (e.code === "KeyP") { if (S.replay) stopReplay(); else startReplay(); }
     else if (e.key === "+" || e.key === "=") zoom(1.2);
     else if (e.key === "-" || e.key === "_") zoom(1 / 1.2);
   });
@@ -1384,6 +2036,33 @@ function bindControls() {
   });
   document.querySelectorAll("#viewbar [data-view]").forEach((b) => b.addEventListener("click", () => { setView(b.dataset.view); b.blur(); }));
   $("btnNight").addEventListener("click", (e) => { setNight(!S.night); e.currentTarget.blur(); });
+  $("btnRain").addEventListener("click", (e) => { setWeather(S.weather !== "rain"); e.currentTarget.blur(); });
+  $("btnReplay").addEventListener("click", (e) => { startReplay(); e.currentTarget.blur(); });
+  $("osmLoad").addEventListener("click", (e) => {
+    const m = $("osmCoord").value.match(/(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/);
+    if (!m) { $("osmStatus").textContent = "ใส่พิกัดแบบ 13.7563, 100.5018 (ก๊อปจาก Google Maps ได้)"; return; }
+    loadOSM(+m[1], +m[2]); e.currentTarget.blur();
+  });
+  $("osmCoord").addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Enter") $("osmLoad").click(); });
+  $("osmCoord").addEventListener("keyup", (e) => e.stopPropagation());
+  $("osmMe").addEventListener("click", (e) => {
+    e.currentTarget.blur();
+    if (!navigator.geolocation) { $("osmStatus").textContent = "เครื่องนี้ไม่รองรับการหาตำแหน่ง"; return; }
+    $("osmStatus").textContent = "กำลังหาตำแหน่ง…";
+    navigator.geolocation.getCurrentPosition((p) => { $("osmCoord").value = p.coords.latitude.toFixed(6) + ", " + p.coords.longitude.toFixed(6); $("osmStatus").textContent = "ได้ตำแหน่งแล้ว — กด โหลดถนนจริง"; },
+      () => { $("osmStatus").textContent = "หาตำแหน่งไม่ได้ (ไม่ได้อนุญาต?)"; }, { enableHighAccuracy: true, timeout: 10000 });
+  });
+  $("osmBack").addEventListener("click", (e) => { leaveOSM(); e.currentTarget.blur(); });
+  $("rpPlay").addEventListener("click", (e) => { const r = S.replay; if (r) { if (!r.playing && r.i >= r.frames.length - 1) r.i = 0; r.playing = !r.playing; } e.currentTarget.blur(); });
+  $("rpSlider").addEventListener("input", (e) => { if (S.replay) { S.replay.i = +e.target.value; S.replay.playing = false; } });
+  document.querySelectorAll("#replayBar [data-sp]").forEach((b) => b.addEventListener("click", () => {
+    if (S.replay) S.replay.speed = +b.dataset.sp;
+    document.querySelectorAll("#replayBar [data-sp]").forEach((x) => x.setAttribute("aria-pressed", x === b ? "true" : "false")); b.blur();
+  }));
+  $("rpExit").addEventListener("click", (e) => { stopReplay(); e.currentTarget.blur(); });
+  $("scnReplay").addEventListener("click", () => { $("scnModal").hidden = true; startReplay(); });
+  $("scnAgain").addEventListener("click", () => { if (S.scn) startScenario(S.scn.def.id); });
+  $("scnClose").addEventListener("click", () => { $("scnModal").hidden = true; });
 
   document.querySelectorAll(".touch button").forEach((b) => {
     const k = b.dataset.key;
@@ -1411,6 +2090,19 @@ function bindControls() {
     updateMass(); b.blur();
   }));
   seg("road", "mu", "mu", Number); seg("tbrake", "m", "tbrake", String);
+  $("optTraffic").addEventListener("change", (e) => { S.opts.traffic = e.target.checked; if (S.opts.traffic) fillTraffic(); else clearTraffic(); e.target.blur(); });
+  bindCheck("optCam360", "cam360"); bindCheck("optSideCam", "sideCam"); bindCheck("optBsd", "bsd");
+  ["mirL", "mirR"].forEach((id) => {
+    const el = $(id), out = $(id + "v");
+    const set = () => { S.opts[id] = +el.value; out.textContent = (S.opts[id] > 0 ? "+" : "") + S.opts[id] + "°"; };
+    el.addEventListener("input", set); el.addEventListener("change", () => el.blur()); set();
+  });
+  $("btnSound").addEventListener("click", (e) => { setSound(!S.sound); e.currentTarget.blur(); });
+  $("gpCalib").addEventListener("click", (e) => { startCalib(); e.currentTarget.blur(); });
+  $("gpNext").addEventListener("click", (e) => { calibNext(); e.currentTarget.blur(); });
+  $("gpReset").addEventListener("click", (e) => { GP.map = null; GP.calib = null; try { localStorage.removeItem("sim-gp-map"); } catch (er) {} updateGpUi(); e.currentTarget.blur(); });
+  window.addEventListener("gamepadconnected", updateGpUi); window.addEventListener("gamepaddisconnected", updateGpUi);
+  updateGpUi();
   $("btnTestStraight").addEventListener("click", (e) => { startTest("straight"); e.currentTarget.blur(); });
   $("btnTestSwerve").addEventListener("click", (e) => { startTest("swerve"); e.currentTarget.blur(); });
 
@@ -1419,7 +2111,7 @@ function bindControls() {
     document.querySelectorAll("#place button").forEach((x) => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
     b.blur();
   }));
-  $("btnClear").addEventListener("click", (e) => { S.objects = []; e.currentTarget.blur(); });
+  $("btnClear").addEventListener("click", (e) => { S.objects = S.objects.filter((o) => o.ai); e.currentTarget.blur(); });
   $("btnReset").addEventListener("click", (e) => { buildRig(S.rigKey); e.currentTarget.blur(); });
   $("btnOvertake").addEventListener("click", (e) => {
     // ปล่อยมอเตอร์ไซค์จากท้ายรถด้านซ้าย วิ่งขนานไปข้างหน้าเร็วกว่ารถ
@@ -1442,17 +2134,119 @@ function placeAt(X, Y, remove) {
   S.objects.push({ t: S.opts.place, x: X, y: Y, th: S.units[0].th, v: 0 });
 }
 
+/* ---------------- เสียง ---------------- */
+let AUDIO = null;
+function ensureAudio() {
+  if (!S.sound) return;
+  if (!AUDIO) { try { AUDIO = createAudio(); } catch (e) { AUDIO = null; } }
+  if (AUDIO) AUDIO.resume();
+}
+function setSound(on) {
+  S.sound = on;
+  $("btnSound").setAttribute("aria-pressed", on ? "true" : "false");
+  $("btnSound").textContent = on ? "เสียง เปิด" : "เสียง ปิด";
+  if (on) ensureAudio();
+  if (AUDIO) AUDIO.setOn(on);
+}
+function audioTick(dt) {
+  if (!AUDIO || !S.sound) return;
+  try { AUDIO.update(dt, { v: S.v, ctl: S.ctl, brakeA: S.brakeA, aMax: PH.aMax, phys: S.phys, steer: S.steer,
+    horn: S.keys.has("horn") || S.analog.horn, ev: S.ev, rolled: S.rolled, bsd: S.bsdAlert }); } catch (e) { console.warn(e); }
+}
+
+/* ---------------- แผนที่จริงจาก OpenStreetMap ----------------
+   ดึงถนน + ตึกรอบพิกัดที่ใส่ (รัศมี ~500 ม.) จาก Overpass API ของ OSM แล้วแปลงเป็นเมตร
+   ใช้ฝึกขับในจุดจริง เช่น ทางเข้าคลัง แยกอันตราย — จราจร/ภารกิจปิดในโหมดนี้ (ไม่มีข้อมูลช่องจราจรละเอียดพอ) */
+const OSM_W = { motorway: 15, trunk: 14, primary: 12, secondary: 10, tertiary: 8, unclassified: 6.5, residential: 6.5, service: 4.5, living_street: 5, motorway_link: 6.5, trunk_link: 6.5, primary_link: 6.5, secondary_link: 6, tertiary_link: 6 };
+async function loadOSM(lat, lng) {
+  const st = $("osmStatus");
+  st.textContent = "กำลังโหลดถนนจริงจาก OpenStreetMap…";
+  const q = '[out:json][timeout:25];(way["highway"~"^(' + Object.keys(OSM_W).join("|") + ')$"](around:520,' + lat + "," + lng +
+    ');way["building"](around:360,' + lat + "," + lng + "););out geom;";
+  // เซิร์ฟเวอร์ Overpass สาธารณะบางตัวอาจยุ่ง → ลองตัวสำรองต่อ
+  const SERVERS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter"];
+  let data = null, lastErr = "";
+  for (const url of SERVERS) {
+    try {
+      const res = await fetch(url, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      data = await res.json(); break;
+    } catch (e) { lastErr = e.message; st.textContent = "เซิร์ฟเวอร์แผนที่ยุ่ง กำลังลองตัวสำรอง…"; }
+  }
+  if (!data) { st.textContent = "โหลดไม่สำเร็จ (" + lastErr + ") — ลองใหม่อีกครั้งในอีกสักครู่"; return; }
+  const k = Math.cos(lat * Math.PI / 180) * 111320;
+  const conv = (g) => g.map((n) => [(n.lon - lng) * k, (n.lat - lat) * 110574]);
+  const roads = [], buildings = [];
+  (data.elements || []).forEach((el) => {
+    if (el.type !== "way" || !el.geometry || el.geometry.length < 2) return;
+    const tg = el.tags || {};
+    if (tg.highway && OSM_W[tg.highway]) {
+      const lanes = parseInt(tg.lanes, 10);
+      const w = lanes > 0 ? Math.max(OSM_W[tg.highway] * 0.7, lanes * 3.3 + 1) : OSM_W[tg.highway];
+      roads.push({ pts: conv(el.geometry), w, type: tg.highway, oneway: tg.oneway === "yes" });
+    } else if (tg.building) {
+      const lv = parseFloat(tg["building:levels"]), hh = parseFloat(tg.height);
+      buildings.push({ pts: conv(el.geometry), h: hh > 0 ? hh : lv > 0 ? lv * 3.2 : 6 + (el.id % 5) * 2 });
+    }
+  });
+  if (!roads.length) { st.textContent = "ไม่พบถนนรอบพิกัดนี้ — ลองพิกัดอื่น"; return; }
+  roads.sort((a, b) => a.w - b.w);
+  // จุดเริ่ม: ถนนใหญ่ที่ใกล้จุดกลางที่สุด ช่องซ้าย
+  let best = null;
+  roads.forEach((r) => r.pts.forEach((p, i) => {
+    if (i === r.pts.length - 1) return;
+    const d = Math.hypot(p[0], p[1]) - r.w * 4;
+    if (!best || d < best.d) best = { d, r, i };
+  }));
+  const a = best.r.pts[best.i], b = best.r.pts[best.i + 1], th = Math.atan2(b[1] - a[1], b[0] - a[0]);
+  const off = best.r.oneway ? 0 : best.r.w / 4;
+  S.osm = { roads, buildings, lat, lng };
+  S.scn = null; $("scnModal").hidden = true; renderScnList();
+  clearTraffic();
+  buildRig(S.rigKey, { x: a[0] - Math.sin(th) * off, y: a[1] + Math.cos(th) * off, th });
+  S.objects = [];
+  if (three) three.setOSM(S.osm);
+  st.textContent = "โหลดแล้ว: ถนน " + roads.length + " เส้น ตึก " + buildings.length + " หลัง รอบพิกัด " + lat.toFixed(5) + ", " + lng.toFixed(5);
+  $("osmBack").hidden = false;
+}
+function leaveOSM() {
+  S.osm = null; $("osmBack").hidden = true; $("osmStatus").textContent = "กลับมาที่เมืองจำลองแล้ว";
+  if (three) three.setOSM(null);
+  buildRig(S.rigKey);
+}
+function drawOsm(vx1, vx2, vy1, vy2) {
+  const o = S.osm, px = 1 / S.cam.s;
+  if (PAT.ground) patFill(PAT.ground); else ctx.fillStyle = COL.ground;
+  ctx.fillRect(vx1, vy1, vx2 - vx1, vy2 - vy1);
+  const path = (pts) => { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); };
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.strokeStyle = COL.walk; o.roads.forEach((r) => { if (r.w >= 6) { ctx.lineWidth = r.w + 3.4; path(r.pts); ctx.stroke(); } });
+  o.roads.forEach((r) => { ctx.lineWidth = r.w; if (PAT.road) { PAT.road.setTransform(new DOMMatrix().scale(PAT.road.m)); ctx.strokeStyle = PAT.road; } else ctx.strokeStyle = COL.road; path(r.pts); ctx.stroke(); });
+  o.roads.forEach((r) => {
+    if (r.w < 7) return;
+    ctx.lineWidth = 0.15; ctx.strokeStyle = r.w >= 10 && !r.oneway ? COL.yellow : COL.mark; ctx.setLineDash(r.w >= 10 && !r.oneway ? [] : [3, 3]);
+    path(r.pts); ctx.stroke(); ctx.setLineDash([]);
+  });
+  ctx.lineCap = "butt";
+  o.buildings.forEach((b) => {
+    const sh = Math.min(b.h * 0.3, 12);
+    ctx.fillStyle = "rgba(0,0,0,.18)"; path(b.pts.map(([x, y]) => [x + sh, y - sh])); ctx.fill();
+    ctx.fillStyle = BUILD_COLORS[Math.floor(b.h) % BUILD_COLORS.length]; path(b.pts); ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.28)"; ctx.lineWidth = px; ctx.stroke();
+  });
+}
+
 /* ---------------- มุมมอง 3D (โหลดเมื่อใช้ครั้งแรก) ---------------- */
 let three = null, threeLoading = false;
-const API3D = { S, P, G, HW, CELL, CROSS_X, EYE_H, toWorld, blindOutline, city: CITY, placeAt, zoneRects, stopDistance, predictFront };
+const API3D = { S, P, G, HW, CELL, CROSS_X, EYE_H, toWorld, blindOutline, city: CITY, placeAt, zoneRects, stopDistance, predictFront, lightState, signals: SIGNALS, yard: YARD, scnBox: () => S.scn && S.scn.box };
 async function setView(v) {
   if (v !== "2d" && !three) {
     if (threeLoading) return;
     threeLoading = true; flash("กำลังโหลดมุมมอง 3 มิติ…");
     try {
-      const mod = await import("./truck_blind_spot_3d.js?v=20261123-6");
+      const mod = await import("./truck_blind_spot_3d.js?v=20261124-5");
       three = mod.create3D($("view3d"), API3D);
-      three.setNight(S.night);
+      three.setNight(S.night); three.setRain(S.weather === "rain"); if (S.osm) three.setOSM(S.osm);
     } catch (err) {
       console.error(err); threeLoading = false;
       flash("โหลดมุมมอง 3 มิติไม่สำเร็จ — ลองตรวจอินเทอร์เน็ตแล้วกดใหม่");
@@ -1473,6 +2267,27 @@ async function setView(v) {
   if (is3d) setView.hintT = setTimeout(() => { $("hint3d").hidden = true; }, 7000);
   placeMirrorLabels([]);
 }
+/* ฝนตก: ถนนเปียก (μ 0.45) · กระจกมองข้างเห็นได้ใกล้ลง (เม็ดฝน/ฝ้า) · ภาพมัวลง */
+function setWeather(rainOn) {
+  S.weather = rainOn ? "rain" : "clear";
+  $("btnRain").setAttribute("aria-pressed", rainOn ? "true" : "false");
+  const btn = document.querySelector('#road button[data-mu="' + (rainOn ? "0.45" : "0.7") + '"]');
+  if (btn) btn.click();
+  if (three) three.setRain(rainOn);
+  flash(rainOn ? "ฝนตก — ถนนลื่น (μ 0.45) และกระจกมองข้างเห็นได้ไม่ไกลเท่าเดิม" : "ฝนหยุดแล้ว");
+}
+const RAIN2D = Array.from({ length: 420 }, () => ({ x: Math.random(), y: Math.random(), l: 0.6 + Math.random() * 0.8 }));
+function drawRain2D(dt) {
+  if (S.weather !== "rain") return;
+  screenT();
+  ctx.fillStyle = "rgba(40,52,70,.16)"; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = "rgba(210,225,240,.45)"; ctx.lineWidth = 1; ctx.beginPath();
+  RAIN2D.forEach((r) => {
+    r.y += dt * 1.6; r.x += dt * 0.25; if (r.y > 1) { r.y -= 1; r.x = Math.random(); } if (r.x > 1) r.x -= 1;
+    const x = r.x * W, y = r.y * H; ctx.moveTo(x, y); ctx.lineTo(x - 4 * r.l, y - 16 * r.l);
+  });
+  ctx.stroke();
+}
 function setNight(on) {
   S.night = on;
   $("btnNight").setAttribute("aria-pressed", on ? "true" : "false");
@@ -1481,11 +2296,31 @@ function setNight(on) {
 function placeMirrorLabels(insets) {
   const box = $("mirLabels");
   if (!insets.length) { if (box.childElementCount) box.innerHTML = ""; return; }
-  if (box.childElementCount !== insets.length) box.innerHTML = insets.map(() => '<div class="mir"><span></span></div>').join("");
+  if (box.childElementCount !== insets.length) {
+    box.innerHTML = insets.map(() => '<div class="mir"><span></span></div>').join("");
+    Array.prototype.forEach.call(box.children, (el) => {
+      let drag = null;
+      el.addEventListener("pointerdown", (e) => { drag = e.clientX; el.setPointerCapture(e.pointerId); e.stopPropagation(); });
+      el.addEventListener("pointermove", (e) => {
+        if (drag === null) return;
+        const id = el.dataset.side > 0 ? "mirL" : "mirR", dx = e.clientX - drag;
+        if (Math.abs(dx) < 6) return;
+        drag = e.clientX;
+        const v = Math.max(-12, Math.min(12, S.opts[id] + Math.sign(dx) * Number(el.dataset.side))), inp = $(id);
+        inp.value = v; inp.dispatchEvent(new Event("input"));
+      });
+      el.addEventListener("pointerup", () => { drag = null; });
+    });
+  }
   insets.forEach((m, i) => {
     const el = box.children[i];
-    Object.assign(el.style, { left: m.x - 5 + "px", top: m.y - 5 + "px", width: m.w + 10 + "px", height: m.h + 10 + "px" });
-    el.firstChild.textContent = m.side > 0 ? "กระจกซ้าย" : "กระจกขวา (ฝั่งคนขับ)";
+    const ox = $("view3d").offsetLeft;
+    Object.assign(el.style, { left: ox + m.x - 5 + "px", top: m.y - 5 + "px", width: m.w + 10 + "px", height: m.h + 10 + "px" });
+    el.dataset.side = m.side;
+    const off = m.side > 0 ? S.opts.mirL : S.opts.mirR;
+    el.firstChild.textContent = (m.label || (m.side > 0 ? "กระจกซ้าย" : "กระจกขวา (ฝั่งคนขับ)")) + (m.label ? "" : (off ? " " + (off > 0 ? "+" : "") + off + "°" : "") + " · ลากเพื่อปรับ");
+    el.classList.toggle("alert", !m.label && (S.bsdAlert === "both" || S.bsdAlert === (m.side > 0 ? "left" : "right")));
+    el.classList.toggle("cam", !!m.label);
   });
 }
 const ZOOM_MIN = 1.5, ZOOM_MAX = 60;
@@ -1522,4 +2357,4 @@ function start() {
   $("zAuto").addEventListener("click", (e) => { setAutoZoom(!S.autoZoom); e.currentTarget.blur(); });
   requestAnimationFrame((t) => { last = t; frame(t); });
 }
-requireLogin(() => start());
+requireLogin((user) => { S.uid = (user && user.uid) || "guest"; loadBest(); start(); renderScnList(); });

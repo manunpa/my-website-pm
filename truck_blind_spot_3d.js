@@ -166,6 +166,86 @@ export function create3D(host, api) {
   }
   api.city.Lm.forEach((l) => lamp(l.x, l.y, l.dir, l.light));
 
+  // ลานคลังน้ำมัน: พื้นคอนกรีต เส้นช่องจอด รั้ว ทางเข้า
+  {
+    const Y = api.yard;
+    const yard = new THREE.Mesh(new THREE.PlaneGeometry(Y.x2 - Y.x1, Y.y2 - Y.y1), mat(0xb9b6ad, { roughness: 0.95 }));
+    yard.rotation.x = -Math.PI / 2; yard.position.copy(V((Y.x1 + Y.x2) / 2, (Y.y1 + Y.y2) / 2, 0.02)); yard.receiveShadow = true; scene.add(yard);
+    const drive = new THREE.Mesh(new THREE.PlaneGeometry(Y.drive2 - Y.drive1, Y.y1 - 8.5 + 0.3), mat(0xffffff, { map: plainTex, roughness: 0.92 }));
+    drive.rotation.x = -Math.PI / 2; drive.position.copy(V((Y.drive1 + Y.drive2) / 2, (8.5 + Y.y1) / 2, 0.18)); drive.receiveShadow = true; scene.add(drive);
+    const yel = mat(0xf0c02c, { roughness: 0.6 });
+    Y.bays.forEach((bx) => {
+      [[bx - Y.bayW / 2, (Y.bayY1 + Y.bayY2) / 2, 0.15, Y.bayY2 - Y.bayY1], [bx + Y.bayW / 2, (Y.bayY1 + Y.bayY2) / 2, 0.15, Y.bayY2 - Y.bayY1], [bx, Y.bayY2, Y.bayW, 0.15]].forEach(([x, y, w, d]) => {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), yel); m.rotation.x = -Math.PI / 2; m.position.copy(V(x, y, 0.03)); scene.add(m);
+      });
+    });
+    const target = new THREE.Mesh(new THREE.PlaneGeometry(Y.bayW, Y.bayY2 - Y.bayY1), new THREE.MeshBasicMaterial({ color: 0xf0c02c, transparent: true, opacity: 0.22, depthWrite: false }));
+    target.rotation.x = -Math.PI / 2; target.position.copy(V(Y.bayX, (Y.bayY1 + Y.bayY2) / 2, 0.035)); scene.add(target);
+    const fenceM = mat(0x7a7f86, { metalness: 0.5 });
+    [[Y.x1, Y.y1, Y.x1, Y.y2], [Y.x1, Y.y2, Y.x2, Y.y2], [Y.x2, Y.y2, Y.x2, Y.y1], [Y.x1, Y.y1, Y.drive1, Y.y1], [Y.drive2, Y.y1, Y.x2, Y.y1]].forEach(([a1, b1, a2, b2]) => {
+      const len = Math.hypot(a2 - a1, b2 - b1), f = box(len, 1.8, 0.06, fenceM);
+      f.position.copy(V((a1 + a2) / 2, (b1 + b2) / 2, 0.9)); f.rotation.y = Math.atan2(b2 - b1, a2 - a1); f.material = fenceM; scene.add(f);
+    });
+    // ถังเก็บน้ำมันใหญ่ท้ายลาน
+    [[-122, 42], [-58, 42]].forEach(([x, y]) => {
+      const tk = new THREE.Mesh(new THREE.CylinderGeometry(5, 5, 9, 40), mat(0xe8ebee, { metalness: 0.4, roughness: 0.35 }));
+      tk.position.copy(V(x, y + 6, 4.5)); tk.castShadow = tk.receiveShadow = true; scene.add(tk);
+    });
+  }
+  // กรอบเป้าหมายของภารกิจ
+  const goalMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0x30d158, transparent: true, opacity: 0.25, depthWrite: false }));
+  goalMesh.rotation.x = -Math.PI / 2; goalMesh.visible = false; scene.add(goalMesh);
+
+  // ไฟจราจร 3 ดวงบนเสา
+  const sigLamps = api.signals.map((sg) => {
+    const g = new THREE.Group(); g.position.copy(V(sg.x, sg.y, 0)); g.rotation.y = sg.th;
+    const pole = box(0.16, 4.6, 0.16, lampMat); pole.position.y = 2.3; g.add(pole);
+    const head = box(0.3, 1.25, 0.42, mat(0x1c1f24)); head.position.set(0, 4.2, 0); g.add(head);
+    const lamps = ["R", "Y", "G"].map((k, i) => {
+      const c = k === "R" ? 0xff3b30 : k === "Y" ? 0xffcc00 : 0x30d158;
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.15, 16, 12), mat(c, { emissive: c, emissiveIntensity: 0.1 }));
+      m.position.set(0.17, 4.6 - i * 0.4, 0); g.add(m); return { k, m };
+    });
+    scene.add(g); return { sg, lamps };
+  });
+
+  /* ---------------- แผนที่จริง (OSM) ----------------
+     ซ่อนเมืองจำลองทั้งหมด แล้วสร้างถนน (แถบยางมะตอย) + ตึก (ยกสูงตามจำนวนชั้น) จากข้อมูลจริง */
+  const cityObjs = scene.children.filter((o) => !o.isLight && o !== sun.target);
+  let osmGroup = null;
+  function ribbon(pts, w, y, material) {
+    const pos = [];
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const [ax, ay] = pts[i], [bx, by] = pts[i + 1], len = Math.hypot(bx - ax, by - ay) || 1;
+      const ux = (bx - ax) / len, uy = (by - ay) / len, nx = -uy * w / 2, ny = ux * w / 2, ex = ux * w / 2, ey = uy * w / 2;
+      const A = [ax - ex + nx, ay - ey + ny], B = [bx + ex + nx, by + ey + ny], C = [bx + ex - nx, by + ey - ny], D = [ax - ex - nx, ay - ey - ny];
+      [A, B, C, A, C, D].forEach(([x, z]) => pos.push(x, y, -z));
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.computeVertexNormals();
+    const m = new THREE.Mesh(g, material); m.receiveShadow = true; return m;
+  }
+  function setOSM(o) {
+    if (osmGroup) { scene.remove(osmGroup); osmGroup.traverse((c) => { if (c.geometry) c.geometry.dispose(); }); osmGroup = null; }
+    cityObjs.forEach((c) => { c.visible = !o; });
+    if (!o) return;
+    osmGroup = new THREE.Group();
+    const gr = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000), mat(0xffffff, { map: grassTex, roughness: 1 }));
+    gr.rotation.x = -Math.PI / 2; gr.position.y = -0.02; gr.receiveShadow = true; osmGroup.add(gr);
+    const walkM = mat(0xc9c4b8, { roughness: 0.95 }), asph = mat(0x4a4e53, { roughness: 0.9 }), lineW = mat(0xf2f2ee), lineY = mat(0xf0c02c);
+    o.roads.forEach((r) => { if (r.w >= 6) osmGroup.add(ribbon(r.pts, r.w + 3.4, 0.004, walkM)); });
+    o.roads.forEach((r) => osmGroup.add(ribbon(r.pts, r.w, 0.012, asph)));
+    o.roads.forEach((r) => { if (r.w >= 7) osmGroup.add(ribbon(r.pts, 0.16, 0.02, r.w >= 10 && !r.oneway ? lineY : lineW)); });
+    const bm = [0xd8d2c4, 0xc7cbd1, 0xe2d6c2, 0xb9c2c9, 0xd6c9b6].map((c) => mat(c, { roughness: 0.85 }));
+    o.buildings.forEach((b, i) => {
+      if (b.pts.length < 4) return;
+      const shape = new THREE.Shape(b.pts.map(([x, y]) => new THREE.Vector2(x, y)));
+      const geo = new THREE.ExtrudeGeometry(shape, { depth: b.h, bevelEnabled: false });
+      geo.rotateX(-Math.PI / 2);
+      const m = new THREE.Mesh(geo, bm[i % bm.length]); m.castShadow = m.receiveShadow = true; osmGroup.add(m);
+    });
+    scene.add(osmGroup);
+  }
+
   /* ---------------- รถ ---------------- */
   const glass = mat(0x1d2a38, { metalness: 0.85, roughness: 0.08 });
   const dark = mat(0x22252a, { roughness: 0.6 });
@@ -289,6 +369,23 @@ export function create3D(host, api) {
       const disp = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.21), new THREE.MeshBasicMaterial({ map: dtex, toneMapped: false }));
       disp.position.set(cf - 0.73, 1.83, -P.eyeL[1]); disp.rotation.set(0, -Math.PI / 2, 0); disp.rotateX(-0.35);
       inside.add(disp); info.dash = { c: dc, tex: dtex, last: "" };
+      // ที่ปัดน้ำฝน 2 ก้าน + หยดน้ำบนกระจก
+      info.wipers = [-0.55, 0.55].map((z) => {
+        const hold = new THREE.Group(); hold.position.set(cf - 0.16, 1.9, z);
+        const arm = box(0.03, 0.95, 0.05, mat(0x111214)); arm.position.y = 0.47; hold.add(arm);
+        inside.add(hold); return hold;
+      });
+      const drc = document.createElement("canvas"); drc.width = 512; drc.height = 256;
+      const dg = drc.getContext("2d");
+      for (let i = 0; i < 420; i++) {
+        const x = Math.random() * 512, y = Math.random() * 256, r = 1 + Math.random() * 4;
+        const gr = dg.createRadialGradient(x - r * 0.3, y - r * 0.3, 0, x, y, r);
+        gr.addColorStop(0, "rgba(255,255,255,.85)"); gr.addColorStop(0.6, "rgba(200,215,230,.35)"); gr.addColorStop(1, "rgba(200,215,230,0)");
+        dg.fillStyle = gr; dg.beginPath(); dg.arc(x, y, r, 0, Math.PI * 2); dg.fill();
+      }
+      const dtx = new THREE.CanvasTexture(drc); dtx.colorSpace = THREE.SRGBColorSpace;
+      const drops = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 1.0), new THREE.MeshBasicMaterial({ map: dtx, transparent: true, opacity: 0, depthWrite: false }));
+      drops.position.set(cf - 0.2, 2.45, 0); drops.rotation.y = -Math.PI / 2; inside.add(drops); info.drops = drops;
       inside.visible = false; g.add(inside); info.interior = inside; info.steeringWheel = wheelS;
       // ไฟหน้า (กลางคืน)
       info.spots = [0.9, -0.9].map((z) => {
@@ -304,7 +401,12 @@ export function create3D(host, api) {
     if (rig && rig.key === S.rigKey && rig.units === S.units) return;
     if (rig) { scene.remove(rig.root); rig.root.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
     const root = new THREE.Group();
-    const parts = S.units.map((u, i) => { const info = buildUnit(u, i); root.add(info.g); return info; });
+    const parts = S.units.map((u, i) => {
+      const info = buildUnit(u, i), outer = new THREE.Group(), pivot = new THREE.Group();
+      outer.add(pivot); pivot.add(info.g); root.add(outer);
+      info.outer = outer; info.pivot = pivot; info.hasTank = u.def.parts.some((p) => p.t === "tank");
+      return info;
+    });
     scene.add(root);
     rig = { key: S.rigKey, units: S.units, root, parts, spin: 0 };
   }
@@ -326,6 +428,17 @@ export function create3D(host, api) {
       const rider = box(0.35, 0.6, 0.42, body); rider.position.set(-0.15, 1.15, 0);
       const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 12), mat(0xf2f2f2, { metalness: 0.3 })); helmet.position.set(-0.05, 1.55, 0);
       g.add(frame, tank, rider, helmet);
+    } else if (o.t === "tank") {
+      const tm = mat(0xe4e8eb, { metalness: 0.75, roughness: 0.22 });
+      const cyl = new THREE.Mesh(new THREE.CylinderGeometry(1.18, 1.18, 11.8, 32), tm); cyl.rotation.z = Math.PI / 2; cyl.position.y = 2.05; g.add(cyl);
+      [1.19, -1.19].forEach((z) => { const st = box(11, 0.22, 0.03, mat(0x6cb200)); st.position.set(0, 1.65, z); g.add(st); });
+      const sk = box(11.5, 0.5, 2.3, mat(0x22252a)); sk.position.y = 0.95; g.add(sk);
+      [-4.6, -3.3, -2].forEach((x) => [1, -1].forEach((z) => { const w = wheel(); w.position.set(x, 0.52, z * 1.0); g.add(w); }));
+      const leg = box(0.2, 1.0, 2.0, mat(0x22252a)); leg.position.set(4.2, 0.5, 0); g.add(leg);
+      const body = tm;
+      g.userData = { body: mat(0xe4e8eb), ring: new THREE.Mesh() };
+      g.traverse((m) => { if (m.isMesh) m.castShadow = true; });
+      scene.add(g); return g;
     } else {
       const c = carMesh(4.4, 3); g.add(c);
       c.traverse((m) => { if (m.isMesh && m.material.color && m.material.color.getHex() === CAR_COLORS[3]) m.material = body; });
@@ -346,7 +459,7 @@ export function create3D(host, api) {
       alive.add(o);
       g.position.copy(V(o.x, o.y, 0)); g.rotation.y = o.th;
       const st = states[i], b = g.userData.body;
-      b.color.setHex(st === "seen" ? 0x3b6fd8 : st === "hit" ? 0x777777 : 0xe5484d);
+      b.color.set(st === "seen" ? (o.col || "#3b6fd8") : st === "hit" ? "#777777" : "#e5484d");
       b.emissive.setHex(st === "blind" ? 0xe5484d : 0x000000);
       b.emissiveIntensity = st === "blind" ? 0.4 + 0.4 * Math.sin(t * 6) : 0;
       g.userData.ring.visible = st !== "seen";
@@ -531,17 +644,47 @@ export function create3D(host, api) {
   const cam = new THREE.PerspectiveCamera(55, 1, 0.08, 3000);
   cam.layers.enable(LABEL_LAYER);
   const mirrorCams = P.mirrors.map(() => new THREE.PerspectiveCamera(40, 0.6, 0.1, 400));
+  const topCam = new THREE.OrthographicCamera(-8, 8, 8, -8, 0.1, 80);
+  const sideCam = new THREE.PerspectiveCamera(70, 0.75, 0.1, 200);
   const view = { mode: "chase", yaw: 0, pitch: 0.62, dist: 34, lookYaw: 0, lookPitch: -0.1, camPos: null, camTgt: null };
   let night = false;
 
+  let raining = false;
   function setNight(on) {
     night = on;
     const k = on ? NIGHT : DAY;
-    scene.background.setHex(k.sky); scene.fog.color.setHex(k.fog);
-    hemi.intensity = k.hemi; sun.intensity = k.sun;
+    scene.background.setHex(raining && !on ? 0x8b97a4 : k.sky); scene.fog.color.setHex(raining && !on ? 0x98a3ae : k.fog);
+    hemi.intensity = k.hemi * (raining ? 0.75 : 1); sun.intensity = k.sun * (raining ? 0.25 : 1);
     lamps.forEach((l) => { l.intensity = k.lamp; });
     bulbMat.emissiveIntensity = on ? 2.5 : 0;
     buildMats.forEach((m) => { m.emissiveIntensity = k.win; });
+  }
+
+  /* ---------------- ฝนตก ----------------
+     เม็ดฝนรอบกล้อง · ถนนเปียกเงาสะท้อนแสงไฟ · หมอกฝนทำให้มองไกลไม่ชัด */
+  const RAIN_N = 5000, rainPos = new Float32Array(RAIN_N * 6), rainSeed = new Float32Array(RAIN_N * 3);
+  for (let i = 0; i < RAIN_N; i++) { rainSeed[i * 3] = (Math.random() - 0.5) * 120; rainSeed[i * 3 + 1] = Math.random() * 40; rainSeed[i * 3 + 2] = (Math.random() - 0.5) * 120; }
+  const rainGeo = new THREE.BufferGeometry(); rainGeo.setAttribute("position", new THREE.BufferAttribute(rainPos, 3));
+  const rain = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ color: 0xc9d6e6, transparent: true, opacity: 0.45, depthWrite: false }));
+  rain.frustumCulled = false; rain.visible = false; scene.add(rain);
+  function setRain(on) {
+    raining = on; rain.visible = on;
+    roadMat.roughness = on ? 0.28 : 0.92; roadMat.metalness = on ? 0.35 : 0.05; roadMat.color.setHex(on ? 0xb8bcc2 : 0xffffff);
+    scene.fog.near = on ? 35 : 160; scene.fog.far = on ? 330 : 900;
+    setNight(night);
+  }
+  let rainT = 0;
+  function updateRain(dt, cx, cz) {
+    if (!raining) return;
+    rainT += dt;
+    for (let i = 0; i < RAIN_N; i++) {
+      let y = rainSeed[i * 3 + 1] - ((rainT * 22 + i * 0.37) % 40);
+      if (y < 0) y += 40;
+      const x = cx + rainSeed[i * 3], z = cz + rainSeed[i * 3 + 2], o = i * 6;
+      rainPos[o] = x; rainPos[o + 1] = y; rainPos[o + 2] = z;
+      rainPos[o + 3] = x + 0.12; rainPos[o + 4] = y + 0.9; rainPos[o + 5] = z;
+    }
+    rainGeo.attributes.position.needsUpdate = true;
   }
 
   // ลากเมาส์: หมุนกล้อง (ไล่หลัง) หรือหันหน้ามอง (มุมคนขับ) · คลิกเฉย ๆ = วางวัตถุ
@@ -595,7 +738,13 @@ export function create3D(host, api) {
     rig.spin += S.v * dt / 0.52;
     rig.parts.forEach((info, i) => {
       const u = S.units[i];
-      info.g.position.copy(V(u.x, u.y, 0)); info.g.rotation.y = u.th;
+      info.outer.position.copy(V(u.x, u.y, 0)); info.outer.rotation.y = u.th;
+      // เอียงตามแรงเหวี่ยง / พลิกตะแคง: หมุนรอบขอบล้อด้านที่เอียงไป
+      const edge = (S.lean >= 0 ? -1 : 1) * 1.25;
+      info.pivot.position.z = edge; info.g.position.z = -edge;
+      info.pivot.rotation.x = -S.lean;
+      // น้ำมันในถังโยกหน้า-หลัง → หัวทิ่ม/เชิด เล็กน้อย
+      info.g.rotation.z = info.hasTank ? -S.slosh.x * 0.03 : 0;
       info.steer.forEach((h) => { h.rotation.y = S.steer; });
       info.wheels.forEach((w) => { w.rotation.z = -rig.spin; });
       info.brake.forEach((b) => { b.material.emissiveIntensity = braking ? 4 : night ? 1.2 : 0.25; });
@@ -606,6 +755,12 @@ export function create3D(host, api) {
       if (info.spots) info.spots.forEach((s) => { s.intensity = night ? NIGHT.head : 0; });
       const inCab = view.mode === "driver" && i === 0;
       info.cabParts.forEach((m) => { m.visible = !inCab; });
+      if (info.wipers) {
+        // ปัดไป-กลับทุก ~1.4 วินาทีตอนฝนตก หยดน้ำค่อย ๆ เกาะแล้วถูกปัดออก
+        const ph = raining ? (t % 1.4) / 1.4 : 0, sw = raining ? Math.sin(ph * Math.PI) : 0;
+        info.wipers.forEach((w, k) => { w.rotation.x = (k ? 1 : -1) * (0.15 - sw * 1.65); });
+        info.drops.material.opacity = raining ? 0.15 + 0.6 * Math.min(1, (ph < 0.5 ? 0 : (ph - 0.5) * 2)) : 0;
+      }
       if (info.interior) {
         info.interior.visible = inCab; info.steeringWheel.rotation.z = S.steer * 20 / 8;
         const kmh = Math.round(Math.abs(S.v) * 3.6), gear = S.v < -0.05 ? "R" : S.v > 0.05 ? "D" : "N", key = kmh + gear + (braking ? "B" : "");
@@ -622,8 +777,13 @@ export function create3D(host, api) {
       }
     });
     syncObjects(states, t);
+    const gb = api.scnBox();
+    goalMesh.visible = !!gb;
+    if (gb) { goalMesh.scale.set(gb.x2 - gb.x1, gb.y2 - gb.y1, 1); goalMesh.position.copy(V((gb.x1 + gb.x2) / 2, (gb.y1 + gb.y2) / 2, 0.06)); }
+    sigLamps.forEach(({ sg, lamps }) => { const st = api.lightState(sg.axis); lamps.forEach(({ k, m }) => { m.material.emissiveIntensity = st === k ? 4 : 0.05; }); });
     updateBlind(showBlind);
     updateOverlays();
+    updateRain(dt, cam.position.x, cam.position.z);
 
     // ดวงอาทิตย์ตามรถ (เงาคมรอบรถเสมอ)
     const c = V(truck.x, truck.y, 0);
@@ -676,13 +836,37 @@ export function create3D(host, api) {
         renderer.render(scene, mc);
         insets.push({ side: m.side, x, y: top, w: iw, h: ih });
       });
+      // จอกล้องบนคอนโซล
+      const extra = [];
+      if (S.opts.cam360) extra.push("cam360");
+      if (S.opts.sideCam) extra.push("side");
+      const cw = Math.round(Math.min(W * 0.2, 220)), chh = Math.round(cw * 0.75);
+      extra.forEach((kind, k) => {
+        const x = Math.round(W / 2 - (extra.length * (cw + 12)) / 2 + k * (cw + 12)), yTop = Math.round(H * 0.06);
+        let camX;
+        if (kind === "cam360") {
+          const b = P.bounds, cxm = (b.minX + b.maxX) / 2, cym = (b.minY + b.maxY) / 2, half = Math.max(b.maxX - b.minX, b.maxY - b.minY) / 2 + 3;
+          topCam.left = -half * (cw / chh); topCam.right = half * (cw / chh); topCam.top = half; topCam.bottom = -half;
+          topCam.position.copy(V(cxm, cym, 40)); topCam.up.set(Math.cos(truck.th), 0, -Math.sin(truck.th));
+          topCam.lookAt(V(cxm, cym, 0)); topCam.updateProjectionMatrix(); camX = topCam;
+        } else {
+          const [sx0, sy0] = api.toWorld(truck, d.cabFront - 0.6, 1.35), dir = truck.th + Math.PI - 0.12;
+          sideCam.aspect = cw / chh; sideCam.position.copy(V(sx0, sy0, 3.0));
+          sideCam.lookAt(sideCam.position.x + Math.cos(dir) * 10, 0.4, sideCam.position.z - Math.sin(dir) * 10);
+          sideCam.updateProjectionMatrix(); camX = sideCam;
+        }
+        renderer.setScissorTest(true);
+        renderer.setScissor(x, H - yTop - chh, cw, chh); renderer.setViewport(x, H - yTop - chh, cw, chh);
+        renderer.clear(); renderer.render(scene, camX);
+        insets.push({ side: 0, x, y: yTop, w: cw, h: chh, label: kind === "cam360" ? "จอกล้องรอบคัน 360°" : "จอกล้องข้างซ้าย" });
+      });
       renderer.setScissorTest(false);
     }
     return insets;
   }
 
   return {
-    render, resize, setMode, setNight,
+    render, resize, setMode, setNight, setRain, setOSM,
     get mode() { return view.mode; },
     dispose() { renderer.dispose(); host.removeChild(renderer.domElement); }
   };

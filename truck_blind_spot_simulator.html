@@ -66,6 +66,12 @@
     display: grid; grid-template-columns: auto auto; gap: 0 12px; font-variant-numeric: tabular-nums;
   }
   .hud b { font-weight: 600; text-align: right; }
+  .hud .bsd { grid-column: 1 / -1; color: #fff; background: var(--bad); border-radius: 6px; padding: 2px 6px; margin-top: 4px; font-weight: 600; animation: bsdblink .5s steps(1) infinite; }
+  .hud .pad { grid-column: 1 / -1; color: var(--muted); font-size: .72rem; }
+  @keyframes bsdblink { 50% { opacity: .55; } }
+  .mir { pointer-events: auto !important; cursor: ew-resize; }
+  .mir.alert { border-color: #e5484d !important; box-shadow: 0 0 0 3px rgba(229,72,77,.6), 0 8px 24px rgba(0,0,0,.45) !important; }
+  .mir.cam { cursor: default; border-color: #0f766e !important; }
   .hud, .msg { z-index: 3; }
   .hud .big { font-size: 1.6rem; line-height: 1.1; font-weight: 600; grid-column: 1 / -1; }
   .hud .big small { font-size: .8rem; font-weight: 400; color: var(--muted); margin-left: 4px; }
@@ -111,6 +117,7 @@
   .viewbar button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
   #btnNight { margin-left: 6px; border-left: 1px solid var(--line); border-radius: 0 8px 8px 0; }
   #btnNight[aria-pressed="true"] { background: #1d2a4d; color: #ffe6a8; border-radius: 8px; }
+  #btnRain[aria-pressed="true"] { background: #2c5282; color: #e6f0ff; }
   .hint3d {
     position: absolute; left: 12px; bottom: 58px; max-width: 340px; pointer-events: none;
     background: rgba(10,14,24,.7); color: #e8ecf4; font-size: .76rem; padding: 6px 10px; border-radius: 10px;
@@ -123,6 +130,29 @@
   }
   @media (max-width: 600px) { .viewbar button { padding: 0 8px; font-size: .76rem; } }
   .touch { position: absolute; right: 12px; bottom: 60px; display: none; gap: 8px; }
+  .stage.split #cv { position: absolute; left: 0; top: 0; width: 50% !important; height: 100%; }
+  .stage.split .view3d { left: 50%; }
+  .scnbar { position: absolute; left: 50%; top: 58px; transform: translateX(-50%); z-index: 3; max-width: calc(100% - 300px); background: rgba(16,24,40,.82); color: #fff; font-size: .8rem; padding: 6px 14px; border-radius: 10px; text-align: center; }
+  .scnbar[hidden], .scnmodal[hidden], .replaybar[hidden] { display: none; }
+  .scnmodal { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; background: rgba(0,0,0,.35); }
+  .scnmodal .card { background: var(--surface); border-radius: 16px; padding: 22px 26px; min-width: 300px; max-width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,.4); text-align: center; }
+  .scnmodal .big { font-size: 1.8rem; font-weight: 600; color: var(--ok); }
+  .scnmodal.fail .big { color: var(--bad); }
+  .scnmodal .stars { font-size: 2.2rem; color: #f5b301; letter-spacing: 4px; line-height: 1.2; }
+  .scnmodal ul { text-align: left; margin: 10px 0 0 18px; font-size: .88rem; }
+  .scnmodal .btns { justify-content: center; margin-top: 14px; }
+  .replaybar { position: absolute; left: 50%; bottom: 60px; transform: translateX(-50%); z-index: 4; display: flex; gap: 6px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 6px 10px; box-shadow: 0 6px 20px -12px rgba(0,0,0,.35); }
+  .replaybar input { width: 180px; accent-color: var(--accent); }
+  .replaybar span { font-size: .8rem; min-width: 56px; font-variant-numeric: tabular-nums; }
+  .replaybar [data-sp] { font: inherit; font-size: .8rem; border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 8px; height: 30px; padding: 0 8px; cursor: pointer; }
+  .replaybar [data-sp][aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+  .scnlist { display: grid; gap: 8px; }
+  .scn { display: flex; gap: 10px; justify-content: space-between; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; background: var(--bg); }
+  .scn.on { border-color: var(--accent); }
+  .scn strong { display: block; font-size: .88rem; font-weight: 500; }
+  .scn span { font-size: .74rem; color: var(--muted); }
+  .scn-r { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; }
+  .scn .stars { color: #f5b301; letter-spacing: 2px; font-size: .95rem; }
   .touch button {
     width: 58px; height: 58px; border-radius: 14px; border: 1px solid var(--line);
     background: var(--surface); color: var(--text); font-size: 1.4rem; touch-action: none; user-select: none;
@@ -151,6 +181,7 @@
   td:last-child { text-align: right; font-weight: 500; }
   tr.warn td:last-child { color: var(--bad); }
   .note { font-size: .74rem; color: var(--muted); font-weight: 300; margin-top: 6px; }
+  .txt { width: 100%; font: inherit; font-size: .86rem; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text); }
   .sub { font-size: .8rem; color: var(--muted); margin: 10px 0 6px; }
   .result { font-size: .84rem; margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
   details.note summary { cursor: pointer; margin-top: 8px; }
@@ -191,6 +222,28 @@
     <div class="hud" id="hud"></div>
     <div class="msg" id="msg" role="status"></div>
     <div id="view3d" class="view3d" hidden></div>
+    <div id="scnBar" class="scnbar" hidden></div>
+    <div id="scnModal" class="scnmodal" hidden>
+      <div class="card">
+        <p class="big" id="scnTitle"></p>
+        <p class="stars" id="scnStars"></p>
+        <p id="scnReason"></p>
+        <ul id="scnLines"></ul>
+        <div class="btns">
+          <button class="pill" id="scnReplay">ดูรีเพลย์ (แบ่งจอ)</button>
+          <button class="pill" id="scnAgain">เล่นอีกครั้ง</button>
+          <button class="pill" id="scnClose">ปิด</button>
+        </div>
+      </div>
+    </div>
+    <div id="replayBar" class="replaybar" hidden>
+      <b>รีเพลย์</b>
+      <button class="pill" id="rpPlay">หยุด</button>
+      <input type="range" id="rpSlider" min="0" max="10" value="0">
+      <span id="rpTime"></span>
+      <button data-sp="0.25" aria-pressed="false">×¼</button><button data-sp="0.5" aria-pressed="true">×½</button><button data-sp="1" aria-pressed="false">×1</button>
+      <button class="pill" id="rpExit">กลับไปขับ</button>
+    </div>
     <div id="mirLabels"></div>
     <p id="hint3d" class="hint3d" hidden></p>
     <div class="viewbar" id="viewbar" role="toolbar" aria-label="มุมมอง">
@@ -198,6 +251,9 @@
       <button data-view="chase" aria-pressed="false" title="กล้อง 3 มิติไล่ตามหลังรถ">3D ไล่หลัง</button>
       <button data-view="driver" aria-pressed="false" title="มองจากที่นั่งคนขับ พร้อมกระจกมองข้าง">มุมคนขับ</button>
       <button id="btnNight" aria-pressed="false" title="สลับกลางวัน/กลางคืน (N)">กลางคืน</button>
+      <button id="btnReplay" title="ย้อนดู 15 วินาทีล่าสุดแบบแบ่งจอ (P)">รีเพลย์</button>
+      <button id="btnRain" aria-pressed="false" title="ฝนตก: ถนนลื่น กระจกเห็นใกล้ลง">ฝนตก</button>
+      <button id="btnSound" aria-pressed="true" title="เปิด/ปิดเสียง">เสียง เปิด</button>
     </div>
     <div class="zoom" id="zoomBar" role="toolbar" aria-label="ซูมแผนที่">
       <button id="zOut" title="ซูมออก (−)" aria-label="ซูมออก">−</button>
@@ -211,6 +267,7 @@
       <span><i class="sw" style="background:rgba(46,160,90,.35)"></i>มองเห็นตรง</span>
       <span><i class="sw" style="background:rgba(59,130,246,.35)"></i>ผ่านกระจก</span>
       <span><i class="sw" style="background:rgba(168,85,247,.4)"></i>กระจกส่องใกล้</span>
+      <span><i class="sw" style="background:rgba(20,184,166,.45)"></i>กล้อง</span>
     </div>
     <div class="touch" aria-hidden="true">
       <div class="col"><button data-key="left">◀</button></div>
@@ -221,7 +278,12 @@
 
   <aside class="panel">
     <section>
-      <h2>เลือกรถ</h2>
+      <h2>ภารกิจฝึก</h2>
+      <div id="scnList" class="scnlist"></div>
+    </section>
+
+    <section>
+      <h2>เลือกรถ (ขับอิสระ)</h2>
       <div class="rigs" id="rigs"></div>
     </section>
 
@@ -268,6 +330,10 @@
         </div>
       </div>
       <table id="phys" style="margin-top:10px"></table>
+      <div id="sloshWrap" hidden>
+        <p class="sub">น้ำมันในถังโยก (ครึ่งถังโยกมากสุด · เต็มถังแทบไม่โยก)</p>
+        <canvas id="sloshCv" width="300" height="96" style="width:100%;max-width:300px"></canvas>
+      </div>
 
       <p class="sub" style="margin-top:14px">ทดสอบเบรกกะทันหัน (รถทดสอบให้เอง)</p>
       <div class="range">
@@ -295,6 +361,34 @@
     </section>
 
     <section>
+      <h2>กระจกและอุปกรณ์ช่วยขับ</h2>
+      <div class="range">
+        <label for="mirL">มุมกระจกซ้าย <b id="mirLv"></b></label>
+        <input type="range" id="mirL" min="-12" max="12" step="1" value="0">
+      </div>
+      <div class="range">
+        <label for="mirR">มุมกระจกขวา <b id="mirRv"></b></label>
+        <input type="range" id="mirR" min="-12" max="12" step="1" value="0">
+        <p class="note">บวก = กางออกด้านนอก เห็นช่องข้าง ๆ มากขึ้นแต่เห็นข้างตัวรถน้อยลง · ในมุมคนขับลากที่จอกระจกเพื่อปรับได้</p>
+      </div>
+      <label class="opt"><input type="checkbox" id="optCam360"> กล้องรอบคัน 360° (เห็นรอบรถ 2.5 ม.)</label>
+      <label class="opt"><input type="checkbox" id="optSideCam"> กล้องข้างซ้าย (ตลอดแนวตัวรถ 4.5 ม.)</label>
+      <label class="opt"><input type="checkbox" id="optBsd"> เซนเซอร์เตือนมุมอับ (บี๊บเมื่อมีวัตถุข้างรถ)</label>
+      <p class="result" id="assistGain">เปิดอุปกรณ์หรือปรับกระจกเพื่อดูผล</p>
+    </section>
+
+    <section>
+      <h2>พวงมาลัย / จอยเกม</h2>
+      <p class="note" id="gpStatus">ยังไม่พบ</p>
+      <div class="btns">
+        <button class="pill" id="gpCalib">ตั้งค่าพวงมาลัย</button>
+        <button class="pill" id="gpNext" hidden>ถัดไป</button>
+        <button class="pill" id="gpReset">ล้างค่า</button>
+      </div>
+      <p class="note">จอยมาตรฐาน: ก้านซ้ายเลี้ยว · RT คันเร่ง · LT เบรก · A สลับเกียร์ถอย · B แตร · Y สลับมุมมอง<br>พวงมาลัย (เช่น Logitech G29): กด "ตั้งค่าพวงมาลัย" ครั้งแรก แล้วใช้ปุ่ม A/✕ สลับเกียร์ถอย</p>
+    </section>
+
+    <section>
       <h2>ตั้งค่า</h2>
       <div class="range">
         <label for="objH">ความสูงวัตถุรอบรถ <b id="objHv"></b></label>
@@ -314,6 +408,17 @@
     </section>
 
     <section>
+      <h2>แผนที่จริง (OpenStreetMap)</h2>
+      <input type="text" id="osmCoord" class="txt" placeholder="พิกัด เช่น 13.7563, 100.5018" autocomplete="off">
+      <div class="btns">
+        <button class="pill" id="osmLoad">โหลดถนนจริง</button>
+        <button class="pill" id="osmMe">ใช้ตำแหน่งของฉัน</button>
+        <button class="pill" id="osmBack" hidden>กลับเมืองจำลอง</button>
+      </div>
+      <p class="note" id="osmStatus">ก๊อปพิกัดจาก Google Maps (คลิกขวาที่จุด) มาวาง ระบบจะสร้างถนนและตึกจริงรอบจุดนั้นราว 500 ม. ให้ฝึกขับ · ส่งพิกัดไปที่เซิร์ฟเวอร์ Overpass ของ OpenStreetMap (ข้อมูลแผนที่สาธารณะ)</p>
+    </section>
+
+    <section>
       <h2>วัตถุบนถนน</h2>
       <div class="seg" id="place">
         <button data-t="ped">คนเดิน</button>
@@ -321,6 +426,7 @@
         <button data-t="car">รถเก๋ง</button>
       </div>
       <p class="note">คลิกบนแผนที่เพื่อวาง · คลิกขวาหรือ Shift + คลิก เพื่อลบ · วัตถุที่อยู่ในมุมอับจะเป็นสีแดง</p>
+      <label class="opt"><input type="checkbox" id="optTraffic" checked> รถและคนวิ่งจริง + ไฟจราจรที่สี่แยก</label>
       <div class="btns">
         <button class="pill" id="btnOvertake">มอเตอร์ไซค์แซงซ้าย</button>
         <button class="pill" id="btnClear">ล้างวัตถุ</button>
@@ -334,9 +440,11 @@
         <kbd>↑ / W</kbd><span>เร่ง</span>
         <kbd>↓ / S</kbd><span>เบรก · หยุดแล้วกดค้าง = ถอย</span>
         <kbd>← → / A D</kbd><span>เลี้ยว</span>
-        <kbd>Space</kbd><span>เบรกมือ</span>
+        <kbd>Space</kbd><span>เบรกเต็มที่</span>
+        <kbd>H</kbd><span>แตร</span>
         <kbd>1 2 3</kbd><span>เปลี่ยนรถ</span>
         <kbd>V · T · Z</kbd><span>เปิด/ปิดพื้นที่ที่มองเห็น · เส้นทางล้อ · โซนอันตราย</span>
+        <kbd>P</kbd><span>รีเพลย์ 15 วินาทีล่าสุด (แบ่งจอ)</span>
         <kbd>C · N</kbd><span>สลับมุมมอง (บนลงล่าง / 3D ไล่หลัง / มุมคนขับ) · กลางวัน/กลางคืน</span>
         <kbd>+ − / ล้อเมาส์</kbd><span>ซูม (หรือปุ่มมุมขวาบนของแผนที่)</span>
         <kbd>R</kbd><span>เริ่มใหม่</span>
@@ -345,6 +453,6 @@
   </aside>
 </div>
 
-<script type="module" src="./truck_blind_spot_simulator.js?v=20261123-2"></script>
+<script type="module" src="./truck_blind_spot_simulator.js?v=20261124-1"></script>
 </body>
 </html>
