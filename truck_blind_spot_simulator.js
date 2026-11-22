@@ -1,5 +1,6 @@
 import { requireLogin } from "./firebase-guard.js?v=20261122-sim";
 import { createAudio } from "./truck_sim_audio.js?v=20261124-2";
+import { buildMap } from "./truck_sim_maps.js?v=20261125-2";
 
 /* =====================================================================
    จำลองมุมอับรถบรรทุก (มุมมองจากด้านบน)
@@ -126,6 +127,7 @@ const S = {
   analog: { active: false, steer: 0, thr: 0, brk: 0, rev: false, horn: false },
   slosh: { x: 0, vx: 0, y: 0, vy: 0 }, sloshAcc: 0, lean: 0, rolled: null, overT: 0,
   ev: { hits: 0, hitT: 0, rolls: 0 }, uid: "guest",
+  z: 0, grade: 0, roadKind: "road", brakeTemp: 45, exhaust: false,
   phys: { latUse: 0, push: 0, pushLat: 0, aLat: 0, artRate: 0 }
 };
 const P = {};       // ค่าที่คำนวณล่วงหน้าทุกเฟรม (ตำแหน่งตา กระจก รูปทรงตัวรถ)
@@ -221,8 +223,11 @@ function trailerBrake() {
   if (cap === undefined) cap = Math.sqrt(Math.max(0, muN * muN - Fb * Fb));
   return { Fb, cap, locked };
 }
+// เบรกร้อน: เกิน 250°C แรงเบรกเริ่มลด เหลือ ~40% ที่ 600°C (ผ้าเบรก/ดรัมร้อนจัด — brake fade)
+function brakeFade() { const T = S.brakeTemp || 45; return T < 250 ? 1 : Math.max(0.4, 1 - (T - 250) / 350 * 0.6); }
 function stopDistance(v) {
-  const r = v * (T_REACT + T_LAG / 2), b = v * v / (2 * PH.aMax);
+  const dec = Math.max(0.6, PH.aMax * brakeFade() + GRAV * (S.grade || 0));   // ลงเขา (grade ติดลบ) เบรกได้น้อยลง
+  const r = v * (T_REACT + T_LAG / 2), b = v * v / (2 * dec);
   return { r, b, total: r + b };
 }
 
@@ -239,10 +244,12 @@ function buildRig(key, pose) {
   }
   S.v = 0; S.steer = 0; S.brakeA = 0; S.accel = 0; S.test = null;
   S.slosh = { x: 0, vx: 0, y: 0, vy: 0 }; S.sloshAcc = 0; S.lean = 0; S.rolled = null; S.overT = 0; S.analog.rev = false;
+  S.brakeTemp = 45; S.units.forEach((u) => { u.z = pose && pose.z !== undefined ? pose.z : 0; });
   S.units.forEach((u) => { u.w = 0; u.vH = null; u.aH = null; });
   S.trails = [[], [], [], []]; S.trailAcc = 0; S.hist = []; S.kS = 0;
   S.skids = []; S.skidPrev = {}; S.smoke = [];
   updateMass();
+  updateElev();
   prep();
   const t = S.units[0];
   S.cam.x = (P.bounds.minX + P.bounds.maxX) / 2; S.cam.y = t.y;
@@ -513,9 +520,16 @@ function step(dt) {
   if (S.rolled) { thr = 0; brk = 1; }
   S.ctl = { thr, brk, rev };
   // ลมเบรกค่อย ๆ สร้างแรงใน T_LAG วินาที
-  const target = brk * PH.aMax;
+  const aMaxNow = PH.aMax * brakeFade();
+  const target = brk * aMaxNow;
   if (target > 0 && S.brakeA === 0) S.imbSign = Math.random() < 0.5 ? -1 : 1;
   S.brakeA = target > S.brakeA ? Math.min(target, S.brakeA + PH.aMax / T_LAG * dt) : target;
+  // ความร้อนเบรก: พลังงานที่เบรกดูดซับ (แรงเบรก × ความเร็ว) − การระบายความร้อน (เร็วขึ้นระบายดีขึ้น)
+  // ค่าที่เลือก: แช่เบรกลงเขา 9% ที่ 40 กม./ชม. นาน ~3 นาที → ~450°C (เริ่มเบรกไม่อยู่) ตามลักษณะเบรกดรัมรถบรรทุกจริง
+  S.brakeTemp += (S.brakeA * PH.mTot * Math.abs(v) / 7e4 - 0.0025 * (S.brakeTemp - 35) * (1 + Math.abs(v) / 12)) * dt;
+  S.brakeTemp = Math.max(35, S.brakeTemp);
+  if (S.brakeTemp > 450) warn("เบรกร้อนจัด " + Math.round(S.brakeTemp) + "°C แรงเบรกเหลือ " + Math.round(brakeFade() * 100) + "% — ใช้เบรกไอเสีย (E) / เข้าทางหนีภัย");
+  else if (S.brakeTemp > 300) warn("เบรกเริ่มร้อน " + Math.round(S.brakeTemp) + "°C — เปิดเบรกไอเสีย (E) แล้วเลี้ยงเบรกเป็นช่วง ๆ");
 
   // แรงต้าน: ยางบดถนน + ลม · แรงขับ: กำลังเครื่องหารด้วยมวล (หนักมาก = ออกตัวช้า)
   const resist = GRAV * 0.007 + 0.5 * 1.2 * cfg.cdA * v * v / PH.mTot;
@@ -527,17 +541,25 @@ function step(dt) {
   else if (rev && (thr > 0 || !an)) acc = v > 0.05 ? -3 : -0.8 * (an ? thr : 1);
   else if (thr > 0) acc = v < -0.05 ? 3 * thr : thr * engine - resist;
   else if (S.test && !S.test.braking) acc = 0;                       // ทดสอบ: รักษาความเร็วก่อนเบรก
-  else acc = v > 0 ? -(resist + 0.15) : v < 0 ? 0.6 : 0;              // ปล่อยไหล + เอนจินเบรก
+  else acc = v > 0 ? -(resist + 0.15) : v < 0 ? (S.osm && S.osm.custom ? resist + 0.1 : 0.6) : 0;   // ปล่อยไหล + เอนจินเบรก (บนเนินจอดไม่เบรก = ไหลถอยได้)
   acc += S.sloshAcc;                                                   // น้ำมันในถังโยกดันรถ
+  // ทางลาด: แรงโน้มถ่วงตามความชัน · เบรกไอเสีย (ไม่ทำให้เบรกร้อน) · กรวดทางหนีภัย / ออกนอกถนน
+  const aG = S.osm && S.osm.custom ? -GRAV * S.grade / Math.sqrt(1 + S.grade * S.grade) : 0;
+  let drag = 0;
+  if (S.osm && S.osm.custom) drag += S.roadKind === "escape" ? 3.2 : S.roadKind === "off" ? 1.2 : 0;
+  if (S.exhaust && thr === 0 && Math.abs(v) > 1.5) drag += 22000 / PH.mTot;
+  acc += aG - (Math.abs(v) > 0.05 ? Math.sign(v) * drag : 0);
   let nv = v + acc * dt;
   if ((v > 0 && nv < 0) || (v < 0 && nv > 0)) nv = 0;
-  if (Math.abs(nv) < 0.02 && thr === 0 && !rev) nv = 0;
+  if (Math.abs(nv) < 0.02 && thr === 0 && !rev && Math.abs(aG) < 0.25) nv = 0;
+  if (brk > 0 && Math.abs(v) < 0.3 && Math.abs(aG) < aMaxNow) nv = 0;   // เหยียบเบรกค้างบนเนิน = รถไม่ไหล
   nv = Math.max(-MAX_REV, Math.min(MAX_FWD, nv));
   S.accel = (nv - v) / dt;
   S.v = nv;
 
   const n = Math.max(1, Math.ceil(Math.abs(nv * dt) / 0.05));
   for (let i = 0; i < n; i++) if (!moveRig(nv * dt / n, dt / n)) { S.v = 0; break; }
+  updateElev();
 
   // แรงเหวี่ยงด้านข้าง (มีทิศ: บวก = เลี้ยวซ้าย) + ของเหลวในถังโยก → เกณฑ์พลิกคว่ำ
   const yawT = nv * Math.tan(S.steer) / d.wb, tu = S.units.find((u) => u.def.kind === "trailer");
@@ -583,6 +605,24 @@ function step(dt) {
   const kNow = Math.tan(S.steer) / d.wb;
   S.kS += (kNow - S.kS) * Math.min(1, dt * 5);
 }
+/* ความสูงของรถแต่ละท่อน + ความชันใต้ล้อ (สนามภูเขา/สะพาน/อุโมงค์) */
+function updateElev() {
+  const m = S.osm;
+  if (!m || !m.custom) { S.z = 0; S.grade = 0; S.roadKind = "road"; S.units.forEach((u) => { u.z = 0; u.pitch = 0; }); return; }
+  S.units.forEach((u, i) => {
+    const pref = u.z !== undefined ? u.z : (S.units[0].z || 0);
+    // ความสูงที่ล้อหน้า/หลังของท่อนนี้ → มุมเงย
+    const fx = i === 0 ? u.def.wb : u.def.L, [ax, ay] = toWorld(u, fx, 0);
+    const zr = m.heightAt(u.x, u.y, pref), zf = m.heightAt(ax, ay, pref);
+    u.z = zr; u.pitch = Math.atan2(zf - zr, fx);
+  });
+  const t = S.units[0];
+  S.z = t.z; S.grade = Math.tan(t.pitch);
+  const r = m.roadAt(t.x, t.y, t.z);
+  S.roadKind = r ? r.r.kind : "off";
+  if (S.roadKind === "off" && Math.abs(S.v) > 2) warn("ออกนอกถนน!");
+}
+
 /* น้ำมันในถังโยก: ลูกตุ้มสปริงหน่วงต่ำ ตามความเร่งหน้า-หลังและด้านข้าง
    เบรกแรง → น้ำมันพุ่งไปหน้าแล้วดันรถต่อ (หยุดยากขึ้น รถโยกหน้า-หลังหลังหยุด)
    เลี้ยว → น้ำมันเทไปด้านนอกโค้ง เพิ่มแรงเหวี่ยง → พลิกง่ายขึ้น */
@@ -901,6 +941,7 @@ function saveBest() { try { localStorage.setItem("sim-best:" + S.uid, JSON.strin
 function startScenario(id) {
   const def = SCENARIOS.find((d) => d.id === id);
   if (S.replay) stopReplay();
+  if (S.osm) { S.osm = null; if (three) three.setOSM(null); $("osmBack").hidden = true; document.querySelectorAll("#mapSeg [data-map]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.map === "city" ? "true" : "false")); }
   $("scnModal").hidden = true;
   S.scn = { def, t: 0, phase: "run", pen: [], maxXing: 0, maxArt: 0, hits0: 0, rolls0: 0, off: false };
   buildRig(def.rig, def.pose);
@@ -1172,6 +1213,7 @@ function pollGamepad() {
   const pressed = (i) => gp.buttons[i] && gp.buttons[i].pressed;
   const edge = (i) => pressed(i) && !GP.prev[i];
   if (edge(0)) { A.rev = !A.rev; flash(A.rev ? "เกียร์ถอย (R)" : "เกียร์เดินหน้า (D)"); A.active = true; }
+  if (edge(2)) { S.exhaust = !S.exhaust; flash(S.exhaust ? "เปิดเบรกไอเสีย" : "ปิดเบรกไอเสีย"); }
   if (edge(3)) setView({ "2d": "chase", chase: "driver", driver: "2d" }[S.view]);
   A.horn = pressed(1);
   GP.prev = gp.buttons.map((b) => b.pressed);
@@ -1333,7 +1375,7 @@ function drawWorld() {
   const vx1 = S.cam.x - W / 2 / s - 5, vx2 = S.cam.x + W / 2 / s + 5;
   const vy1 = S.cam.y - H / 2 / s - 5, vy2 = S.cam.y + H / 2 / s + 5;
   worldT();
-  if (S.osm) { drawOsm(vx1, vx2, vy1, vy2); return; }
+  if (S.osm) { if (S.osm.custom) drawCustom(vx1, vx2, vy1, vy2); else drawOsm(vx1, vx2, vy1, vy2); return; }
   if (PAT.ground) patFill(PAT.ground); else ctx.fillStyle = COL.ground;
   ctx.fillRect(vx1, vy1, vx2 - vx1, vy2 - vy1);
   // เส้นตาราง 5 ม.
@@ -1955,14 +1997,20 @@ function updateAssistPanel() {
     ? "มุมอับ " + Math.round(a.now) + " ตร.ม. จากเดิม " + Math.round(a.base) + " ตร.ม. (ลดลง " + Math.max(0, Math.round((1 - a.now / a.base) * 100)) + "%)"
     : "–";
 }
+function syncExhaustBtn() { const b = $("btnExhaust"); if (b) b.setAttribute("aria-pressed", S.exhaust ? "true" : "false"); }
 function updateHud() {
+  syncExhaustBtn();
   const kmh = Math.abs(S.v * 3.6), gear = S.v < -0.05 || (S.analog.active && S.analog.rev) ? "R" : S.v > 0.05 ? "D" : "N";
   const lim = speedLimit();
   $("hud").classList.toggle("over", S.overspeed === "over"); $("hud").classList.toggle("near", S.overspeed === "near");
   $("hud").innerHTML = '<div class="big">' + kmh.toFixed(0) + "<small>กม./ชม. · " + gear + '</small><i class="lim">' + lim + "</i></div>" +
     "<span>ล้อหน้า</span><b>" + (S.steer / DEG).toFixed(0) + "°</b>" +
     (S.bsdAlert ? '<span class="bsd">⚠ เซนเซอร์: มีวัตถุ' + ({ left: "ด้านซ้าย", right: "ด้านขวา", both: "ทั้งสองข้าง" })[S.bsdAlert] + "</span>" : "") +
-    (S.analog.active ? '<span class="pad">ใช้พวงมาลัย/จอย</span>' : "");
+    (S.analog.active ? '<span class="pad">ใช้พวงมาลัย/จอย</span>' : "") +
+    ((S.osm && S.osm.custom) || S.brakeTemp > 120 ? "<span>ความชัน</span><b>" + (S.grade * 100 > 0 ? "+" : "") + (S.grade * 100).toFixed(0) + "%</b>" +
+      '<span>เบรก</span><b class="bt" style="color:' + (S.brakeTemp > 450 ? "#e5484d" : S.brakeTemp > 300 ? "#f59e0b" : "inherit") + '">' + Math.round(S.brakeTemp) + "°C</b>" +
+      '<span class="tbar"><i style="width:' + Math.min(100, S.brakeTemp / 6) + "%;background:" + (S.brakeTemp > 450 ? "#e5484d" : S.brakeTemp > 300 ? "#f59e0b" : "#30d158") + '"></i></span>' : "") +
+    (S.exhaust ? '<span class="pad" style="color:#2f63c8;font-weight:600">เบรกไอเสีย ON (E)</span>' : "");
   const m = $("msg");
   if (S.msgT > 0) { m.textContent = S.msg; m.classList.add("show"); } else m.classList.remove("show");
 }
@@ -1971,6 +2019,7 @@ function updateHud() {
 let last = 0, panelT = 0, lastM = null;
 function frame(t) {
   const dt = Math.min(0.05, (t - last) / 1000 || 0); last = t;
+  if (S.osm && S.osm.custom) S.objects.forEach((o) => { o.z = S.osm.heightAt(o.x, o.y, o.z); });
   if (S.replay) replayTick(dt);
   else { pollGamepad(); step(dt); audioTick(dt); recordFrame(dt); }
   prep();
@@ -1993,11 +2042,11 @@ function frame(t) {
     drawSkids();
     if (S.night) {
       // กลางคืน: วาดรถกับวัตถุก่อน แล้วค่อยทาความมืด จากนั้นวางชั้นมุมอับ/ป้ายไว้บนสุดให้ยังอ่านได้
-      drawObjects(states); drawRig(); drawSmoke(); drawSignals(); drawNight(); drawLights();
+      drawObjects(states); drawRig(); drawSmoke(); drawSignals(); drawCovers(); drawNight(); drawLights();
       drawVisibility(); drawTrails(); drawZones(zr); drawStopMarker();
     } else {
       drawVisibility(); drawTrails(); drawZones(zr); drawStopMarker();
-      drawObjects(states); drawRig(); drawSmoke(); drawSignals(); drawLights();
+      drawObjects(states); drawRig(); drawSmoke(); drawSignals(); drawCovers(); drawLights();
     }
     drawRain2D(dt);
     drawScnGoal();
@@ -2033,6 +2082,7 @@ function bindControls() {
     else if (e.code === "KeyC") setView({ "2d": "chase", chase: "driver", driver: "2d" }[S.view]);
     else if (e.code === "KeyN") setNight(!S.night);
     else if (e.code === "KeyP") { if (S.replay) stopReplay(); else startReplay(); }
+    else if (e.code === "KeyE") { S.exhaust = !S.exhaust; flash(S.exhaust ? "เปิดเบรกไอเสีย — ช่วยหน่วงรถตอนลงเขาโดยไม่ทำให้เบรกร้อน" : "ปิดเบรกไอเสีย"); }
     else if (e.key === "+" || e.key === "=") zoom(1.2);
     else if (e.key === "-" || e.key === "_") zoom(1 / 1.2);
   });
@@ -2074,6 +2124,8 @@ function bindControls() {
       () => { $("osmStatus").textContent = "หาตำแหน่งไม่ได้ (ไม่ได้อนุญาต?)"; }, { enableHighAccuracy: true, timeout: 10000 });
   });
   $("osmBack").addEventListener("click", (e) => { leaveOSM(); e.currentTarget.blur(); });
+  document.querySelectorAll("#mapSeg [data-map]").forEach((b) => b.addEventListener("click", () => { setMap(b.dataset.map); b.blur(); }));
+  $("btnExhaust").addEventListener("click", (e) => { S.exhaust = !S.exhaust; e.currentTarget.setAttribute("aria-pressed", S.exhaust ? "true" : "false"); e.currentTarget.blur(); });
   $("rpPlay").addEventListener("click", (e) => { const r = S.replay; if (r) { if (!r.playing && r.i >= r.frames.length - 1) r.i = 0; r.playing = !r.playing; } e.currentTarget.blur(); });
   $("rpSlider").addEventListener("input", (e) => { if (S.replay) { S.replay.i = +e.target.value; S.replay.playing = false; } });
   document.querySelectorAll("#replayBar [data-sp]").forEach((b) => b.addEventListener("click", () => {
@@ -2230,10 +2282,135 @@ async function loadOSM(lat, lng) {
   st.textContent = "โหลดแล้ว: ถนน " + roads.length + " เส้น ตึก " + buildings.length + " หลัง รอบพิกัด " + lat.toFixed(5) + ", " + lng.toFixed(5);
   $("osmBack").hidden = false;
 }
+function setMap(id) {
+  document.querySelectorAll("#mapSeg [data-map]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.map === id ? "true" : "false"));
+  if (id === "city") { if (S.osm) leaveOSM(); return; }
+  const st = $("osmStatus"); st.textContent = "กำลังสร้างสนาม…"; flash("กำลังสร้างสนาม…");
+  setTimeout(() => {
+    const m = buildMap(id);
+    if (S.replay) stopReplay();
+    S.osm = m; S.scn = null; $("scnModal").hidden = true; renderScnList();
+    clearTraffic();
+    buildRig(S.rigKey, m.start);
+    S.objects = [];
+    if (three) three.setOSM(m);
+    $("osmBack").hidden = false;
+    st.textContent = "สนาม: " + m.name + (m.flat ? " — สะพานข้ามแยก จุดกลับรถ อุโมงค์ทางลอด และสะพานกลับรถ เรียงไปทางทิศตะวันออก" : " — ขึ้นเขา 1.2 กม. แล้วลงเขาชัน 2 กม. มีทางหนีภัย ลองดูความร้อนเบรกตอนลงเขา");
+    flash("สนาม: " + m.name);
+  }, 30);
+}
 function leaveOSM() {
+  document.querySelectorAll("#mapSeg [data-map]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.map === "city" ? "true" : "false"));
   S.osm = null; $("osmBack").hidden = true; $("osmStatus").textContent = "กลับมาที่เมืองจำลองแล้ว";
   if (three) three.setOSM(null);
   buildRig(S.rigKey);
+}
+// แบ่งถนนเป็นช่วงตามระดับ: พื้น / ร่องลึก (ทางลอด) / ในอุโมงค์ / สะพาน
+function mapRuns(m) {
+  if (m._runs) return m._runs;
+  const runs = [];
+  m.roads.forEach((r) => {
+    let cur = null;
+    r.pts.forEach((p, i) => {
+      const lvl = !m.flat ? "ground" : p[2] > 1.2 ? "bridge" : p[2] < -0.3 ? (p[3] ? "tunnel" : "cut") : "ground";
+      if (!cur || cur.lvl !== lvl) { if (cur) cur.idx.push(i); cur = { r, lvl, idx: [] }; runs.push(cur); }
+      cur.idx.push(i);
+    });
+  });
+  runs.forEach((u) => { u.z = u.idx.reduce((a, i) => a + u.r.pts[i][2], 0) / u.idx.length; });
+  return (m._runs = runs);
+}
+function runPath(u, off) {
+  const r = u.r;
+  ctx.beginPath();
+  u.idx.forEach((i, k) => {
+    const p = r.pts[i], th = r.th[i], x = p[0] - Math.sin(th) * (off || 0), y = p[1] + Math.cos(th) * (off || 0);
+    k ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  });
+}
+function strokeRoad(u) {
+  const r = u.r;
+  ctx.lineWidth = r.w;
+  if (r.kind === "escape") ctx.strokeStyle = "#b89f78";
+  else if (PAT.road) { PAT.road.setTransform(new DOMMatrix().scale(PAT.road.m)); ctx.strokeStyle = PAT.road; } else ctx.strokeStyle = COL.road;
+  runPath(u); ctx.stroke();
+  if (u.lvl === "cut" || u.lvl === "tunnel") { ctx.strokeStyle = "rgba(0,0,0," + Math.min(0.35, -u.z * 0.05) + ")"; runPath(u); ctx.stroke(); }
+  // เส้นจราจร
+  const px = 1 / S.cam.s;
+  if (r.kind === "escape") {
+    ctx.strokeStyle = "#e5484d"; ctx.lineWidth = 0.4; ctx.setLineDash([1.2, 1.2]);
+    [r.w / 2 - 0.3, -r.w / 2 + 0.3].forEach((o) => { runPath(u, o); ctx.stroke(); }); ctx.setLineDash([]); return;
+  }
+  ctx.lineWidth = 0.15; ctx.strokeStyle = COL.mark;
+  [r.w / 2 - 0.45, -r.w / 2 + 0.45].forEach((o) => { runPath(u, o); ctx.stroke(); });
+  if (r.two) { ctx.strokeStyle = COL.yellow; ctx.lineWidth = 0.14; [0.12, -0.12].forEach((o) => { runPath(u, o); ctx.stroke(); }); }
+  else if (r.lanes === 2) { ctx.setLineDash([3, 3]); runPath(u, 0); ctx.stroke(); ctx.setLineDash([]); }
+}
+function drawCustom(vx1, vx2, vy1, vy2) {
+  const m = S.osm, px = 1 / S.cam.s;
+  if (m.shade) {
+    screenT(); ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(m.shade.canvas, sx(m.shade.minX), sy(m.shade.maxY), m.shade.w * S.cam.s, m.shade.h * S.cam.s);
+    worldT();
+  } else { if (PAT.ground) patFill(PAT.ground); else ctx.fillStyle = COL.ground; ctx.fillRect(vx1, vy1, vx2 - vx1, vy2 - vy1); }
+  const runs = mapRuns(m);
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  // ไหล่ทาง / ทางเท้า / ผนังร่อง
+  runs.forEach((u) => {
+    if (u.lvl === "bridge" || u.r.kind === "escape") return;
+    ctx.lineWidth = u.r.w + (m.flat ? 3.4 : 2.2);
+    ctx.strokeStyle = u.lvl === "cut" || u.lvl === "tunnel" ? "#6b6f75" : m.flat ? COL.walk : "#a89a80";
+    runPath(u); ctx.stroke();
+  });
+  runs.filter((u) => u.lvl !== "bridge").forEach(strokeRoad);
+  // เกาะกลาง
+  if (m.median) {
+    const md = m.median, b = m.bounds;
+    ctx.fillStyle = "#9aa0a6";
+    let x0 = b.minX;
+    md.gaps.concat([[b.maxX, b.maxX]]).forEach(([g1, g2]) => { ctx.fillRect(x0, md.y - md.w / 2, g1 - x0, md.w); x0 = g2; });
+  }
+  // สะพาน: เงาบนพื้น + ราวสะพาน + ผิวถนน (เรียงจากต่ำไปสูง)
+  runs.filter((u) => u.lvl === "bridge").sort((a, b) => a.z - b.z).forEach((u) => {
+    ctx.save(); ctx.translate(u.z * 0.35, -u.z * 0.35); ctx.strokeStyle = "rgba(0,0,0,.22)"; ctx.lineWidth = u.r.w; runPath(u); ctx.stroke(); ctx.restore();
+    ctx.strokeStyle = "#d9dcdf"; ctx.lineWidth = u.r.w + 0.9; runPath(u); ctx.stroke();
+    strokeRoad(u);
+  });
+  ctx.lineCap = "butt";
+  // ตึก + ต้นไม้
+  const path = (pts) => { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); };
+  m.buildings.forEach((b) => {
+    const sh = Math.min(b.h * 0.3, 12);
+    ctx.fillStyle = "rgba(0,0,0,.18)"; path(b.pts.map(([x, y]) => [x + sh, y - sh])); ctx.fill();
+    ctx.fillStyle = BUILD_COLORS[Math.floor(b.h) % BUILD_COLORS.length]; path(b.pts); ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.28)"; ctx.lineWidth = px; ctx.stroke();
+  });
+  m.trees.forEach((t) => {
+    if (t.x < vx1 - 4 || t.x > vx2 + 4 || t.y < vy1 - 4 || t.y > vy2 + 4) return;
+    const r = 1.9 * t.s;
+    ctx.fillStyle = "rgba(0,0,0,.2)"; ctx.beginPath(); ctx.arc(t.x + r * 0.5, t.y - r * 0.5, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = m.flat ? "#5a8a44" : "#3f6b33"; ctx.beginPath(); ctx.arc(t.x, t.y, r, 0, Math.PI * 2); ctx.fill();
+  });
+}
+// สิ่งที่อยู่ "เหนือ" รถ: หลังคาอุโมงค์ และสะพานที่รถลอดใต้ — วาดโปร่งทับรถ
+function drawCovers() {
+  const m = S.osm; if (!m || !m.custom) return;
+  worldT();
+  ctx.lineJoin = "round";
+  mapRuns(m).forEach((u) => {
+    if (u.lvl === "tunnel") { ctx.strokeStyle = "rgba(38,40,44,.62)"; ctx.lineWidth = u.r.w + 3; runPath(u); ctx.stroke(); }
+    else if (u.lvl === "bridge" && u.z > S.z + 3.5) { ctx.globalAlpha = 0.5; ctx.strokeStyle = "#d9dcdf"; ctx.lineWidth = u.r.w + 0.9; runPath(u); ctx.stroke(); strokeRoad(u); ctx.globalAlpha = 1; }
+  });
+  screenT();
+  (m.signs || []).forEach((sg) => {
+    const x = sx(sg.x), y = sy(sg.y);
+    if (x < -200 || x > W + 200 || y < -40 || y > H + 40) return;
+    ctx.font = "600 12px 'IBM Plex Sans Thai', system-ui";
+    const w = ctx.measureText(sg.text).width + 16;
+    ctx.fillStyle = m.flat ? "#1f6f3f" : "#1f4f8f"; rr(x - w / 2, y - 12, w, 24, 6); ctx.fill();
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; rr(x - w / 2 + 2, y - 10, w - 4, 20, 5); ctx.stroke();
+    ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(sg.text, x, y + 0.5);
+  });
 }
 function drawOsm(vx1, vx2, vy1, vy2) {
   const o = S.osm, px = 1 / S.cam.s;
@@ -2259,13 +2436,13 @@ function drawOsm(vx1, vx2, vy1, vy2) {
 
 /* ---------------- มุมมอง 3D (โหลดเมื่อใช้ครั้งแรก) ---------------- */
 let three = null, threeLoading = false;
-const API3D = { speedLimit, S, P, G, HW, CELL, CROSS_X, EYE_H, toWorld, blindOutline, city: CITY, placeAt, zoneRects, stopDistance, predictFront, lightState, signals: SIGNALS, yard: YARD, scnBox: () => S.scn && S.scn.box };
+const API3D = { heightAt: (x, y, z) => (S.osm && S.osm.custom ? S.osm.heightAt(x, y, z) : 0), speedLimit, S, P, G, HW, CELL, CROSS_X, EYE_H, toWorld, blindOutline, city: CITY, placeAt, zoneRects, stopDistance, predictFront, lightState, signals: SIGNALS, yard: YARD, scnBox: () => S.scn && S.scn.box };
 async function setView(v) {
   if (v !== "2d" && !three) {
     if (threeLoading) return;
     threeLoading = true; flash("กำลังโหลดมุมมอง 3 มิติ…");
     try {
-      const mod = await import("./truck_blind_spot_3d.js?v=20261124-6");
+      const mod = await import("./truck_blind_spot_3d.js?v=20261125-1");
       three = mod.create3D($("view3d"), API3D);
       three.setNight(S.night); three.setRain(S.weather === "rain"); if (S.osm) three.setOSM(S.osm);
     } catch (err) {
@@ -2378,4 +2555,6 @@ function start() {
   $("zAuto").addEventListener("click", (e) => { setAutoZoom(!S.autoZoom); e.currentTarget.blur(); });
   requestAnimationFrame((t) => { last = t; frame(t); });
 }
+// ใช้ตรวจสอบระหว่างพัฒนาเท่านั้น (เปิดด้วย ?debug=1)
+if (/[?&]debug=1/.test(location.search)) window.__sim = { S, PH, buildRig, updateElev };
 requireLogin((user) => { S.uid = (user && user.uid) || "guest"; loadBest(); start(); renderScnList(); });

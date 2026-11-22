@@ -68,6 +68,10 @@
   }
   .hud b { font-weight: 600; text-align: right; }
   .hud .bsd { grid-column: 1 / -1; color: #fff; background: var(--bad); border-radius: 6px; padding: 2px 6px; margin-top: 4px; font-weight: 600; animation: bsdblink .5s steps(1) infinite; }
+  .hud .tbar { grid-column: 1 / -1; height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 2px 0 2px; }
+  .hud .tbar i { display: block; height: 100%; }
+  #btnExhaust[aria-pressed="true"] { background: #2f63c8; color: #fff; border-color: #2f63c8; }
+  #mapSeg button { font-size: .78rem; }
   .hud .pad { grid-column: 1 / -1; color: var(--muted); font-size: .72rem; }
   @keyframes bsdblink { 50% { opacity: .55; } }
   .mir { pointer-events: auto !important; cursor: ew-resize; }
@@ -259,7 +263,7 @@
       <button data-view="chase" aria-pressed="false" title="กล้อง 3 มิติไล่ตามหลังรถ">3D ไล่หลัง</button>
       <button data-view="driver" aria-pressed="false" title="มองจากที่นั่งคนขับ พร้อมกระจกมองข้าง">มุมคนขับ</button>
       <button id="btnNight" aria-pressed="false" title="สลับกลางวัน/กลางคืน (N)">กลางคืน</button>
-      <button id="btnMap" title="ฝึกขับบนถนนจริงจาก OpenStreetMap">แผนที่จริง</button>
+      <button id="btnMap" title="เลือกสนาม: เมือง / ภูเขา / สะพาน-อุโมงค์-ยูเทิร์น / แผนที่จริง">เลือกแผนที่</button>
       <button id="btnReplay" title="ย้อนดู 15 วินาทีล่าสุดแบบแบ่งจอ (P)">รีเพลย์</button>
       <button id="btnRain" aria-pressed="false" title="ฝนตก: ถนนลื่น กระจกเห็นใกล้ลง">ฝนตก</button>
       <button id="btnSound" aria-pressed="true" title="เปิด/ปิดเสียง">เสียง เปิด</button>
@@ -417,12 +421,19 @@
     </section>
 
     <section id="osmSec">
-      <h2>แผนที่จริง (OpenStreetMap)</h2>
+      <h2>เลือกสนาม / แผนที่</h2>
+      <div class="seg" id="mapSeg" style="margin-bottom:10px">
+        <button data-map="city" aria-pressed="true">เมือง</button>
+        <button data-map="mountain">ภูเขาภาคเหนือ</button>
+        <button data-map="express">สะพาน·อุโมงค์·ยูเทิร์น</button>
+      </div>
+      <p class="sub">หรือ แผนที่จริง (OpenStreetMap)</p>
       <input type="text" id="osmCoord" class="txt" placeholder="พิกัด เช่น 13.7563, 100.5018" autocomplete="off">
       <div class="btns">
         <button class="pill" id="osmLoad">โหลดถนนจริง</button>
         <button class="pill" id="osmMe">ใช้ตำแหน่งของฉัน</button>
         <button class="pill" id="osmBack" hidden>กลับเมืองจำลอง</button>
+        <button class="pill" id="btnExhaust" aria-pressed="false" title="เบรกไอเสีย (E)">เบรกไอเสีย (E)</button>
       </div>
       <p class="note" id="osmStatus">ก๊อปพิกัดจาก Google Maps (คลิกขวาที่จุด) มาวาง ระบบจะสร้างถนนและตึกจริงรอบจุดนั้นราว 500 ม. ให้ฝึกขับ · ส่งพิกัดไปที่เซิร์ฟเวอร์ Overpass ของ OpenStreetMap (ข้อมูลแผนที่สาธารณะ)</p>
     </section>
@@ -451,6 +462,7 @@
         <kbd>← → / A D</kbd><span>เลี้ยว</span>
         <kbd>Space</kbd><span>เบรกเต็มที่</span>
         <kbd>H</kbd><span>แตร</span>
+        <kbd>E</kbd><span>เบรกไอเสีย (ช่วยหน่วงตอนลงเขา ไม่ทำให้เบรกร้อน)</span>
         <kbd>1 2 3</kbd><span>เปลี่ยนรถ</span>
         <kbd>V · T · Z</kbd><span>เปิด/ปิดพื้นที่ที่มองเห็น · เส้นทางล้อ · โซนอันตราย</span>
         <kbd>P</kbd><span>รีเพลย์ 15 วินาทีล่าสุด (แบ่งจอ)</span>
@@ -462,6 +474,6 @@
   </aside>
 </div>
 
-<script type="module" src="./truck_blind_spot_simulator.js?v=20261124-3"></script>
+<script type="module" src="./truck_blind_spot_simulator.js?v=20261125-1"></script>
 </body>
 </html>

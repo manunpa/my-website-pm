@@ -218,17 +218,150 @@ export function create3D(host, api) {
     for (let i = 0; i + 1 < pts.length; i++) {
       const [ax, ay] = pts[i], [bx, by] = pts[i + 1], len = Math.hypot(bx - ax, by - ay) || 1;
       const ux = (bx - ax) / len, uy = (by - ay) / len, nx = -uy * w / 2, ny = ux * w / 2, ex = ux * w / 2, ey = uy * w / 2;
-      const A = [ax - ex + nx, ay - ey + ny], B = [bx + ex + nx, by + ey + ny], C = [bx + ex - nx, by + ey - ny], D = [ax - ex - nx, ay - ey - ny];
-      [A, B, C, A, C, D].forEach(([x, z]) => pos.push(x, y, -z));
+      const za = y + (pts[i][2] || 0), zb = y + (pts[i + 1][2] || 0);
+      const A = [ax - ex + nx, ay - ey + ny, za], B = [bx + ex + nx, by + ey + ny, zb], C = [bx + ex - nx, by + ey - ny, zb], D = [ax - ex - nx, ay - ey - ny, za];
+      [A, B, C, A, C, D].forEach(([x, z, h]) => pos.push(x, h, -z));
     }
     const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.computeVertexNormals();
     const m = new THREE.Mesh(g, material); m.receiveShadow = true; return m;
+  }
+  // แถบตั้งตามขอบถนน (ราวกันตก ผนังอุโมงค์ ราวสะพาน): offset = ระยะจากเส้นกลาง, lo/hi = ความสูงเทียบผิวถนน (หรือฟังก์ชัน)
+  function edgeWall(r, idx, off, lo, hi, material) {
+    const pos = [];
+    for (let k = 0; k + 1 < idx.length; k++) {
+      const i = idx[k], j = idx[k + 1], a = r.pts[i], b = r.pts[j];
+      const ax = a[0] - Math.sin(r.th[i]) * off, ay = a[1] + Math.cos(r.th[i]) * off, bx = b[0] - Math.sin(r.th[j]) * off, by = b[1] + Math.cos(r.th[j]) * off;
+      const l1 = typeof lo === "function" ? lo(a) : a[2] + lo, l2 = typeof lo === "function" ? lo(b) : b[2] + lo;
+      const h1 = typeof hi === "function" ? hi(a) : a[2] + hi, h2 = typeof hi === "function" ? hi(b) : b[2] + hi;
+      pos.push(ax, l1, -ay, bx, l2, -by, bx, h2, -by, ax, l1, -ay, bx, h2, -by, ax, h1, -ay);
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.computeVertexNormals();
+    const m = new THREE.Mesh(g, material); m.castShadow = true; m.receiveShadow = true; return m;
+  }
+  function offsetPts(r, idx, off, dz) { return idx.map((i) => [r.pts[i][0] - Math.sin(r.th[i]) * off, r.pts[i][1] + Math.cos(r.th[i]) * off, r.pts[i][2] + dz]); }
+  function signSprite(text, green) {
+    const c = document.createElement("canvas"), g = c.getContext("2d"), font = "700 44px 'IBM Plex Sans Thai', system-ui, sans-serif";
+    g.font = font; const w = Math.ceil(g.measureText(text).width) + 60; c.width = w; c.height = 96;
+    g.fillStyle = green ? "#1f6f3f" : "#1f4f8f"; g.fillRect(0, 0, w, 96);
+    g.strokeStyle = "#fff"; g.lineWidth = 5; g.strokeRect(8, 8, w - 16, 80);
+    g.font = font; g.fillStyle = "#fff"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(text, w / 2, 50);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t })); sp.scale.set(w / 96 * 1.6, 1.6, 1);
+    return sp;
+  }
+  // สนามพิเศษ (ภูเขา / สะพาน-อุโมงค์): พื้นมีความสูง ถนน 3 มิติ สะพาน เสาตอม่อ อุโมงค์ ราวกันตก ป้าย
+  function buildCustom(o) {
+    const G3 = osmGroup, b = o.bounds, res = o.flat ? 4 : 6;
+    const nx = Math.ceil((b.maxX - b.minX) / res) + 1, ny = Math.ceil((b.maxY - b.minY) / res) + 1;
+    const pos = new Float32Array(nx * ny * 3), col = new Float32Array(nx * ny * 3), idx = [];
+    let lo = Infinity, hi = -Infinity;
+    const H = new Float32Array(nx * ny);
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) { const z = o.ground(b.minX + i * res, b.minY + j * res); H[j * nx + i] = z; lo = Math.min(lo, z); hi = Math.max(hi, z); }
+    const c = new THREE.Color();
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      const k = j * nx + i, z = H[k], x = b.minX + i * res, y = b.minY + j * res;
+      pos[k * 3] = x; pos[k * 3 + 1] = z - 0.06; pos[k * 3 + 2] = -y;
+      if (o.flat) c.setRGB(0.55, 0.6, 0.47).multiplyScalar(z < -0.3 ? 0.75 : 1);
+      else {
+        const sl = Math.min(1, Math.abs(H[k] - H[j * nx + Math.min(nx - 1, i + 1)]) / res + Math.abs(H[k] - H[Math.min(ny - 1, j + 1) * nx + i]) / res);
+        const f = (z - lo) / (hi - lo || 1);
+        c.setRGB(0.28 + f * 0.25, 0.42 + f * 0.05, 0.2 + f * 0.1).lerp(new THREE.Color(0.48, 0.42, 0.34), Math.min(1, sl * 0.9));
+      }
+      col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b;
+      if (i < nx - 1 && j < ny - 1) { const a = k, b2 = k + 1, c2 = k + nx, d = k + nx + 1; idx.push(a, c2, b2, b2, c2, d); }
+    }
+    const tg = new THREE.BufferGeometry();
+    tg.setAttribute("position", new THREE.BufferAttribute(pos, 3)); tg.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    tg.setIndex(idx); tg.computeVertexNormals();
+    const terr = new THREE.Mesh(tg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide }));
+    terr.receiveShadow = true; G3.add(terr);
+    if (o.flat) { const far = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), mat(0xffffff, { map: grassTex, roughness: 1 })); far.rotation.x = -Math.PI / 2; far.position.y = -0.4; G3.add(far); }
+    // ถนน
+    const asph = mat(0xffffff, { map: plainTex, roughness: 0.9 }), gravel = mat(0xb89f78, { roughness: 1 }), walkM = mat(0xc9c4b8, { roughness: 0.95 });
+    const concrete = mat(0xb5b3ad, { roughness: 0.85 }), under = mat(0x8d8f93, { roughness: 0.9 }), rail = mat(0xc9ced3, { metalness: 0.6, roughness: 0.35 });
+    const lineW = mat(0xf2f2ee, { roughness: 0.6 }), lineY = mat(0xf0c02c, { roughness: 0.6 }), redM = mat(0xd93036);
+    const runs = [];
+    o.roads.forEach((r) => {
+      let cur = null;
+      r.pts.forEach((p, i) => {
+        const lvl = !o.flat ? "ground" : p[2] > 1.2 ? "bridge" : p[2] < -0.3 ? (p[3] ? "tunnel" : "cut") : "ground";
+        if (!cur || cur.lvl !== lvl) { if (cur) cur.idx.push(i); cur = { r, lvl, idx: [] }; runs.push(cur); }
+        cur.idx.push(i);
+      });
+    });
+    runs.forEach((u) => {
+      const r = u.r, pts = u.idx.map((i) => r.pts[i]);
+      if (o.flat && u.lvl === "ground" && r.kind === "road") G3.add(ribbon(pts, r.w + 3.4, 0.02, walkM));
+      G3.add(ribbon(pts, r.w, 0.04, r.kind === "escape" ? gravel : asph));
+      // เส้นจราจร
+      if (r.kind !== "escape") {
+        [r.w / 2 - 0.45, -r.w / 2 + 0.45].forEach((off) => G3.add(ribbon(offsetPts(r, u.idx, off, 0), 0.15, 0.06, lineW)));
+        if (r.two) [0.12, -0.12].forEach((off) => G3.add(ribbon(offsetPts(r, u.idx, off, 0), 0.12, 0.06, lineY)));
+        else if (r.lanes === 2) for (let k = 0; k + 1 < u.idx.length; k += 3) G3.add(ribbon(offsetPts(r, u.idx.slice(k, k + 2), 0, 0), 0.15, 0.06, lineW));
+      } else [r.w / 2 - 0.3, -r.w / 2 + 0.3].forEach((off) => G3.add(edgeWall(r, u.idx, off, 0.02, 0.9, redM)));
+      if (u.lvl === "bridge") {
+        G3.add(ribbon(pts.map((p) => [p[0], p[1], p[2] - 0.9]), r.w + 0.8, 0, under));
+        [r.w / 2 + 0.3, -r.w / 2 - 0.3].forEach((off) => { G3.add(edgeWall(r, u.idx, off, -0.9, 1.05, concrete)); });
+        for (let k = 0; k < u.idx.length; k += 8) {
+          const pp = r.pts[u.idx[k]], gz = o.ground(pp[0], pp[1]), hgt = pp[2] - 0.9 - gz;
+          if (hgt < 1) continue;
+          const col = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.8, hgt, 16), concrete);
+          col.position.set(pp[0], gz + hgt / 2, -pp[1]); col.castShadow = col.receiveShadow = true; G3.add(col);
+        }
+      }
+      if (u.lvl === "cut" || u.lvl === "tunnel") {
+        [r.w / 2 + 0.25, -r.w / 2 - 0.25].forEach((off) => G3.add(edgeWall(r, u.idx, off, 0, () => 0.9, concrete)));
+        if (u.lvl === "tunnel") for (let k = 0; k < u.idx.length; k += 3) {
+          const pp = r.pts[u.idx[k]], lamp = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 0.3), mat(0xfff3d6, { emissive: 0xfff3d6, emissiveIntensity: 2.5 }));
+          lamp.position.set(pp[0], -0.35, -pp[1]); G3.add(lamp);
+        }
+      }
+      // ราวกันตกภูเขา (เหล็กลูกฟูก) ทั้งสองข้าง
+      if (!o.flat && r.kind === "road") [r.w / 2 + 0.6, -r.w / 2 - 0.6].forEach((off) => G3.add(edgeWall(r, u.idx, off, 0.35, 0.8, rail)));
+    });
+    // เกาะกลาง
+    if (o.median) {
+      const r0 = o.roads[0], md = o.median;
+      let seg = [];
+      const flush = () => { if (seg.length > 1) { G3.add(ribbon(seg, md.w, 0.2, concrete)); } seg = []; };
+      r0.pts.forEach((p) => { if (md.gaps.some(([a, bb]) => p[0] > a && p[0] < bb)) flush(); else seg.push([p[0], md.y, p[2]]); });
+      flush();
+    }
+    // ต้นไม้
+    const T = o.trees;
+    const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.14, 0.2, 2.6, 6), mat(0x6b4f35), T.length);
+    const crown = new THREE.InstancedMesh(o.flat ? new THREE.IcosahedronGeometry(1.9, 1) : new THREE.ConeGeometry(2.0, 5.5, 7), mat(0xffffff, { flatShading: true }), T.length);
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), cc = new THREE.Color();
+    T.forEach((t, i) => {
+      const gz = o.ground(t.x, t.y);
+      m4.compose(new THREE.Vector3(t.x, gz + 1.3 * t.s, -t.y), q, sc.set(t.s, t.s, t.s)); trunk.setMatrixAt(i, m4);
+      m4.compose(new THREE.Vector3(t.x, gz + (o.flat ? 3.3 : 4.6) * t.s, -t.y), q, sc.set(t.s, t.s, t.s)); crown.setMatrixAt(i, m4);
+      crown.setColorAt(i, cc.setHSL(o.flat ? 0.27 : 0.3, 0.45, 0.2 + (t.s - 0.8) * 0.12));
+    });
+    trunk.castShadow = crown.castShadow = true; G3.add(trunk, crown);
+    // ป้าย
+    (o.signs || []).forEach((sg) => {
+      const gz = o.heightAt(sg.x, sg.y);
+      const pole = box(0.12, 3.2, 0.12, mat(0x6b6f75)); pole.position.set(sg.x, gz + 1.6, -sg.y); G3.add(pole);
+      const sp = signSprite(sg.text, o.flat); sp.position.set(sg.x, gz + 4.0, -sg.y); G3.add(sp);
+    });
   }
   function setOSM(o) {
     if (osmGroup) { scene.remove(osmGroup); osmGroup.traverse((c) => { if (c.geometry) c.geometry.dispose(); }); osmGroup = null; }
     cityObjs.forEach((c) => { c.visible = !o; });
     if (!o) return;
     osmGroup = new THREE.Group();
+    if (o.custom) {
+      buildCustom(o);
+      const bm = [0xd8d2c4, 0xc7cbd1, 0xe2d6c2, 0xb9c2c9, 0xd6c9b6].map((c) => mat(c, { roughness: 0.85 }));
+      o.buildings.forEach((b, i) => {
+        const shape = new THREE.Shape(b.pts.map(([x, y]) => new THREE.Vector2(x, y)));
+        const geo = new THREE.ExtrudeGeometry(shape, { depth: b.h, bevelEnabled: false }); geo.rotateX(-Math.PI / 2);
+        const m = new THREE.Mesh(geo, bm[i % bm.length]); m.castShadow = m.receiveShadow = true; osmGroup.add(m);
+      });
+      scene.add(osmGroup);
+      return;
+    }
     const gr = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000), mat(0xffffff, { map: grassTex, roughness: 1 }));
     gr.rotation.x = -Math.PI / 2; gr.position.y = -0.02; gr.receiveShadow = true; osmGroup.add(gr);
     const walkM = mat(0xc9c4b8, { roughness: 0.95 }), asph = mat(0x4a4e53, { roughness: 0.9 }), lineW = mat(0xf2f2ee), lineY = mat(0xf0c02c);
@@ -457,7 +590,7 @@ export function create3D(host, api) {
       let g = objMeshes.get(o);
       if (!g) { g = objMesh(o); objMeshes.set(o, g); }
       alive.add(o);
-      g.position.copy(V(o.x, o.y, 0)); g.rotation.y = o.th;
+      g.position.copy(V(o.x, o.y, o.z || 0)); g.rotation.y = o.th;
       const st = states[i], b = g.userData.body;
       b.color.set(st === "seen" ? (o.col || "#3b6fd8") : st === "hit" ? "#777777" : "#e5484d");
       b.emissive.setHex(st === "blind" ? 0xe5484d : 0x000000);
@@ -500,16 +633,17 @@ export function create3D(host, api) {
     gridTex.needsUpdate = true;
     const w = G.nx * CELL, h = G.ny * CELL;
     gridPlane.scale.set(w, h, 1);
-    gridPlane.position.copy(V(G.minX + w / 2, G.maxY - h / 2, 0.19));
+    gridPlane.position.copy(V(G.minX + w / 2, G.maxY - h / 2, (S.z || 0) + 0.19));
     const segs = api.blindOutline(), n = Math.min(MAXSEG, segs.length / 2), H = S.opts.objH;
     const pos = curtainGeo.attributes.position.array, al = curtainGeo.attributes.alpha.array, ep = edgeGeo.attributes.position.array;
     const X = (i) => G.minX + (i + 0.5) * CELL, Z = (j) => -(G.maxY - (j + 0.5) * CELL);
     for (let k = 0; k < n; k++) {
       const a = segs[k * 2], b = segs[k * 2 + 1];
       const ax = X(a[0]), az = Z(a[1]), bx = X(b[0]), bz = Z(b[1]), o = k * 18;
-      pos.set([ax, 0.05, az, bx, 0.05, bz, bx, H, bz, ax, 0.05, az, bx, H, bz, ax, H, az], o);
+      const z0 = (S.z || 0) + 0.05, zt = (S.z || 0) + H;
+      pos.set([ax, z0, az, bx, z0, bz, bx, zt, bz, ax, z0, az, bx, zt, bz, ax, zt, az], o);
       al.set([0.42, 0.42, 0.04, 0.42, 0.04, 0.04], k * 6);
-      ep.set([ax, H, az, bx, H, bz], k * 6);
+      ep.set([ax, zt, az, bx, zt, bz], k * 6);
     }
     curtainGeo.setDrawRange(0, n * 6); curtainGeo.attributes.position.needsUpdate = true; curtainGeo.attributes.alpha.needsUpdate = true;
     edgeGeo.setDrawRange(0, n * 2); edgeGeo.attributes.position.needsUpdate = true;
@@ -566,7 +700,7 @@ export function create3D(host, api) {
   }
   const mBrake = marker(0xf0a000), mStop = marker(0xe5484d);
   function placeMarker(g, wx, wy, th, width) {
-    g.visible = true; g.position.copy(V(wx, wy, 0)); g.rotation.y = th;
+    g.visible = true; g.position.copy(V(wx, wy, api.heightAt(wx, wy, S.z || 0))); g.rotation.y = th;
     g.userData.bar.scale.z = width;
     g.children.forEach((c) => { if (c.userData.side) c.position.z = c.userData.side * width / 2; });
   }
@@ -588,8 +722,7 @@ export function create3D(host, api) {
   function buildZones(shapes) {
     const pos = zoneGeo.attributes.position.array, ep = zoneEdgeGeo.attributes.position.array;
     let n = 0, e = 0;
-    const Y = 0.21;
-    const put = (arr, i, p) => { arr[i] = p[0]; arr[i + 1] = Y; arr[i + 2] = -p[1]; };
+    const put = (arr, i, p) => { arr[i] = p[0]; arr[i + 1] = api.heightAt(p[0], p[1], S.z || 0) + 0.21; arr[i + 2] = -p[1]; };
     shapes.forEach((z) => {
       for (let i = 0; i + 1 < z.L.length && n + 18 <= ZMAX * 3; i++) {
         const a = z.L[i], b = z.L[i + 1], c = z.R[i + 1], d = z.R[i];
@@ -613,13 +746,13 @@ export function create3D(host, api) {
       const fz = S.zoneStats && S.zoneStats.front;
       placeMarker(mBrake, pr.x, pr.y, pr.th, 3.6);
       placeMarker(mStop, pt.x, pt.y, pt.th, 3.6);
-      const off = (p, k, h) => V(p.x - Math.sin(p.th) * k, p.y + Math.cos(p.th) * k, h);
+      const off = (p, k, h) => V(p.x - Math.sin(p.th) * k, p.y + Math.cos(p.th) * k, h + api.heightAt(p.x, p.y, S.z || 0));
       // ป้ายเบรกไว้ซ้ายของเส้น ป้ายหยุดไว้ขวาและสูงกว่า — มองจากที่นั่งคนขับจะไม่ทับกัน
       label(off(pr, 2.6, 1.9), "เริ่มเบรก " + sd.r.toFixed(0) + " ม.", "rgba(214,138,0,.62)");
       label(off(pt, -2.6, 3.1), "หยุดสนิท " + sd.total.toFixed(0) + " ม." + (fz ? " · มองไม่เห็น " + Math.round(fz.pct) + "%" : ""), "rgba(229,72,77,.62)");
       for (let d = 0; d + 1 <= sd.total && pn + 6 <= pp.length; d += 2) {
         const a = api.predictFront(d), b = api.predictFront(d + 1);
-        pp.set([a.x, 0.24, -a.y, b.x, 0.24, -b.y], pn); pn += 6;
+        pp.set([a.x, api.heightAt(a.x, a.y, S.z || 0) + 0.24, -a.y, b.x, api.heightAt(b.x, b.y, S.z || 0) + 0.24, -b.y], pn); pn += 6;
       }
     } else { mBrake.visible = mStop.visible = false; }
     pathGeo.setDrawRange(0, pn / 3); pathGeo.attributes.position.needsUpdate = true;
@@ -630,12 +763,12 @@ export function create3D(host, api) {
       const a = st[z.key];
       if (a && (z.key === "rear" || z.tail)) {
         const name = z.key === "rear" ? "เว้นท้าย 2 วิ " + a.len.toFixed(0) + " ม." : z.key === "left" ? "รถแซงซ้าย" : "รถแซงขวา";
-        label(V(z.far[0], z.far[1], 1.8), name + " · มองไม่เห็น " + Math.round(a.pct) + "%");
+        label(V(z.far[0], z.far[1], 1.8 + api.heightAt(z.far[0], z.far[1], S.z || 0)), name + " · มองไม่เห็น " + Math.round(a.pct) + "%");
       }
     });
     // ขนาดพื้นที่มุมอับแต่ละก้อน
     (G.regions || []).forEach((r) => {
-      label(V(r.x, r.y, S.opts.objH + 0.6), "≈ " + (r.area < 10 ? r.area.toFixed(1) : Math.round(r.area)) + " ตร.ม.", "rgba(229,72,77,.62)");
+      label(V(r.x, r.y, (S.z || 0) + S.opts.objH + 0.6), "≈ " + (r.area < 10 ? r.area.toFixed(1) : Math.round(r.area)) + " ตร.ม.", "rgba(229,72,77,.62)");
     });
     for (let i = labelUsed; i < labelPool.length; i++) labelPool[i].sp.visible = false;
   }
@@ -674,12 +807,15 @@ export function create3D(host, api) {
     setNight(night);
   }
   let rainT = 0;
-  function updateRain(dt, cx, cz) {
+  let rainBase = 0;
+  function updateRain(dt, cx, cz, cy) {
+    rainBase = (cy || 0) - 15;
     if (!raining) return;
     rainT += dt;
     for (let i = 0; i < RAIN_N; i++) {
       let y = rainSeed[i * 3 + 1] - ((rainT * 22 + i * 0.37) % 40);
       if (y < 0) y += 40;
+      y += rainBase;
       const x = cx + rainSeed[i * 3], z = cz + rainSeed[i * 3 + 2], o = i * 6;
       rainPos[o] = x; rainPos[o + 1] = y; rainPos[o + 2] = z;
       rainPos[o + 3] = x + 0.12; rainPos[o + 4] = y + 0.9; rainPos[o + 5] = z;
@@ -738,7 +874,7 @@ export function create3D(host, api) {
     rig.spin += S.v * dt / 0.52;
     rig.parts.forEach((info, i) => {
       const u = S.units[i];
-      info.outer.position.copy(V(u.x, u.y, 0)); info.outer.rotation.y = u.th;
+      info.outer.position.copy(V(u.x, u.y, u.z || 0)); info.outer.rotation.order = "YZX"; info.outer.rotation.set(0, u.th, u.pitch || 0);
       // เอียงตามแรงเหวี่ยง / พลิกตะแคง: หมุนรอบขอบล้อด้านที่เอียงไป
       const edge = (S.lean >= 0 ? -1 : 1) * 1.25;
       info.pivot.position.z = edge; info.g.position.z = -edge;
@@ -785,14 +921,14 @@ export function create3D(host, api) {
     sigLamps.forEach(({ sg, lamps }) => { const st = api.lightState(sg.axis); lamps.forEach(({ k, m }) => { m.material.emissiveIntensity = st === k ? 4 : 0.05; }); });
     updateBlind(showBlind);
     updateOverlays();
-    updateRain(dt, cam.position.x, cam.position.z);
+    updateRain(dt, cam.position.x, cam.position.z, cam.position.y);
 
     // ดวงอาทิตย์ตามรถ (เงาคมรอบรถเสมอ)
-    const c = V(truck.x, truck.y, 0);
-    sun.position.set(c.x + 38, 70, c.z + 26); sun.target.position.copy(c); sun.target.updateMatrixWorld();
+    const c = V(truck.x, truck.y, S.z || 0);
+    sun.position.set(c.x + 38, c.y + 70, c.z + 26); sun.target.position.copy(c); sun.target.updateMatrixWorld();
 
     // กล้องหลัก
-    const b = P.bounds, center = V((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, 1.6);
+    const b = P.bounds, center = V((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, 1.6 + (S.z || 0));
     cam.aspect = W / H;
     if (view.mode === "chase") {
       const ang = truck.th + Math.PI + view.yaw;
@@ -803,9 +939,10 @@ export function create3D(host, api) {
       cam.position.copy(view.camPos); cam.lookAt(view.camTgt);
     } else {
       const [ex, ey] = api.toWorld(truck, P.eyeL[0], P.eyeL[1]);
-      cam.position.copy(V(ex, ey, EYE_H));
-      const yaw = truck.th + view.lookYaw;
-      cam.lookAt(cam.position.x + Math.cos(yaw) * Math.cos(view.lookPitch), EYE_H + Math.sin(view.lookPitch), cam.position.z - Math.sin(yaw) * Math.cos(view.lookPitch));
+      const tp = truck.pitch || 0, eyeY = (truck.z || 0) + EYE_H + P.eyeL[0] * Math.sin(tp);
+      cam.position.copy(V(ex, ey, eyeY));
+      const yaw = truck.th + view.lookYaw, lp = view.lookPitch + tp;
+      cam.lookAt(cam.position.x + Math.cos(yaw) * Math.cos(lp), eyeY + Math.sin(lp), cam.position.z - Math.sin(yaw) * Math.cos(lp));
     }
     cam.updateProjectionMatrix();
 
@@ -823,10 +960,11 @@ export function create3D(host, api) {
         const [mx, my] = api.toWorld(truck, m.lx, m.ly);
         const center = (m.min + m.max) / 2, hf = m.max - m.min;
         const dir = truck.th + Math.PI - m.side * center;
-        mc.position.copy(V(mx, my, 2.35));
+        const mz = (truck.z || 0) + 2.35 + m.lx * Math.sin(truck.pitch || 0);
+        mc.position.copy(V(mx, my, mz));
         mc.aspect = iw / ih;
         mc.fov = 2 * Math.atan(Math.tan(hf / 2) / mc.aspect) * 180 / Math.PI;
-        mc.lookAt(mc.position.x + Math.cos(dir) * 10, 2.35 - 1.6, mc.position.z - Math.sin(dir) * 10);
+        mc.lookAt(mc.position.x + Math.cos(dir) * 10, mz - 1.6 - 10 * Math.sin(truck.pitch || 0), mc.position.z - Math.sin(dir) * 10);
         mc.updateProjectionMatrix();
         mc.projectionMatrix.elements[0] *= -1;
         mc.projectionMatrixInverse.copy(mc.projectionMatrix).invert();
@@ -849,12 +987,12 @@ export function create3D(host, api) {
         if (kind === "cam360") {
           const b = P.bounds, cxm = (b.minX + b.maxX) / 2, cym = (b.minY + b.maxY) / 2, half = Math.max(b.maxX - b.minX, b.maxY - b.minY) / 2 + 3;
           topCam.left = -half * (cw / chh); topCam.right = half * (cw / chh); topCam.top = half; topCam.bottom = -half;
-          topCam.position.copy(V(cxm, cym, 40)); topCam.up.set(Math.cos(truck.th), 0, -Math.sin(truck.th));
-          topCam.lookAt(V(cxm, cym, 0)); topCam.updateProjectionMatrix(); camX = topCam;
+          topCam.position.copy(V(cxm, cym, 40 + (S.z || 0))); topCam.up.set(Math.cos(truck.th), 0, -Math.sin(truck.th));
+          topCam.lookAt(V(cxm, cym, S.z || 0)); topCam.updateProjectionMatrix(); camX = topCam;
         } else {
           const [sx0, sy0] = api.toWorld(truck, d.cabFront - 0.6, 1.35), dir = truck.th + Math.PI - 0.12;
-          sideCam.aspect = cw / chh; sideCam.position.copy(V(sx0, sy0, 3.0));
-          sideCam.lookAt(sideCam.position.x + Math.cos(dir) * 10, 0.4, sideCam.position.z - Math.sin(dir) * 10);
+          sideCam.aspect = cw / chh; sideCam.position.copy(V(sx0, sy0, 3.0 + (S.z || 0)));
+          sideCam.lookAt(sideCam.position.x + Math.cos(dir) * 10, 0.4 + (S.z || 0), sideCam.position.z - Math.sin(dir) * 10);
           sideCam.updateProjectionMatrix(); camX = sideCam;
         }
         renderer.setScissorTest(true);
