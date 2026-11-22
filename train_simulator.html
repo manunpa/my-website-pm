@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-MEC0JTJ5QJ"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-MEC0JTJ5QJ');
+</script>
+<title>จำลองขับรถไฟสายเหนือ</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%231a1a1a%27/%3E%3Crect x=%277%27 y=%276%27 width=%2718%27 height=%2716%27 rx=%274%27 fill=%27%23f5b301%27/%3E%3Crect x=%2710%27 y=%279%27 width=%2712%27 height=%275%27 rx=%271%27 fill=%27%231a1a1a%27/%3E%3Cpath d=%27M6 27h20M10 23l-3 4M22 23l3 4%27 stroke=%27white%27 stroke-width=%272%27/%3E%3C/svg%3E">
+<style>html:not(.ready) body { visibility: hidden; }</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root { --bg:#0e1116; --panel:rgba(16,20,28,.82); --line:rgba(255,255,255,.12); --text:#eef2f7; --muted:#9aa6b8; --acc:#f5b301; --ok:#30d158; --warn:#ffb020; --bad:#ff4d4f; --gap:10px; --top:54px; --dashW:400px; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { font-family: "IBM Plex Sans Thai", system-ui, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+  #view { position: fixed; inset: 0; }
+  #view canvas { display: block; width: 100%; height: 100%; }
+  .glass { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; backdrop-filter: blur(8px); box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+
+  /* แถบบน: ปุ่มทั้งหมดอยู่บรรทัดเดียว */
+  header.bar { position: fixed; left: var(--gap); right: var(--gap); top: var(--gap); height: 36px; display: flex; gap: 6px; align-items: center; z-index: 8; pointer-events: none; }
+  header.bar > * { pointer-events: auto; }
+  .pill { font: inherit; font-size: .82rem; color: var(--text); text-decoration: none; height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); backdrop-filter: blur(8px); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; flex: none; }
+  .pill:hover { border-color: var(--muted); }
+  .pill[aria-pressed="true"] { background: var(--acc); color: #111; border-color: var(--acc); }
+  .pill[hidden] { display: none; }
+  h1 { font-size: .92rem; font-weight: 600; text-shadow: 0 2px 8px rgba(0,0,0,.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+  .beta { font-size: .66rem; font-weight: 600; color: var(--acc); border: 1px solid currentColor; border-radius: 999px; padding: 1px 7px; margin-left: 6px; }
+
+  /* หน้าปัด ซ้ายล่าง */
+  #dash { position: fixed; left: var(--gap); bottom: var(--gap); z-index: 5; padding: 10px 12px; display: grid; grid-template-columns: 150px 1fr; gap: 12px; align-items: center; width: var(--dashW); }
+  #speedo { width: 150px; height: 150px; }
+  .readouts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1px 10px; font-size: .76rem; font-variant-numeric: tabular-nums; min-width: 0; }
+  .readouts span { color: var(--muted); white-space: nowrap; }
+  .readouts b { text-align: right; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lever { grid-column: 1 / -1; display: flex; gap: 2px; margin-top: 6px; }
+  .lever i { flex: 1; height: 15px; border-radius: 3px; background: rgba(255,255,255,.08); font-style: normal; font-size: .56rem; text-align: center; line-height: 15px; color: var(--muted); }
+  .lever i.on.p { background: var(--ok); color: #062; }
+  .lever i.on.b { background: var(--warn); color: #331; }
+  .lever i.on.e { background: var(--bad); color: #fff; }
+  .lever i.n.on { background: #fff; color: #111; }
+
+  /* สถานีถัดไป ขวาบน */
+  #next { position: fixed; right: var(--gap); top: var(--top); z-index: 5; padding: 8px 12px; width: 250px; }
+  #next .k { font-size: .7rem; color: var(--muted); }
+  #next .nm { font-size: 1.15rem; font-weight: 700; line-height: 1.2; }
+  #next .en { font-size: .72rem; color: var(--muted); }
+  #next .row { display: flex; justify-content: space-between; gap: 8px; margin-top: 3px; font-size: .78rem; font-variant-numeric: tabular-nums; }
+  #next .row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #next .stop.pass { color: var(--muted); }
+
+  /* ทางข้างหน้า: ต่อจากหน้าปัด ชิดล่าง */
+  #ahead { position: fixed; left: calc(var(--gap) * 2 + var(--dashW)); right: var(--gap); bottom: var(--gap); z-index: 5; padding: 6px 10px 4px; max-width: 760px; }
+  #ahead canvas { width: 100%; height: 96px; display: block; }
+  #ahead .t { font-size: .68rem; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+  #ahead .t span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* แผงตั้งค่า: ลิ้นชักจากขวา */
+  #panel { position: fixed; right: var(--gap); top: var(--top); bottom: var(--gap); width: 310px; max-width: calc(100vw - 2 * var(--gap)); z-index: 7; padding: 12px 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; transition: transform .25s, opacity .25s; }
+  #panel.closed { transform: translateX(calc(100% + 20px)); opacity: 0; pointer-events: none; }
+  #panel .ph { display: flex; justify-content: space-between; align-items: center; }
+  #panel .ph b { font-size: .9rem; }
+  #panel h2 { font-size: .72rem; color: var(--muted); font-weight: 500; margin-bottom: 6px; }
+  #panel select { width: 100%; font: inherit; font-size: .84rem; color: var(--text); background: rgba(255,255,255,.06); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+  #panel select option { background: #1b2230; }
+  .seg { display: flex; flex-wrap: wrap; gap: 4px; }
+  .seg button { flex: 1 0 auto; font: inherit; font-size: .74rem; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--text); cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--acc); color: #111; border-color: var(--acc); }
+  .train { display: grid; gap: 6px; }
+  .train button { text-align: left; font: inherit; padding: 7px 10px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,.04); color: var(--text); cursor: pointer; }
+  .train button strong { display: block; font-size: .84rem; font-weight: 600; }
+  .train button span { font-size: .7rem; color: var(--muted); }
+  .train button[aria-pressed="true"] { border-color: var(--acc); background: rgba(245,179,1,.14); }
+  .note { font-size: .7rem; color: var(--muted); line-height: 1.5; }
+  table.phys { width: 100%; font-size: .76rem; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  table.phys td { padding: 3px 0; border-bottom: 1px solid var(--line); }
+  table.phys td:last-child { text-align: right; }
+  .keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; font-size: .72rem; color: var(--muted); }
+  .keys kbd { font: inherit; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; justify-self: start; }
+
+  /* แผนที่ ซ้ายบน */
+  #mapWrap { position: fixed; left: var(--gap); top: var(--top); width: 250px; height: clamp(150px, calc(100vh - var(--top) - 240px), 300px); z-index: 6; overflow: hidden; padding: 0; }
+  #mapWrap[hidden] { display: none; }
+  #mapWrap.big { width: min(760px, calc(100vw - 2 * var(--gap))); height: calc(100vh - var(--top) - var(--gap)); z-index: 7; }
+  #map { position: absolute; inset: 0 0 64px 0; }
+  #profile { position: absolute; left: 0; right: 0; bottom: 0; height: 64px; display: block; width: 100%; cursor: pointer; }
+  #mapBtn { position: absolute; right: 6px; top: 6px; z-index: 600; height: 28px; padding: 0 10px; }
+  .leaflet-container { background: #1b2230; font-family: inherit; }
+  .darktiles { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9); }
+
+  #msg { position: fixed; left: 50%; top: var(--top); transform: translateX(-50%); z-index: 9; padding: 7px 14px; border-radius: 999px; font-size: .84rem; font-weight: 600; background: var(--bad); color: #fff; opacity: 0; transition: opacity .3s; pointer-events: none; width: max-content; max-width: min(560px, calc(100vw - 560px)); text-align: center; }
+  #msg.show { opacity: 1; }
+  #msg.info { background: #2f63c8; }
+  #msg.ok { background: #1f8f4e; }
+  #big { position: fixed; left: 0; right: 0; top: 24%; display: grid; place-items: center; z-index: 6; pointer-events: none; }
+  #big div { font-size: clamp(1.2rem, 3vw, 2.2rem); font-weight: 700; color: #fff; text-shadow: 0 3px 20px rgba(0,0,0,.85); opacity: 0; transition: opacity .4s; text-align: center; padding: 0 20px; }
+  #big div small { font-size: .5em !important; font-weight: 500; }
+  #big div.show { opacity: 1; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; z-index: 20; background: #0e1116; font-size: 1.1rem; color: var(--muted); }
+  #loading[hidden] { display: none; }
+
+  /* จอเล็กหรือเตี้ย: ย่อแผง ซ่อนบรรทัดรอง */
+  @media (max-height: 760px), (max-width: 1150px) {
+    :root { --dashW: 350px; }
+    #dash { grid-template-columns: 108px 1fr; gap: 8px; padding: 8px 10px; }
+    #speedo { width: 108px; height: 108px; }
+    .readouts { font-size: .7rem; }
+    .readouts .x { display: none; }
+    #ahead canvas { height: 68px; }
+    #next { width: 215px; }
+    #next .en, #next .row.x { display: none; }
+    #next .nm { font-size: 1rem; }
+  }
+  @media (max-height: 560px) {
+    #ahead { display: none; }
+    #msg { max-width: calc(100vw - 260px); }
+  }
+  @media (max-width: 860px) {
+    #ahead { display: none; }
+    h1 .t { display: none; }
+    #msg { max-width: calc(100vw - 20px); }
+  }
+  @media (max-width: 620px) {
+    .bar .lbl { display: none; }
+    #next { width: 170px; }
+  }
+</style>
+</head>
+<body>
+<div id="view"></div>
+<div id="loading">กำลังสร้างโลก 3 มิติของทางรถไฟสายเหนือ…</div>
+
+<header class="bar">
+  <a class="pill" href="Access-Hub.html" title="กลับหน้า Hub">← Hub</a>
+  <h1><span class="t">จำลองขับรถไฟสายเหนือ กรุงเทพ–เชียงใหม่</span><span class="beta">กำลังพัฒนา</span></h1>
+  <button class="pill" id="camBtn" title="สลับมุมกล้อง (C)">🎥 <span class="lbl">ห้องคนขับ</span></button>
+  <button class="pill" id="atoTop" aria-pressed="false" title="ขับอัตโนมัติ (A)">🤖 <span class="lbl">ATO</span></button>
+  <button class="pill" id="mapTop" aria-pressed="true" title="แผนที่ (M)">🗺 <span class="lbl">แผนที่</span></button>
+  <button class="pill" id="panelTop" aria-pressed="true" title="ตั้งค่า / เลือกรถ (Tab)">⚙ <span class="lbl">ตั้งค่า</span></button>
+</header>
+
+<div id="mapWrap" class="glass">
+  <div id="map"></div>
+  <canvas id="profile" title="คลิกเพื่อย้ายรถไปตำแหน่งนั้น"></canvas>
+  <button class="pill" id="mapBtn" title="ขยาย/ย่อแผนที่">ขยาย</button>
+</div>
+
+<div id="next" class="glass"></div>
+
+<div id="dash" class="glass">
+  <canvas id="speedo" width="400" height="400"></canvas>
+  <div class="readouts" id="readouts"></div>
+</div>
+
+<div id="ahead" class="glass">
+  <div class="t"><span>ทางข้างหน้า 6 กม. · เส้นขาว = ความสูง · แถบส้ม = โค้ง (ตัวเลข = ความเร็วปลอดภัย)</span><span id="aheadKm"></span></div>
+  <canvas id="aheadCv" width="1120" height="236"></canvas>
+</div>
+
+<aside id="panel" class="glass">
+  <div class="ph"><b>ตั้งค่า</b><button class="pill" id="panelClose" style="height:28px">ปิด ✕</button></div>
+  <section>
+    <h2>ชนิดรถไฟ</h2>
+    <div class="train" id="trains"></div>
+  </section>
+  <section>
+    <h2>เส้นทาง</h2>
+    <select id="from"></select>
+    <div style="height:6px"></div>
+    <select id="to"></select>
+    <div style="height:6px"></div>
+    <div class="seg" id="stopMode"><button data-m="type" aria-pressed="true">จอดตามชนิดรถ</button><button data-m="all">จอดทุกสถานี</button><button data-m="none">ไม่จอดเลย</button></div>
+    <div style="height:8px"></div>
+    <button class="pill" id="btnStart" style="width:100%;justify-content:center">ออกเดินทาง (เริ่มใหม่)</button>
+  </section>
+  <section>
+    <h2>มุมกล้อง (C)</h2>
+    <div class="seg" id="cams"><button data-c="cab" aria-pressed="true">ห้องคนขับ</button><button data-c="chase">ไล่หลัง</button><button data-c="side">ข้างขบวน</button><button data-c="drone">โดรน</button><button data-c="track">ข้างราง</button></div>
+  </section>
+  <section>
+    <h2>ขับอัตโนมัติ / เร่งเวลา</h2>
+    <div class="seg" id="warp"><button data-w="1" aria-pressed="true">×1</button><button data-w="2">×2</button><button data-w="5">×5</button><button data-w="10">×10</button><button data-w="30">×30</button></div>
+    <div style="height:6px"></div>
+    <button class="pill" id="btnAuto" aria-pressed="false" style="width:100%;justify-content:center">ระบบขับอัตโนมัติ (ATO) — ปิด</button>
+  </section>
+  <section>
+    <h2>สภาพแวดล้อม</h2>
+    <div class="seg" id="tod"><button data-t="dawn">เช้า</button><button data-t="day" aria-pressed="true">กลางวัน</button><button data-t="dusk">เย็น</button><button data-t="night">กลางคืน</button></div>
+    <div style="height:6px"></div>
+    <div class="seg" id="wx"><button data-x="clear" aria-pressed="true">ฟ้าใส</button><button data-x="rain">ฝนตก (รางลื่น)</button><button data-x="fog">หมอก</button></div>
+    <div style="height:6px"></div>
+    <button class="pill" id="btnSound" aria-pressed="true" style="width:100%;justify-content:center">เสียง เปิด</button>
+  </section>
+  <section>
+    <h2>ฟิสิกส์ตอนนี้</h2>
+    <table class="phys" id="phys"></table>
+    <p class="note" style="margin-top:6px">ความเร็วไม่ถูกจำกัด: รถเร่งได้เท่าที่แรงฉุดชนะแรงต้าน (ลม ล้อ ทางลาด โค้ง) และถูกจำกัดด้วยแรงยึดเกาะล้อ-ราง ถ้าเข้าโค้งเร็วเกินจุดที่แรงเหวี่ยงชนะน้ำหนักรถ รถจะตกราง</p>
+  </section>
+  <section>
+    <h2>ปุ่มควบคุม</h2>
+    <div class="keys">
+      <kbd>↑ / W</kbd><span>คันบังคับขึ้น (ลดเบรก → เพิ่มกำลัง)</span>
+      <kbd>↓ / S</kbd><span>คันบังคับลง (ลดกำลัง → เพิ่มเบรก)</span>
+      <kbd>Space</kbd><span>เบรกฉุกเฉิน</span>
+      <kbd>0</kbd><span>คันบังคับกลาง (N)</span>
+      <kbd>H</kbd><span>หวูด</span>
+      <kbd>C</kbd><span>สลับมุมกล้อง</span>
+      <kbd>A</kbd><span>เปิด/ปิดขับอัตโนมัติ</span>
+      <kbd>M</kbd><span>เปิด/ปิดแผนที่</span>
+      <kbd>Tab</kbd><span>เปิด/ปิดแผงตั้งค่า</span>
+      <kbd>ลากเมาส์</kbd><span>หันมอง / หมุนกล้อง · ล้อเมาส์ซูม</span>
+    </div>
+    <p class="note" style="margin-top:8px">ข้อมูลทาง: OpenStreetMap (สายเหนือ) + ความสูงจากดาวเทียม SRTM · สเปกรถเป็นค่าประมาณของรถแต่ละประเภท ไม่ใช่รุ่นใดรุ่นหนึ่ง · รถไฟฟ้า/ความเร็วสูงสมมติว่ามีสายส่งไฟและวิ่งบนรางเดิม (ขนาด 1 เมตร)</p>
+  </section>
+</aside>
+
+<div id="msg"></div>
+<div id="big"><div id="bigText"></div></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module" src="./train_sim.js?v=20261126-3"></script>
+</body>
+</html>
