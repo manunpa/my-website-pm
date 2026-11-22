@@ -52,7 +52,7 @@ const COMFORT = 0.65;  // ม./วินาที² แรงเหวี่ย�
 /* ---------------- ชนิดรถไฟ (ค่าประมาณตามประเภท) ---------------- */
 function consist(list) { let acc = 0; return list.map((c) => { const o = Object.assign({}, c, { off: acc + c.len / 2 }); acc += c.len + 0.8; return o; }); }
 // ปรับจำนวนตู้ได้: มวล แรงต้าน กำลัง (สำหรับรถที่มีมอเตอร์กระจายทุกคัน) คำนวณใหม่ตามจำนวนตู้
-const CARS = { loco: 12, lux: 7, dmu: 3, emu: 6, emuModern: 6, hsr: 10 };
+const CARS = { loco: 12, lux: 7, dmu: 3, emu: 6, emuModern: 6, hsr: 10, hsr350: 8 };
 // ลายรถไฟความเร็วสูง: "classic" = ลายเดิม (ค่าเริ่มต้น) · ลายใหม่เป็นตัวเลือกเพิ่ม ไม่ได้แทนของเดิม
 const HSR_STYLES = {
   classic: { name: "ดั้งเดิม", note: "ขาว แถบเขียว–ทอง จมูก 11 ม." },
@@ -63,7 +63,7 @@ const HSR_STYLES = {
   emerald: { name: "มรกต", note: "เขียวมรกตเมทัลลิก ท้องเงิน หัวลูกศรเงิน จมูกลิ่มสั้น 9 ม. ทรงดุดัน" }
 };
 let hsrStyle = "classic";
-const CAR_RANGE = { loco: [1, 20, "ตู้โดยสาร"], lux: [2, 14, "ตู้"], dmu: [2, 6, "คัน"], emu: [3, 16, "คัน"], emuModern: [3, 16, "คัน"], hsr: [4, 16, "คัน"] };
+const CAR_RANGE = { loco: [1, 20, "ตู้โดยสาร"], lux: [2, 14, "ตู้"], dmu: [2, 6, "คัน"], emu: [3, 16, "คัน"], emuModern: [3, 16, "คัน"], hsr: [4, 16, "คัน"], hsr350: [4, 16, "คัน"] };
 const fmtN = (x) => Math.round(x).toLocaleString("en-US");
 function makeTrain(k, n) {
   let t, list;
@@ -98,6 +98,14 @@ function makeTrain(k, n) {
       mass: mt * 1e3, power: 600e3 * n, fmax: 43.3e3 * n, adhMass: mt * 1e3 * 0.67, vDesign: 160 / KMH, rot: 1.08, hcg: 1.6,
       A: mt * 11, B: mt * 0.3, bServ: 1.0, bEmer: 1.35, airLag: 0.8 + n * 0.035, dyn: 500e3 * n, regen: true, tracLag: 0.4,
       stopMin: 1, dwell: 40, eye: 3.1, dial: 200, electric: true };
+  } else if (k === "hsr350") {
+    // รถไฟความเร็วสูงรุ่นแรงสูง (ลายเงิน–ปีกแดง): กำลัง 1,250 kW/คัน มอเตอร์ออกแบบที่ 350 กม./ชม. จมูกลู่ลมกว่า
+    list = [{ type: "hsrNose", len: 27, style: "silverwing" }].concat(Array.from({ length: n - 2 }, (_, i) => ({ type: "hsr", len: 25, panto: i % 3 === 2 ? 1 : 0, style: "silverwing" }))).concat([{ type: "hsrNose", len: 27, flip: 1, style: "silverwing" }]);
+    const mt = 52 * n;
+    t = { name: `รถไฟความเร็วสูง 350 ปีกแดง ${n} คัน`, sub: `เร็วสูงสุด 300+ กม./ชม. · ${fmtN(mt)} ตัน · ${fmtN(1250 * n)} kW`, kind: "hsr",
+      mass: mt * 1e3, power: 1250e3 * n, fmax: 40e3 * n, adhMass: mt * 1e3 * 0.5, vDesign: 350 / KMH, rot: 1.05, hcg: 1.45,
+      A: mt * 8, B: mt * 0.18, bServ: 0.95, bEmer: 1.35, airLag: 0.6 + n * 0.03, dyn: 1100e3 * n, regen: true, tracLag: 0.35,
+      stopMin: 2, dwell: 60, eye: 3.2, eyeX: 6.4, dial: 400, electric: true, aero: [1.6, 0.0085] };
   } else {
     list = [{ type: "hsrNose", len: 27, style: hsrStyle }].concat(Array.from({ length: n - 2 }, (_, i) => ({ type: "hsr", len: 25, panto: i % 3 === 2 ? 1 : 0, style: hsrStyle }))).concat([{ type: "hsrNose", len: 27, flip: 1, style: hsrStyle }]);
     const mt = 49 * n;
@@ -111,6 +119,7 @@ function makeTrain(k, n) {
   // แรงต้านอากาศ C = ½ρ(Cd·A หน้า + แรงเสียดผิวตามความยาว)
   const front = { diesel: 6.0, dmu: 3.0, emu: 3.5, hsr: 2.4 }[t.kind], skin = { diesel: 0.0095, dmu: 0.0095, emu: 0.0105, hsr: 0.012 }[t.kind];
   t.C = front + skin * t.length * 1.0;
+  if (t.aero) t.C = t.aero[0] + t.aero[1] * t.length;   // จมูกยาวลู่ลมกว่า → แรงต้านอากาศต่ำกว่า
   return t;
 }
 const TRAINS = {};
@@ -273,7 +282,7 @@ function checkStops(dt) {
     const last = st === geo.stations[S.to];
     flash(`จอด${st.n} ${err >= 0 ? "เลย" : "ก่อน"}จุดจอด ${Math.abs(err).toFixed(1)} ม. · ${grade}`, Math.abs(err) <= 5 ? "ok" : "info", 4000);
     if (last) { S.done = true; S.ato = false; updAtoBtn(); big(`ถึงสถานี${st.n}<br><small style="font-size:1.1rem">${fmtTime(S.t)} · จอดตรงจุด ${S.results.filter((r) => r.ok && Math.abs(r.err) <= 5).length}/${S.results.length} สถานี</small>`, 7000); }
-    else { S.dwell = TRAINS[S.type].dwell; S.autoT = 0; if (!S.ato) flash(`จอด${st.n}แล้ว — กด D เปิดประตู`, "info", 3000); }
+    else { S.dwell = dwellTime(); S.autoT = 0; if (!S.ato) flash(`จอด${st.n}แล้ว — กด D เปิดประตู`, "info", 3000); }
   }
   if (S.atStation && Math.abs(stopMark(S.atStation) - S.s) > 30) S.atStation = null;
   if (d < -25 && S.atStation !== st) {
@@ -367,7 +376,7 @@ const sfx = (() => {
         }
       } catch (e) { /* ignore */ }
     },
-    horn() { init(); if (!ctx || !S.sound) return; const hi = S.type === "hsr" || S.type === "emu" || S.type === "emuModern"; [hi ? 466 : 311, hi ? 587 : 370].forEach((f) => burst(f, 1.3, 0.12, "sawtooth")); },
+    horn() { init(); if (!ctx || !S.sound) return; const hi = S.type === "hsr" || S.type === "hsr350" || S.type === "emu" || S.type === "emuModern"; [hi ? 466 : 311, hi ? 587 : 370].forEach((f) => burst(f, 1.3, 0.12, "sawtooth")); },
     chime(open) { if (!ctx || !S.sound) return; (open ? [988, 1319] : [1319, 988, 1319, 988]).forEach((f, i) => setTimeout(() => burst(f, 0.28, 0.07, "sine"), i * (open ? 260 : 330))); setTimeout(() => burst(240, 0.5, 0.05), open ? 500 : 1500); },
     bell() { if (!ctx || !S.sound) return; [0, 0.35, 0.7].forEach((t) => setTimeout(() => burst(1320, 0.4, 0.08, "sine"), t * 1000)); },
     beep() { if (!ctx || !S.sound) return; burst(880, 0.15, 0.08, "square"); },
@@ -547,7 +556,7 @@ function drawProfile() {
 function pressed(groupId, attr, val) { document.querySelectorAll(`#${groupId} button`).forEach((b) => b.setAttribute("aria-pressed", String(b.dataset[attr] === String(val)))); }
 function buildPanel() {
   renderTrains();
-  $("trains").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.type = b.dataset.k; pressed("trains", "k", S.type); fillRoute(); restart(); updCarUI(); updStyleUI(); });
+  $("trains").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.type = b.dataset.k; pressed("trains", "k", S.type); fillRoute(); restart(); updCarUI(); updStyleUI(); updDwellUI(); });
   $("hsrStyle").innerHTML = Object.entries(HSR_STYLES).map(([k, v]) => `<button data-s="${k}" aria-pressed="${k === hsrStyle}">${v.name}</button>`).join("");
   $("hsrStyle").addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b) return;
@@ -574,6 +583,15 @@ function buildPanel() {
   $("btnStart").addEventListener("click", () => { restart(); showPanel(false); });
   $("camBtn").addEventListener("click", () => { const i = CAMS.indexOf(world ? world.mode : "cab"); setCam(CAMS[(i + 1) % CAMS.length]); $("camBtn").blur(); });
   $("cams").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; setCam(b.dataset.c); });
+  $("dwellSel").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; dwellSet = +b.dataset.d; $("dwellCustom").value = ""; if (S.dwell > 0) S.dwell = dwellTime(); updDwellUI(); });
+  $("dwellCustom").addEventListener("change", () => {
+    const v = Math.round(+$("dwellCustom").value);
+    if (!(v > 0)) { dwellSet = 0; $("dwellCustom").value = ""; updDwellUI(); return; }
+    dwellSet = clamp(v, 5, 1800); $("dwellCustom").value = dwellSet; updDwellUI();
+    if (S.dwell > 0) S.dwell = dwellSet;   // กำลังจอดอยู่: ใช้เวลาใหม่กับสถานีนี้ด้วย
+    flash(`ตั้งเวลาจอดสถานีละ ${fmtDwell(dwellSet)}`, "info", 2000);
+  });
+  updDwellUI();
   $("warp").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.warp = +b.dataset.w; pressed("warp", "w", S.warp); });
   $("btnAuto").addEventListener("click", toggleAto);
   $("tod").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.tod = b.dataset.t; pressed("tod", "t", S.tod); world && world.setEnv({ tod: S.tod }); });
@@ -589,6 +607,15 @@ function buildPanel() {
     const r = $("profile").getBoundingClientRect(), s = clamp((e.clientX - r.left) / r.width * TOTAL, TRAINS[S.type].length, TOTAL - 50);
     jumpTo(s); flash(`ย้ายรถไปที่ กม. ${(s / 1000).toFixed(1)}`, "info");
   });
+}
+// เวลาจอดที่สถานี: 0 = ตามชนิดรถ · ตั้งเองได้ 5 วินาที – 30 นาที (ใช้ทั้งโหมดขับเองและ ATO)
+let dwellSet = 0;
+const dwellTime = () => dwellSet || TRAINS[S.type].dwell;
+const fmtDwell = (s) => (s >= 60 ? (s % 60 ? `${Math.floor(s / 60)} นาที ${s % 60} วิ` : `${s / 60} นาที`) : `${s} วิ`);
+function updDwellUI() {
+  const b = document.querySelector('#dwellSel [data-d="0"]'); if (b) b.textContent = `ตามชนิดรถ (${fmtDwell(TRAINS[S.type].dwell)})`;
+  pressed("dwellSel", "d", [0, 15, 30, 60, 120, 300].includes(dwellSet) ? dwellSet : -1);
+  $("dwellNote").textContent = `จอดสถานีละ ${fmtDwell(dwellTime())} — นับตอนประตูเปิดสุด · ATO ปิดประตูและออกรถเองเมื่อครบเวลา`;
 }
 function updStyleUI() { $("hsrStyleSec").hidden = S.type !== "hsr"; pressed("hsrStyle", "s", hsrStyle); $("hsrStyleNote").textContent = HSR_STYLES[hsrStyle].note; }
 function renderTrains() { $("trains").innerHTML = Object.entries(TRAINS).map(([k, t]) => `<button data-k="${k}" aria-pressed="${k === S.type}"><strong>${t.name}</strong><span>${t.sub}</span></button>`).join(""); }
@@ -740,7 +767,7 @@ async function start() {
   pressed("trains", "k", S.type);
   buildPanel(); initMap(); updAtoBtn();
   try {
-    const mod = await import("./train_sim_3d.js?v=20261128-3");
+    const mod = await import("./train_sim_3d.js?v=20261128-4");
     const bld = await loadBuildings();
     const branch = branchFor();
     world = mod.createWorld($("view"), { geo, bld, branch, urban: (a, b) => countBld(bld, a, b) > 25, electric: () => !!TRAINS[S.type].electric });

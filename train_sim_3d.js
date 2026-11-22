@@ -958,6 +958,8 @@ export function createWorld(host, api) {
     night: { NL: 10, tw: 0.58, tp: 1.75, hp: 0.34, base: 0x1c2433, glassC: 0x4d6a86, bands: [[0, 1.3, 0x10151e], [1.74, 1.8, 0xd4af37], [2.44, 2.48, 0x9c8a4a], [3.27, 3.31, 0x9c8a4a], [3.6, 3.65, 0xd4af37], [3.86, 9, 0x283044]], door: 0x232c3c, glass: [8.2, 4.3, 2.92], metal: 0.6, rough: 0.16 },
     sea: { NL: 12, tw: 0.64, tp: 1.5, hp: 0.44, base: 0xf4f8fa, bands: [[0, 1.3, 0x0b4f7a], [1.99, 2.05, 0x0b4f7a], [3.86, 9, 0xe2ebef]], door: 0xeef4f7, glass: [9.6, 5.2, 3.0], metal: 0.42, rough: 0.2 },
     swan: { NL: 15, tw: 0.7, tp: 1.3, hp: 0.55, tipY: 1.3, c1y: 1.72, base: 0xf7f5ef, bands: [[0, 1.28, 0xb9b2a0], [1.86, 1.92, 0xa3122a], [3.55, 3.6, 0xa3122a], [3.6, 9, 0xd9c08a]], door: 0xf2efe6, glass: [11.8, 6.4, 2.95], metal: 0.45, rough: 0.18 },
+    // เงิน–ปีกแดง: ตัวรถเงินเงา ฝาครอบห้องขับสีดำต่อกับกระจก เส้นแดงขอบฝา และปีกแดงกวาดจากจมูกขึ้นไปหาหน้าต่าง
+    silverwing: { NL: 12, tw: 0.62, tp: 1.45, hp: 0.42, tipY: 1.55, c1y: 2.0, base: 0xc7ccd2, glassC: 0x1c1f23, bands: [[0, 1.3, 0x2b2e33], [2.12, 2.17, 0xc8102e], [3.86, 9, 0xb4b9bf]], door: 0xc7ccd2, glass: [9.8, 1.6, 2.62], metal: 0.68, rough: 0.16 },
     emerald: { NL: 9, tw: 0.55, tp: 1.9, hp: 0.3, tipY: 1.85, c1y: 2.65, base: 0x0f5c4a, glassC: 0x5b7f8f, bands: [[0, 1.3, 0xaab3b8], [1.6, 1.65, 0xf2f4f5], [1.71, 1.74, 0xf2f4f5], [3.86, 9, 0x0b4739]], door: 0x125f4d, glass: [7.4, 3.9, 2.9], metal: 0.58, rough: 0.18 }
   };
   const hex = (c) => "#" + c.toString(16).padStart(6, "0");
@@ -1015,6 +1017,17 @@ export function createWorld(host, api) {
           g.strokeStyle = "rgba(184,150,79,.55)"; g.lineWidth = 2; for (let k = 1; k <= 4; k++) { g.beginPath(); g.moveTo(X(xn - 6 + k * 1.4), Y(3.58)); g.quadraticCurveTo(X(xn - 3 + k * 1.6), Y(3.1 - k * 0.12), X(xn + k * 1.7), Y(2.6 - k * 0.1)); g.stroke(); }
         }
         g.fillStyle = gr; g.fillRect(0, Y(y1), X(len / 2), Y(3.6) - Y(y1));
+      } else if (style === "silverwing") {
+        if (nose) {
+          // ฝาครอบดำบนจมูก + เส้นแดงใต้ขอบฝา
+          g.fillStyle = "#1c1f23"; g.beginPath(); g.moveTo(X(len / 2 - 1.6), Y(2.62)); g.bezierCurveTo(X(xn + 3), Y(2.62), X(xn - 1), Y(3.2), X(xn - 2.5), Y(y1)); g.lineTo(X(len / 2), Y(y1)); g.closePath(); g.fill();
+          g.strokeStyle = "#c8102e"; g.lineWidth = 7; g.beginPath(); g.moveTo(X(len / 2 - 1.4), Y(2.5)); g.bezierCurveTo(X(xn + 3), Y(2.5), X(xn - 1.2), Y(3.1), X(xn - 2.8), Y(3.95)); g.stroke();
+          // ปีกแดงกวาดจากจมูกขึ้นหาแนวหน้าต่าง ขอบขาว
+          const wing = () => { g.beginPath(); g.moveTo(X(xn + 9), Y(1.42)); g.lineTo(X(xn - 3), Y(1.42)); g.bezierCurveTo(X(xn - 6), Y(1.42), X(xn - 8.5), Y(2.4), X(xn - 10.5), Y(3.42)); g.lineTo(X(xn - 5.5), Y(3.42)); g.bezierCurveTo(X(xn - 2), Y(2.9), X(xn + 4), Y(2.3), X(xn + 9.5), Y(2.05)); g.closePath(); };   // ใบมีดกว้าง: ขอบล่างตามท้องรถ ขอบบนโค้งขึ้นหาหน้าต่าง
+          wing(); g.fillStyle = "#b80d24"; g.fill(); g.strokeStyle = "#f4f6f8"; g.lineWidth = 3; g.stroke();
+          g.fillStyle = "#ff4b5c"; g.fillRect(X(len / 2 - 3.2), Y(2.3), X(len / 2 - 1.9) - X(len / 2 - 3.2), Y(2.18) - Y(2.3));   // ไฟสัญญาณแดงข้างจมูก
+        }
+        g.fillStyle = "#3a3f45"; g.fillRect(X(-len / 2), Y(3.28), X(nose ? xn - 7 : len / 2) - X(-len / 2), Y(2.48) - Y(3.28));   // แถบหน้าต่างเทาเข้ม
       } else if (style === "emerald") {
         // หัวลูกศรเงินบนจมูก + เส้นขาวคู่ยกขึ้นเป็นมุมรับกระจก
         if (nose) {

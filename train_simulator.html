@@ -211,6 +211,12 @@
     <div class="seg" id="warp"><button data-w="1" aria-pressed="true">×1</button><button data-w="2">×2</button><button data-w="5">×5</button><button data-w="10">×10</button><button data-w="30">×30</button></div>
     <div style="height:6px"></div>
     <button class="pill" id="btnAuto" aria-pressed="false" style="width:100%;justify-content:center">ระบบขับอัตโนมัติ (ATO) — ปิด</button>
+    <div style="height:10px"></div>
+    <h2>เวลาจอดแต่ละสถานี</h2>
+    <div class="seg" id="dwellSel"><button data-d="0" aria-pressed="true">ตามชนิดรถ</button><button data-d="15">15 วิ</button><button data-d="30">30 วิ</button><button data-d="60">1 นาที</button><button data-d="120">2 นาที</button><button data-d="300">5 นาที</button></div>
+    <div style="height:6px"></div>
+    <label class="note" style="display:flex;align-items:center;gap:6px">ตั้งเอง <input type="number" id="dwellCustom" min="5" max="1800" step="5" placeholder="วินาที" style="width:90px;font:inherit;color:var(--text);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:8px;padding:4px 6px"> วินาที</label>
+    <p class="note" id="dwellNote" style="margin-top:4px"></p>
   </section>
   <section>
     <h2>สภาพแวดล้อม</h2>
@@ -248,6 +254,6 @@
 <div id="big"><div id="bigText"></div></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script type="module" src="./train_sim.js?v=20261128-3"></script>
+<script type="module" src="./train_sim.js?v=20261128-5"></script>
 </body>
 </html>
