@@ -133,7 +133,7 @@
 
   /* ---------- Search ---------- */
   .search {
-    position: relative; margin-bottom: 44px; max-width: 460px;
+    position: relative; margin-bottom: 16px; max-width: 460px;
   }
   .search input {
     width: 100%;
@@ -157,6 +157,56 @@
     border: 1px solid var(--line); border-radius: 6px; padding: 0 7px;
   }
   .empty { display: none; color: var(--muted); font-weight: 300; padding: 8px 0 24px; }
+
+  /* ---------- ชิปกรองตามประเภท ---------- */
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 40px; }
+  .chip {
+    font: inherit; font-size: .85rem; line-height: 1;
+    padding: 9px 14px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--text);
+    cursor: pointer; white-space: nowrap;
+    transition: background .2s, color .2s, border-color .2s;
+  }
+  .chip small { margin-left: 6px; font-size: .75rem; color: var(--muted); }
+  .chip:hover { border-color: var(--muted); }
+  .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .chip[aria-pressed="true"] small { color: var(--accent-text); opacity: .65; }
+  .chip:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+
+  /* ---------- หัวหมวดพับ/กางได้ ---------- */
+  section[data-sec] h2 { cursor: pointer; user-select: none; }
+  section[data-sec] h2:hover { color: var(--text); }
+  section[data-sec] h2:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; border-radius: 4px; }
+  .sec-meta { display: inline-flex; align-items: center; gap: 8px; flex: none; margin-left: 12px; }
+  .chev { width: 16px; height: 16px; transition: transform .25s; }
+  section.collapsed .chev { transform: rotate(-90deg); }
+  section.collapsed .grid { display: none; }
+  section.collapsed h2 { margin-bottom: 0; }
+
+  /* ---------- ปักหมุด ---------- */
+  .pin {
+    position: relative; flex: none; width: 28px; height: 28px; margin: -4px -6px -4px 0;
+    display: grid; place-items: center; border-radius: 50%;
+    color: var(--muted); opacity: 0; cursor: pointer;
+    transition: opacity .2s, background .2s, color .2s, transform .3s cubic-bezier(.4,1.6,.5,1);
+  }
+  .pin svg { width: 16px; height: 16px; }
+  .btn:hover .pin, .btn:focus-visible .pin, .pin:focus-visible { opacity: 1; }
+  .pin:hover { background: var(--spot); color: var(--text); }
+  .pin:focus-visible { outline: 2px solid currentColor; }
+  .btn.pinned .pin { opacity: 1; color: #e0a100; }
+  .btn.pinned .pin svg { fill: currentColor; }
+  .pin.pop { transform: scale(1.35); }
+  .btn.primary .pin { color: var(--accent-text); }
+  .btn.primary.pinned .pin { color: #f5c542; }
+
+  /* ---------- รายการโปรด / ใช้ล่าสุด ---------- */
+  .quick-hint {
+    display: flex; align-items: center; gap: 10px;
+    padding: 16px 18px; border: 1px dashed var(--line); border-radius: 12px;
+    color: var(--muted); font-size: .88rem; font-weight: 300;
+  }
+  .quick-hint svg { width: 16px; height: 16px; flex: none; }
 
   /* ---------- Sections & cards ---------- */
   section { margin-bottom: 40px; }
@@ -253,6 +303,10 @@
     .grid { grid-template-columns: 1fr; }
     .search kbd { display: none; }
     .go { opacity: .5; transform: none; }
+    .pin { opacity: .55; }
+    /* มือถือ: ชิปเลื่อนแนวนอนแถวเดียว */
+    .chips { flex-wrap: nowrap; overflow-x: auto; margin: 0 -18px 32px; padding: 2px 18px; scrollbar-width: none; }
+    .chips::-webkit-scrollbar { display: none; }
     .user { display: none; }
     .top { margin-bottom: 40px; }
   }
@@ -287,42 +341,47 @@
     <input id="q" type="search" placeholder="ค้นหาลิงก์…" autocomplete="off" aria-label="ค้นหาลิงก์">
     <kbd>/</kbd>
   </div>
+  <div class="chips reveal" id="chips" role="toolbar" aria-label="กรองตามประเภท" style="--i:2"></div>
   <p class="empty" id="empty">ไม่พบลิงก์ที่ตรงกับคำค้น</p>
 
-  <section class="reveal" style="--i:3">
+  <!-- รายการโปรด / ใช้ล่าสุด (สร้างใน hub.js จากข้อมูลในเครื่องนี้) -->
+  <div id="quick" class="reveal" style="--i:3"></div>
+
+  <!-- การ์ดแต่ละใบ: data-cat = หมวดสำหรับชิปกรอง (gps cctv sea tool scg), data-kw = คำค้นเพิ่มเติม -->
+  <section class="reveal" data-sec="scg" style="--i:3">
     <h2>ระบบสนับสนุน เทคโนโลยีสารสนเทศกลุ่มบริษัท SC Group</h2>
     <div class="grid">
-      <a class="btn primary" href="access-maps.html">
+      <a class="btn primary" data-cat="tool" data-kw="map ปั๊ม น้ำมัน สถานี geofence" href="access-maps.html">
         <div class="icon">🧭</div>
         <div class="label"><strong>แผนที่</strong><span>รวมข้อมูลสถานี</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://app.scgroupthai.com/scg999/" target="_blank" rel="noopener">
+      <a class="btn" data-cat="scg" data-kw="แจ้งซ่อม ซ่อม จองรถ vr" href="https://app.scgroupthai.com/scg999/" target="_blank" rel="noopener">
         <div class="icon">🛠️</div>
         <div class="label"><strong>iTMIS</strong><span>แจ้งซ่อม บันทึกVR จองรถ</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://intra.scgroupthai.com:8089/scg999/intranet/Login.php?url=/scg999/intranet/" target="_blank" rel="noopener">
+      <a class="btn" data-cat="scg" data-kw="พนักงาน เบอร์โทร รายชื่อ" href="https://intra.scgroupthai.com:8089/scg999/intranet/Login.php?url=/scg999/intranet/" target="_blank" rel="noopener">
         <div class="icon">🔍</div>
         <div class="label"><strong>SC Group Intranet</strong><span>ค้นหาข้อมูลบุคลากร</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://hrapp.scgroupthai.com/eunite-central/login.do" target="_blank" rel="noopener">
+      <a class="btn" data-cat="scg" data-kw="hr ลงเวลา อบรม ลา" href="https://hrapp.scgroupthai.com/eunite-central/login.do" target="_blank" rel="noopener">
         <div class="icon">👤</div>
         <div class="label"><strong>eUnite</strong><span>รับรองเวลา อบรม ตรวจสอบสิทธิ์ต่างๆ</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://webmail.scgroupthai.com/login.php" target="_blank" rel="noopener">
+      <a class="btn" data-cat="scg" data-kw="อีเมล เมล email mail" href="https://webmail.scgroupthai.com/login.php" target="_blank" rel="noopener">
         <div class="icon">📩</div>
         <div class="label"><strong>Webmail</strong><span>เมล์บริษัท</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="http://bi.scgroupthai.com:8800/reports/browse/RSC_BI" target="_blank" rel="noopener">
+      <a class="btn" data-cat="scg tool" data-kw="bi รายงาน" href="http://bi.scgroupthai.com:8800/reports/browse/RSC_BI" target="_blank" rel="noopener">
         <div class="icon">📊</div>
         <div class="label"><strong>Power BI</strong><span>RSC Bi Server</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://app.scgroupthai.com/SCG999/Chart_RSC/Main_New.php" target="_blank" rel="noopener">
+      <a class="btn" data-cat="scg tool" data-kw="กราฟ รายงาน" href="https://app.scgroupthai.com/SCG999/Chart_RSC/Main_New.php" target="_blank" rel="noopener">
         <div class="icon">📊</div>
         <div class="label"><strong>Chart_RSC</strong><span>Chart_RSC Server</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
@@ -330,80 +389,80 @@
     </div>
   </section>
 
-  <section class="reveal" style="--i:4">
+  <section class="reveal" data-sec="land" style="--i:4">
     <h2>ระบบสนับสนุน ติดตาม (GPS) และเฝ้าระวัง (CCTV) กลุ่มงานขนส่งทางบก</h2>
     <div class="grid">
-      <a class="btn" href="http://103.228.55.220/SDFMSV20/login/logout" target="_blank" rel="noopener">
+      <a class="btn" data-cat="gps" data-kw="ทรงดี songdee" href="http://103.228.55.220/SDFMSV20/login/logout" target="_blank" rel="noopener">
         <div class="icon">📡</div>
         <div class="label"><strong>FMS</strong><span>GPS Songdee</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://gps.dtc.co.th/v2/login" target="_blank" rel="noopener">
+      <a class="btn" data-cat="gps" data-kw="ดีทีซี" href="https://gps.dtc.co.th/v2/login" target="_blank" rel="noopener">
         <div class="icon">📡</div>
         <div class="label"><strong>DTC Ultimate</strong><span>GPS DTC</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://hosting.wialon.eu/?lang=en" target="_blank" rel="noopener">
+      <a class="btn" data-cat="gps" data-kw="pms" href="https://hosting.wialon.eu/?lang=en" target="_blank" rel="noopener">
         <div class="icon">📡</div>
         <div class="label"><strong>Wialon</strong><span>GPS PMS</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://tttwli.com/login.html" target="_blank" rel="noopener">
+      <a class="btn" data-cat="gps" data-kw="sca" href="https://tttwli.com/login.html" target="_blank" rel="noopener">
         <div class="icon">📡</div>
         <div class="label"><strong>Smart Logistics</strong><span>GPS กลุ่มรถ SCA OB</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://www.ezview.asia/" target="_blank" rel="noopener">
+      <a class="btn" data-cat="gps" data-kw="ezview" href="https://www.ezview.asia/" target="_blank" rel="noopener">
         <div class="icon">📡</div>
         <div class="label"><strong>MappointAsia</strong><span>GPS MappointAsia</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://hosting.mobileinnovation.asia/" target="_blank" rel="noopener">
+      <a class="btn" data-cat="gps" data-kw="mi sca" href="https://hosting.mobileinnovation.asia/" target="_blank" rel="noopener">
         <div class="icon">📡</div>
         <div class="label"><strong>Mobile Innovation</strong><span>Mi DEMO SCA OB</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://hino-connect.onelink-iot.com/#/" target="_blank" rel="noopener">
+      <a class="btn" data-cat="gps" data-kw="ฮีโน่ hino" href="https://hino-connect.onelink-iot.com/#/" target="_blank" rel="noopener">
         <div class="icon">📡</div>
         <div class="label"><strong>Hino Connect</strong><span>GPS Hino SCA</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="http://203.151.66.75:9966/vss/#" target="_blank" rel="noopener">
+      <a class="btn" data-cat="cctv" data-kw="ทรงดี songdee" href="http://203.151.66.75:9966/vss/#" target="_blank" rel="noopener">
         <div class="icon">🎥</div>
         <div class="label"><strong>VSS Songdee</strong><span>CCTV Songdee</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://cms.dtc.co.th/login" target="_blank" rel="noopener">
+      <a class="btn" data-cat="cctv" data-kw="dtc ดีทีซี" href="https://cms.dtc.co.th/login" target="_blank" rel="noopener">
         <div class="icon">🎥</div>
         <div class="label"><strong>CMS V.2</strong><span>CCTV DTC</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="http://203.150.48.47:9966/vss/#" target="_blank" rel="noopener">
+      <a class="btn" data-cat="cctv" data-kw="pms" href="http://203.150.48.47:9966/vss/#" target="_blank" rel="noopener">
         <div class="icon">🎥</div>
         <div class="label"><strong>VSS PMS</strong><span>CCTV PMS</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://dvrai.net/808gps/login.html" target="_blank" rel="noopener">
+      <a class="btn" data-cat="cctv" data-kw="sca" href="https://dvrai.net/808gps/login.html" target="_blank" rel="noopener">
         <div class="icon">🎥</div>
         <div class="label"><strong>CMSV6</strong><span>CCTV กลุ่มรถ SCA OB</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://superhero.mobileinnovation.asia/vss/" target="_blank" rel="noopener">
+      <a class="btn" data-cat="cctv" data-kw="mi sca" href="https://superhero.mobileinnovation.asia/vss/" target="_blank" rel="noopener">
         <div class="icon">🎥</div>
         <div class="label"><strong>VSS</strong><span>CCTV MI DEMO SCA OB</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://bcpleoorder.bangchak.co.th:8000/auth/login/" target="_blank" rel="noopener">
+      <a class="btn" data-cat="tool" data-kw="บางจาก bangchak แจ้งเตือน" href="https://bcpleoorder.bangchak.co.th:8000/auth/login/" target="_blank" rel="noopener">
         <div class="icon">🏢</div>
         <div class="label"><strong>LEO</strong><span>ระบบแจ้งเตือนกลุ่มงานบางจาก</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://songdee.sg4.quickconnect.to/#/signin" target="_blank" rel="noopener">
+      <a class="btn" data-cat="cctv" data-kw="ทรงดี สำรอง backup nas" href="https://songdee.sg4.quickconnect.to/#/signin" target="_blank" rel="noopener">
         <div class="icon">💾</div>
         <div class="label"><strong>Songdee Server</strong><span>CCTV Server Backup</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://api.songdeegps.com/sc_vehicle_dashboard/public/login?redirect=%2Fsc_vehicle_dashboard%2Fpublic%2Fdashboard" target="_blank" rel="noopener">
+      <a class="btn" data-cat="tool" data-kw="ทรงดี แดชบอร์ด รถ" href="https://api.songdeegps.com/sc_vehicle_dashboard/public/login?redirect=%2Fsc_vehicle_dashboard%2Fpublic%2Fdashboard" target="_blank" rel="noopener">
         <div class="icon">🖥️</div>
         <div class="label"><strong>Songdee Dashboard</strong><span>Vehicle Operation Dashboard</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
@@ -411,35 +470,35 @@
     </div>
   </section>
 
-  <section class="reveal" style="--i:5">
+  <section class="reveal" data-sec="marine" style="--i:5">
     <h2>ระบบสนับสนุน ติดตาม (VTS/GPS) และเฝ้าระวัง (CCTV) กลุ่มงานมารีน ออฟชอร์</h2>
     <div class="grid">
-      <a class="btn" href="https://xpertone.shipexpert.online/login" target="_blank" rel="noopener">
+      <a class="btn" data-cat="sea" data-kw="ออฟชอร์ offshore" href="https://xpertone.shipexpert.online/login" target="_blank" rel="noopener">
         <div class="icon">🛥️</div>
         <div class="label"><strong>Xpert One</strong><span>กลุ่มเรือออฟชอร์</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="http://203.151.66.75:9966/vss/#" target="_blank" rel="noopener">
+      <a class="btn" data-cat="cctv sea" data-kw="ทรงดี เรือทัก แม่น้ำ" href="http://203.151.66.75:9966/vss/#" target="_blank" rel="noopener">
         <div class="icon">🎥</div>
         <div class="label"><strong>VSS Songdee</strong><span>CCTV เรือทัก เรือแม่น้ำ</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://atlas.flexport.com/" target="_blank" rel="noopener">
+      <a class="btn" data-cat="sea" data-kw="ais ตำแหน่งเรือ" href="https://atlas.flexport.com/" target="_blank" rel="noopener">
         <div class="icon">🛳️</div>
         <div class="label"><strong>atlas flexport</strong><span>ระบบ AIS Global Logistics</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://www.marinetraffic.com/en/ais/home/centerx:101.0/centery:12.1/zoom:8" target="_blank" rel="noopener">
+      <a class="btn" data-cat="sea" data-kw="ais ตำแหน่งเรือ" href="https://www.marinetraffic.com/en/ais/home/centerx:101.0/centery:12.1/zoom:8" target="_blank" rel="noopener">
         <div class="icon">🛳️</div>
         <div class="label"><strong>Marinetraffic</strong><span>ระบบ AIS Marinetraffic</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://dmf-thailand.maps.arcgis.com/apps/webappviewer/index.html?id=1452d050727240e6850d9fd909198a11" target="_blank" rel="noopener">
+      <a class="btn" data-cat="sea" data-kw="กรมเชื้อเพลิง แท่นขุดเจาะ dmf" href="https://dmf-thailand.maps.arcgis.com/apps/webappviewer/index.html?id=1452d050727240e6850d9fd909198a11" target="_blank" rel="noopener">
         <div class="icon">🛰️</div>
         <div class="label"><strong>Department of Mineral Fuels</strong><span>DMF กระทรวงพลังงาน</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://www.windy.com/th" target="_blank" rel="noopener">
+      <a class="btn" data-cat="sea" data-kw="อากาศ ฝน พายุ ลม คลื่น" href="https://www.windy.com/th" target="_blank" rel="noopener">
         <div class="icon">🛰️</div>
         <div class="label"><strong>Windy</strong><span>Windy ฝน ฟ้า อากาศ</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
@@ -447,50 +506,50 @@
     </div>
   </section>
 
-  <section class="reveal" style="--i:6">
+  <section class="reveal" data-sec="support" style="--i:6">
     <h2>ระบบสนับสนุน</h2>
     <div class="grid">
-      <a class="btn soon" aria-disabled="true" title="ยังไม่เปิดใช้งาน" data-soon="alert-rate.html">
+      <a class="btn soon" data-cat="tool" data-kw="แจ้งเตือน ระยะทาง" aria-disabled="true" title="ยังไม่เปิดใช้งาน" data-soon="alert-rate.html">
         <div class="icon">📑</div>
         <div class="label"><strong>alert-rate</strong><span>คำนวนอัตตราการแจ้งเตือนต่อระยะทาง</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="leo_dashboard.html" target="_blank" rel="noopener">
+      <a class="btn" data-cat="tool" data-kw="บางจาก ปลดล็อค รายงาน" href="leo_dashboard.html" target="_blank" rel="noopener">
         <div class="icon">📑</div>
         <div class="label"><strong>Test LEO</strong><span>ทดสอบการดึงข้อมูลรายงาน</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="alert-mileage.html" target="_blank" rel="noopener">
+      <a class="btn" data-cat="tool" data-kw="แจ้งเตือน ระยะทาง ไมล์ รายงาน" href="alert-mileage.html" target="_blank" rel="noopener">
         <div class="icon">📑</div>
         <div class="label"><strong>Test Mileage</strong><span>ทดสอบการดึงข้อมูลรายงาน</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn soon" aria-disabled="true" title="ยังไม่เปิดใช้งาน" data-soon="sos-dashboard.html">
+      <a class="btn soon" data-cat="tool" data-kw="sos ฉุกเฉิน รายงาน" aria-disabled="true" title="ยังไม่เปิดใช้งาน" data-soon="sos-dashboard.html">
         <div class="icon">📑</div>
         <div class="label"><strong>Test SOS</strong><span>ทดสอบการดึงข้อมูลรายงาน</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://account.teamviewer.com/" target="_blank" rel="noopener">
+      <a class="btn" data-cat="tool" data-kw="รีโมท remote" href="https://account.teamviewer.com/" target="_blank" rel="noopener">
         <div class="icon">🔄</div>
         <div class="label"><strong>TeamViewer</strong><span>ใช้ออนเว็บไซต์ได้เลย</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn soon" aria-disabled="true" title="ยังไม่เปิดใช้งาน" data-soon="truck_blind_spot_simulator.html">
+      <a class="btn soon" data-cat="tool" data-kw="จำลอง simulator มุมอับ" aria-disabled="true" title="ยังไม่เปิดใช้งาน" data-soon="truck_blind_spot_simulator.html">
         <div class="icon">🎮</div>
         <div class="label"><strong>ฝึกขับรถ</strong><span>simulator มุมอับสายตา</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://coastalradar.gistda.or.th/app/map/router.php?page=cctv" target="_blank" rel="noopener">
+      <a class="btn" data-cat="cctv sea" data-kw="ชายฝั่ง gistda" href="https://coastalradar.gistda.or.th/app/map/router.php?page=cctv" target="_blank" rel="noopener">
         <div class="icon">👁️</div>
         <div class="label"><strong>Coastal Radar</strong><span>CCTV ริมชายฝั่งทะเล</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://cctv.maholan.net/" target="_blank" rel="noopener">
+      <a class="btn" data-cat="cctv" data-kw="น้ำท่วม" href="https://cctv.maholan.net/" target="_blank" rel="noopener">
         <div class="icon">👁️</div>
         <div class="label"><strong>Flood CCTV TH</strong><span>CCTV Thailand</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" href="https://livestream.pattaya.go.th/" target="_blank" rel="noopener">
+      <a class="btn" data-cat="cctv" data-kw="พัทยา" href="https://livestream.pattaya.go.th/" target="_blank" rel="noopener">
         <div class="icon">👁️</div>
         <div class="label"><strong>CCTV Pattaya</strong><span>CCTV เมืองพัทยา</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
@@ -498,11 +557,11 @@
     </div>
   </section>
 
-  <footer class="reveal" style="--i:6">กด / เพื่อค้นหา · Esc เพื่อล้างคำค้น</footer>
+  <footer class="reveal" style="--i:6">กด / เพื่อค้นหา · ↑ ↓ ← → เลือกการ์ด · Enter เปิด · Esc ล้างคำค้น · ☆ ปักหมุดไว้บนสุด</footer>
 </div>
 
 <!-- เรียกใช้งานไฟล์ JavaScript ภายนอกที่แยกออกมา -->
-<script type="module" src="./hub.js"></script>
+<script type="module" src="./hub.js?v=20261122-user"></script>
 <!-- ลูกเล่นเทศกาลลอยกระทง (ชั่วคราว เปิด/ปิดเองตามวันที่ในไฟล์) -->
 <script src="./festival-loykrathong.js" defer></script>
 <script src="./festival-atm.js" defer></script>
