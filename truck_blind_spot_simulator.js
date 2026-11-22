@@ -1340,8 +1340,10 @@ function makePatterns() {
     }
     g.globalAlpha = 1;
   };
-  PAT.road = mk(256, 6, (g, n) => speck(g, n, COL.road, "#9aa0a6", "#2a2d31", 5200));
-  PAT.ground = mk(256, 12, (g, n) => speck(g, n, COL.ground, "#ffffff", "#7d846f", 2600));
+  // เม็ดผิวถนนนุ่ม คอนทราสต์ต่ำ (เม็ดคม 1 พิกเซลจะกะพริบเวลาซูมออกแล้วรถวิ่ง)
+  const soft = (g, n) => { g.filter = "blur(1.2px)"; g.drawImage(g.canvas, 0, 0); g.filter = "none"; };
+  PAT.road = mk(256, 6, (g, n) => { speck(g, n, COL.road, "#868c92", "#3a3d42", 2600); soft(g, n); });
+  PAT.ground = mk(256, 12, (g, n) => { speck(g, n, COL.ground, "#f4f4ee", "#8d9480", 1300); soft(g, n); });
   PAT.walk = mk(128, 2, (g, n) => {
     g.fillStyle = COL.walk; g.fillRect(0, 0, n, n);
     g.strokeStyle = "rgba(0,0,0,.10)"; g.lineWidth = 2;
@@ -1349,7 +1351,11 @@ function makePatterns() {
     speck(g, 0, COL.walk, "#fff", "#000", 0);
   });
 }
-function patFill(pat) { pat.setTransform(new DOMMatrix().scale(pat.m)); ctx.fillStyle = pat; }
+// ซูมออกมากจนเม็ดผิวเล็กกว่าพิกเซล → ใช้สีเรียบแทน ไม่ให้ภาพกะพริบตอนกล้องเลื่อน
+function patFill(pat) {
+  if (S.cam.s < 7) { ctx.fillStyle = pat === PAT.road ? COL.road : pat === PAT.walk ? COL.walk : COL.ground; return; }
+  pat.setTransform(new DOMMatrix().scale(pat.m)); ctx.fillStyle = pat;
+}
 function resize() {
   if (three) three.resize();
   const r = cv.style.display === "none" ? cv.parentElement.getBoundingClientRect() : cv.getBoundingClientRect();
@@ -2332,7 +2338,7 @@ function strokeRoad(u) {
   const r = u.r;
   ctx.lineWidth = r.w;
   if (r.kind === "escape") ctx.strokeStyle = "#b89f78";
-  else if (PAT.road) { PAT.road.setTransform(new DOMMatrix().scale(PAT.road.m)); ctx.strokeStyle = PAT.road; } else ctx.strokeStyle = COL.road;
+  else if (PAT.road && S.cam.s >= 7) { PAT.road.setTransform(new DOMMatrix().scale(PAT.road.m)); ctx.strokeStyle = PAT.road; } else ctx.strokeStyle = COL.road;
   runPath(u); ctx.stroke();
   if (u.lvl === "cut" || u.lvl === "tunnel") { ctx.strokeStyle = "rgba(0,0,0," + Math.min(0.35, -u.z * 0.05) + ")"; runPath(u); ctx.stroke(); }
   // เส้นจราจร
@@ -2419,7 +2425,7 @@ function drawOsm(vx1, vx2, vy1, vy2) {
   const path = (pts) => { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); };
   ctx.lineJoin = "round"; ctx.lineCap = "round";
   ctx.strokeStyle = COL.walk; o.roads.forEach((r) => { if (r.w >= 6) { ctx.lineWidth = r.w + 3.4; path(r.pts); ctx.stroke(); } });
-  o.roads.forEach((r) => { ctx.lineWidth = r.w; if (PAT.road) { PAT.road.setTransform(new DOMMatrix().scale(PAT.road.m)); ctx.strokeStyle = PAT.road; } else ctx.strokeStyle = COL.road; path(r.pts); ctx.stroke(); });
+  o.roads.forEach((r) => { ctx.lineWidth = r.w; if (PAT.road && S.cam.s >= 7) { PAT.road.setTransform(new DOMMatrix().scale(PAT.road.m)); ctx.strokeStyle = PAT.road; } else ctx.strokeStyle = COL.road; path(r.pts); ctx.stroke(); });
   o.roads.forEach((r) => {
     if (r.w < 7) return;
     ctx.lineWidth = 0.15; ctx.strokeStyle = r.w >= 10 && !r.oneway ? COL.yellow : COL.mark; ctx.setLineDash(r.w >= 10 && !r.oneway ? [] : [3, 3]);
@@ -2442,7 +2448,7 @@ async function setView(v) {
     if (threeLoading) return;
     threeLoading = true; flash("กำลังโหลดมุมมอง 3 มิติ…");
     try {
-      const mod = await import("./truck_blind_spot_3d.js?v=20261125-1");
+      const mod = await import("./truck_blind_spot_3d.js?v=20261125-2");
       three = mod.create3D($("view3d"), API3D);
       three.setNight(S.night); three.setRain(S.weather === "rain"); if (S.osm) three.setOSM(S.osm);
     } catch (err) {

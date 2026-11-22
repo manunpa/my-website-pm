@@ -12,7 +12,8 @@ export function create3D(host, api) {
   const { S, P, G, HW, CELL, CROSS_X, EYE_H } = api;
 
   /* ---------------- renderer / scene ---------------- */
-  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+  // logarithmicDepthBuffer: กันผิวถนน/เส้นจราจร/ทางเท้าที่วางซ้อนกันห่างไม่กี่ ซม. แย่งกันโผล่ (z-fighting) จนดูกระพริบตอนรถวิ่ง
+  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance", logarithmicDepthBuffer: true });
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -214,14 +215,15 @@ export function create3D(host, api) {
   const cityObjs = scene.children.filter((o) => !o.isLight && o !== sun.target);
   let osmGroup = null;
   function ribbon(pts, w, y, material) {
-    const pos = [];
-    for (let i = 0; i + 1 < pts.length; i++) {
-      const [ax, ay] = pts[i], [bx, by] = pts[i + 1], len = Math.hypot(bx - ax, by - ay) || 1;
-      const ux = (bx - ax) / len, uy = (by - ay) / len, nx = -uy * w / 2, ny = ux * w / 2, ex = ux * w / 2, ey = uy * w / 2;
-      const za = y + (pts[i][2] || 0), zb = y + (pts[i + 1][2] || 0);
-      const A = [ax - ex + nx, ay - ey + ny, za], B = [bx + ex + nx, by + ey + ny, zb], C = [bx + ex - nx, by + ey - ny, zb], D = [ax - ex - nx, ay - ey - ny, za];
-      [A, B, C, A, C, D].forEach(([x, z, h]) => pos.push(x, h, -z));
+    const n = pts.length, L = [], R = [];
+    for (let i = 0; i < n; i++) {
+      const p = pts[Math.max(0, i - 1)], q = pts[Math.min(n - 1, i + 1)];
+      let dx = q[0] - p[0], dy = q[1] - p[1]; const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+      const h = y + (pts[i][2] || 0);
+      L.push([pts[i][0] - dy * w / 2, h, -(pts[i][1] + dx * w / 2)]); R.push([pts[i][0] + dy * w / 2, h, -(pts[i][1] - dx * w / 2)]);
     }
+    const pos = [];
+    for (let i = 0; i + 1 < n; i++) [L[i], L[i + 1], R[i + 1], L[i], R[i + 1], R[i]].forEach((v) => pos.push(v[0], v[1], v[2]));
     const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.computeVertexNormals();
     const m = new THREE.Mesh(g, material); m.receiveShadow = true; return m;
   }
@@ -612,8 +614,9 @@ export function create3D(host, api) {
   curtainGeo.setAttribute("alpha", new THREE.BufferAttribute(new Float32Array(MAXSEG * 6), 1));
   const curtainMat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, side: THREE.DoubleSide,
-    vertexShader: "attribute float alpha; varying float vA; void main(){ vA = alpha; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
-    fragmentShader: "varying float vA; void main(){ gl_FragColor = vec4(0.9, 0.2, 0.22, vA); }"
+    vertexShader: ["#include <common>", "#include <logdepthbuf_pars_vertex>", "attribute float alpha; varying float vA;",
+      "void main(){ vA = alpha; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);", "#include <logdepthbuf_vertex>", "}"].join(String.fromCharCode(10)),
+    fragmentShader: ["#include <logdepthbuf_pars_fragment>", "varying float vA;", "void main(){", "#include <logdepthbuf_fragment>", "gl_FragColor = vec4(0.9, 0.2, 0.22, vA); }"].join(String.fromCharCode(10))
   });
   const curtain = new THREE.Mesh(curtainGeo, curtainMat); curtain.frustumCulled = false; curtain.renderOrder = 3; scene.add(curtain);
   const edgeGeo = new THREE.BufferGeometry();
@@ -774,7 +777,7 @@ export function create3D(host, api) {
   }
 
   /* ---------------- กล้อง ---------------- */
-  const cam = new THREE.PerspectiveCamera(55, 1, 0.08, 3000);
+  const cam = new THREE.PerspectiveCamera(55, 1, 0.1, 3000);
   cam.layers.enable(LABEL_LAYER);
   const mirrorCams = P.mirrors.map(() => new THREE.PerspectiveCamera(40, 0.6, 0.1, 400));
   const topCam = new THREE.OrthographicCamera(-8, 8, 8, -8, 0.1, 80);
