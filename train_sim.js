@@ -19,6 +19,7 @@ const N = LINE.n, STEP = LINE.step;
 const LAT = new Float64Array(N), LON = new Float64Array(N), Z = new Float32Array(N);
 { let a = 0, b = 0, c = 0; for (let i = 0; i < N; i++) { a += LINE.lat[i]; b += LINE.lon[i]; c += LINE.z[i]; LAT[i] = a / 1e5; LON[i] = b / 1e5; Z[i] = c / 10; } }
 const TOTAL = (N - 1) * STEP;
+const K = new Float32Array(N); for (let i = 0; i < N; i++) { const r = LINE.r[i]; K[i] = r ? Math.sign(r) / Math.max(150, Math.abs(r)) : 0; }
 const cr = (a, b, c, d, t) => { const t2 = t * t, t3 = t2 * t; return 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (3 * b - a - 3 * c + d) * t3); };
 const geo = {
   total: TOTAL,
@@ -30,7 +31,10 @@ const geo = {
   },
   z(s) { s = clamp(s, 0, TOTAL); const x = s / STEP, i = Math.min(N - 2, Math.floor(x)), t = x - i; return Z[i] + (Z[i + 1] - Z[i]) * t; },
   flag(s) { return LINE.f[clamp(Math.round(s / STEP), 0, N - 1)]; },
-  radius(s) { const r = LINE.r[clamp(Math.round(s / STEP), 0, N - 1)]; return r === 0 ? 0 : Math.sign(r) * Math.max(150, Math.abs(r)); }
+  // ความโค้ง (1/R) แบบต่อเนื่อง: ประมาณค่าเชิงเส้นระหว่างจุด แล้วเฉลี่ยช่วง ±30 ม. → ไม่กระตุกเป็นขั้นทุก 50 ม.
+  curv(s) { const x = clamp(s, 0, TOTAL) / STEP, i = Math.min(N - 2, Math.floor(x)), t = x - i; return K[i] + (K[i + 1] - K[i]) * t; },
+  curvS(s) { return (geo.curv(s - 30) + 2 * geo.curv(s - 15) + 3 * geo.curv(s) + 2 * geo.curv(s + 15) + geo.curv(s + 30)) / 9; },
+  radius(s) { const k = geo.curvS(s); return Math.abs(k) < 1 / 4000 ? 0 : Math.round(Math.sign(k) * Math.max(150, 1 / Math.abs(k))); }
 };
 // ยกโค้ง (cant) ที่สมมติตามรัศมี: ชดเชยแรงเหวี่ยงได้สูงสุด ~0.9 ม./วินาที² (ยกราง ~10 ซม. บนทาง 1 ม.)
 const cantAcc = (R) => (R ? Math.min(0.9, 600 / Math.abs(R)) : 0);
@@ -568,7 +572,8 @@ function pollPad(dt) {
 
 /* ---------------- วงรอบหลัก ---------------- */
 let world = null, last = 0, hudT = 0, slowT = 0, warnT = 0;
-const rollFor = (s) => { const R = geo.radius(s); if (!R) return 0; const sg = Math.sign(R); const au = S.v * S.v / Math.abs(R) - cantAcc(R); return -sg * cantAcc(R) / G + sg * clamp(au, -2, 3) / G * 0.12; };
+// มุมเอียงเป้าหมายของตัวรถ: เอียงเข้าตามยกโค้ง + เอนออกตามแรงเหวี่ยงที่เหลือ (คิดจากความโค้งต่อเนื่อง)
+const rollFor = (s) => { const k = geo.curvS(s), ak = Math.abs(k); if (ak < 1e-5) return 0; const sg = Math.sign(k), cant = Math.min(0.9, 600 * ak), au = S.v * S.v * ak - cant; return -sg * cant / G + sg * clamp(au, -2, 3) / G * 0.12; };
 function frame(now) {
   requestAnimationFrame(frame);
   const dtR = Math.min(0.1, (now - last) / 1000 || 0); last = now;
@@ -597,7 +602,7 @@ function frame(now) {
 async function start() {
   buildPanel(); initMap(); updAtoBtn();
   try {
-    const mod = await import("./train_sim_3d.js?v=20261126-5");
+    const mod = await import("./train_sim_3d.js?v=20261126-6");
     world = mod.createWorld($("view"), { geo, electric: () => !!TRAINS[S.type].electric });
     window.addEventListener("resize", () => world.resize());
     world.setEnv({ tod: S.tod, wx: S.wx });

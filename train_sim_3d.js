@@ -776,13 +776,21 @@ export function createWorld(host, api) {
     }
     const newChunks = refreshChunks(st.s);
     if (carsKey !== st.trainKey) { carsKey = st.trainKey; buildTrain(st.train); }
+    if (st.jumped) cars.forEach((c) => { c.roll = undefined; });
     // วางรถแต่ละคันตามราง: ตำแหน่ง = กลางระหว่างโบกี้หน้า/หลัง
     cars.forEach((c) => {
       const sc = st.s - c.off, a = trackPoint(Math.max(0, sc + c.len / 2 - 3.2)), b = trackPoint(Math.max(0, sc - c.len / 2 + 3.2));
       const th = Math.atan2(a.y - b.y, a.x - b.x), pitch = Math.atan2(a.z - b.z, Math.hypot(a.x - b.x, a.y - b.y));
       // เอียงตามยกโค้ง (cant) + เอียงเพิ่มตามแรงเหวี่ยง
       c.g.position.set((a.x + b.x) / 2, (a.z + b.z) / 2 + 0.18, -(a.y + b.y) / 2);
-      c.g.rotation.order = "YZX"; c.g.rotation.set(st.rollFor(sc), th, pitch);
+      // ช่วงล่างแบบสปริง-โช้ค: มุมเอียงวิ่งตามเป้าอย่างนุ่มนวล (มีโยกเล็กน้อยเหมือนรถจริง)
+      const tgt = st.rollFor(sc);
+      if (c.roll === undefined) { c.roll = tgt; c.rollV = 0; }
+      for (let left = Math.min(dt, 0.25); left > 1e-4; left -= 0.02) {
+        const h = Math.min(0.02, left), w = 2.6, z = 0.55;
+        c.rollV += (w * w * (tgt - c.roll) - 2 * z * w * c.rollV) * h; c.roll += c.rollV * h;
+      }
+      c.g.rotation.order = "YZX"; c.g.rotation.set(c.roll, th, pitch);
       if (st.derailed) { c.g.rotation.x += st.derailed.side * Math.min(1.35, st.derailed.t * 0.9) * (c === cars[0] ? 1 : 0.6); c.g.position.y -= Math.min(1.2, st.derailed.t); }
     });
     // ท้องฟ้า/ดวงอาทิตย์ตามกล้อง
