@@ -247,6 +247,9 @@
   .btn.soon { opacity: .5; cursor: default; pointer-events: none; }
   .btn.soon .go { display: none; }
   .btn.soon .label strong::after { content: "เร็ว ๆ นี้"; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 600; border: 1px solid currentColor; opacity: .8; vertical-align: 1px; }
+  /* หน้าที่เปิดใช้ได้แล้วแต่ยังพัฒนาอยู่: ป้าย "กำลังพัฒนา" */
+  .btn.beta .label strong::after { content: "กำลังพัฒนา"; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 600; color: #b45309; border: 1px solid currentColor; vertical-align: 1px; }
+  :root[data-theme="dark"] .btn.beta .label strong::after { color: #f59e0b; }
   .btn:active { transform: translateY(-1px) scale(.985); }
   .btn:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
 
@@ -371,7 +374,7 @@
         <div class="label"><strong>Test SOS</strong><span>ทดสอบการดึงข้อมูลรายงาน</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn soon" data-cat="tool" data-kw="จำลอง simulator มุมอับ" aria-disabled="true" title="ยังไม่เปิดใช้งาน" data-soon="truck_blind_spot_simulator.html">
+      <a class="btn beta" data-cat="tool" data-kw="จำลอง simulator มุมอับ ขับรถ เกม รถบรรทุก หัวลาก รถพ่วง กำลังพัฒนา" href="truck_blind_spot_simulator.html" title="เวอร์ชันทดลอง กำลังพัฒนา">
         <div class="icon">🎮</div>
         <div class="label"><strong>ฝึกขับรถ</strong><span>simulator มุมอับสายตา</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>

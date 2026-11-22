@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-MEC0JTJ5QJ"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-MEC0JTJ5QJ');
+</script>
+<title>จำลองมุมอับรถบรรทุก</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%231a1a1a%27/%3E%3Crect x=%2711%27 y=%275%27 width=%2710%27 height=%2722%27 rx=%272%27 fill=%27white%27/%3E%3Cpath d=%27M11 9 3 4v24l8-5z%27 fill=%27%23e5484d%27 opacity=%27.8%27/%3E%3C/svg%3E">
+<!-- ซ่อนหน้าไว้จนกว่า Firebase จะยืนยันตัวตนเสร็จ (firebase-guard.js จะใส่คลาส .ready) -->
+<style>html:not(.ready) body { visibility: hidden; }</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f5f5f3; --surface: #ffffff; --line: #e2e2de; --text: #1a1a1a; --muted: #7a7a75;
+    --accent: #1a1a1a; --accent-text: #ffffff; --bad: #d93036; --ok: #1f8f4e;
+    /* สีบนแผนที่ (canvas อ่านค่าจากตรงนี้) */
+    --c-ground: #e7e9e2; --c-grid: rgba(0,0,0,.05); --c-road: #62676d; --c-walk: #d4d1c8;
+    --c-mark: #f6f6f2; --c-yellow: #f0c02c; --c-text: #1a1a1a; --c-label: rgba(255,255,255,.92);
+  }
+  :root[data-theme="dark"] {
+    --bg: #161616; --surface: #1f1f1f; --line: #2e2e2e; --text: #ececea; --muted: #8d8d88;
+    --accent: #ececea; --accent-text: #161616; --bad: #ff6b6b; --ok: #4ade80;
+    --c-ground: #1b1e1a; --c-grid: rgba(255,255,255,.04); --c-road: #2f3236; --c-walk: #34332f;
+    --c-mark: #c9ccce; --c-yellow: #c9a227; --c-text: #ececea; --c-label: rgba(24,24,24,.9);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: "IBM Plex Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.5;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  header.bar {
+    display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    border-bottom: 1px solid var(--line); background: var(--surface); flex: none;
+  }
+  header.bar h1 { font-size: 1rem; font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  header.bar h1 small { font-weight: 300; color: var(--muted); margin-left: 8px; font-size: .82rem; }
+  .beta { font-size: .7rem; font-weight: 600; color: #b45309; border: 1px solid currentColor; border-radius: 999px; padding: 1px 8px; vertical-align: 2px; margin-left: 4px; }
+  :root[data-theme="dark"] .beta { color: #f59e0b; }
+  .pill {
+    font: inherit; font-size: .85rem; font-weight: 500; text-decoration: none; color: var(--text);
+    height: 34px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--surface); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap;
+  }
+  .pill:hover { border-color: var(--muted); }
+  .user { font-size: .8rem; color: var(--muted); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 340px; }
+  .stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+
+  .hud {
+    position: absolute; left: 12px; top: 12px; pointer-events: none;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 8px 12px; font-size: .82rem; box-shadow: 0 6px 20px -12px rgba(0,0,0,.35);
+    display: grid; grid-template-columns: auto auto; gap: 0 12px; font-variant-numeric: tabular-nums;
+  }
+  .hud b { font-weight: 600; text-align: right; }
+  .hud .big { font-size: 1.6rem; line-height: 1.1; font-weight: 600; grid-column: 1 / -1; }
+  .hud .big small { font-size: .8rem; font-weight: 400; color: var(--muted); margin-left: 4px; }
+  .msg {
+    position: absolute; left: 50%; top: 14px; transform: translateX(-50%);
+    background: var(--bad); color: #fff; padding: 8px 16px; border-radius: 999px;
+    font-size: .9rem; font-weight: 500; pointer-events: none; opacity: 0; transition: opacity .25s;
+    max-width: calc(100% - 32px); text-align: center;
+  }
+  .msg.show { opacity: 1; }
+  .legend-mini {
+    position: absolute; left: 12px; bottom: 12px; pointer-events: none;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: 6px 10px; font-size: .75rem; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap;
+  }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
+
+  .zoom {
+    position: absolute; right: 12px; top: 12px; display: flex; align-items: center; gap: 4px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 4px;
+    box-shadow: 0 6px 20px -12px rgba(0,0,0,.35);
+  }
+  .zoom button {
+    font: inherit; min-width: 34px; height: 34px; padding: 0 8px; border-radius: 8px; border: 0;
+    background: transparent; color: var(--text); font-size: 1.05rem; cursor: pointer;
+  }
+  .zoom button:hover { background: var(--bg); }
+  .zoom button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+  .zoom #zAuto { font-size: .78rem; }
+  .zoom span { font-size: .75rem; color: var(--muted); min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; }
+  .touch { position: absolute; right: 12px; bottom: 12px; display: none; gap: 8px; }
+  .touch button {
+    width: 58px; height: 58px; border-radius: 14px; border: 1px solid var(--line);
+    background: var(--surface); color: var(--text); font-size: 1.4rem; touch-action: none; user-select: none;
+  }
+  .touch .col { display: flex; flex-direction: column; gap: 8px; }
+  @media (pointer: coarse) { .touch { display: flex; } .legend-mini { display: none; } }
+
+  aside.panel {
+    border-left: 1px solid var(--line); background: var(--surface);
+    overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 18px;
+  }
+  .panel h2 { font-size: .78rem; font-weight: 500; color: var(--muted); letter-spacing: .02em; margin-bottom: 8px; }
+  .rigs { display: grid; gap: 8px; }
+  .rig {
+    font: inherit; text-align: left; cursor: pointer; color: var(--text);
+    border: 1px solid var(--line); background: var(--bg); border-radius: 10px; padding: 9px 12px;
+  }
+  .rig strong { display: block; font-size: .9rem; font-weight: 500; }
+  .rig span { font-size: .76rem; color: var(--muted); }
+  .rig[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .rig[aria-pressed="true"] span { color: var(--accent-text); opacity: .7; }
+  .rig kbd { float: right; font: inherit; font-size: .72rem; opacity: .6; }
+
+  table { width: 100%; border-collapse: collapse; font-size: .84rem; font-variant-numeric: tabular-nums; }
+  td { padding: 5px 0; border-bottom: 1px solid var(--line); }
+  td:last-child { text-align: right; font-weight: 500; }
+  tr.warn td:last-child { color: var(--bad); }
+  .note { font-size: .74rem; color: var(--muted); font-weight: 300; margin-top: 6px; }
+  .sub { font-size: .8rem; color: var(--muted); margin: 10px 0 6px; }
+  .result { font-size: .84rem; margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
+  details.note summary { cursor: pointer; margin-top: 8px; }
+  details.note ul { margin: 6px 0 0 16px; display: grid; gap: 4px; }
+
+  .opt { display: flex; align-items: center; gap: 8px; font-size: .85rem; padding: 3px 0; cursor: pointer; }
+  .opt input { accent-color: var(--accent); width: 16px; height: 16px; }
+  .range { font-size: .85rem; padding: 4px 0; }
+  .range label { display: flex; justify-content: space-between; }
+  .range label b { font-weight: 500; }
+  .range input { width: 100%; accent-color: var(--accent); }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .seg button { flex: 1; font: inherit; font-size: .82rem; padding: 6px 0; border: 0; background: transparent; color: var(--text); cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .keys { font-size: .8rem; display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; color: var(--muted); }
+  .keys kbd { font: inherit; font-size: .74rem; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; white-space: nowrap; justify-self: start; }
+
+  @media (max-width: 900px) {
+    body { overflow: auto; }
+    .layout { grid-template-columns: 1fr; grid-template-rows: 62vh auto; }
+    aside.panel { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+    header.bar h1 small, .user { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { .msg { transition: none; } }
+</style>
+</head>
+<body>
+<header class="bar">
+  <a class="pill" href="Access-Hub.html" title="กลับหน้า Hub">← Hub</a>
+  <h1>จำลองมุมอับรถบรรทุก <span class="beta">กำลังพัฒนา</span> <small>มุมมองจากด้านบน · ขับด้วยคีย์บอร์ด</small></h1>
+  <span class="user" id="user-email"></span>
+</header>
+
+<div class="layout">
+  <div class="stage" id="stage">
+    <canvas id="cv" aria-label="แผนที่จำลองรถบรรทุกและมุมอับ"></canvas>
+    <div class="hud" id="hud"></div>
+    <div class="msg" id="msg" role="status"></div>
+    <div class="zoom" role="toolbar" aria-label="ซูมแผนที่">
+      <button id="zOut" title="ซูมออก (−)" aria-label="ซูมออก">−</button>
+      <span id="zLabel">100%</span>
+      <button id="zIn" title="ซูมเข้า (+)" aria-label="ซูมเข้า">+</button>
+      <button id="zFit" title="พอดีตัวรถ" aria-label="ซูมพอดีตัวรถ">⤢</button>
+      <button id="zAuto" title="ซูมออกเองตามความเร็ว ให้เห็นจุดหยุดรถ" aria-pressed="false">ตามความเร็ว</button>
+    </div>
+    <div class="legend-mini">
+      <span><i class="sw" style="background:rgba(229,72,77,.55)"></i>มุมอับ</span>
+      <span><i class="sw" style="background:rgba(46,160,90,.35)"></i>มองเห็นตรง</span>
+      <span><i class="sw" style="background:rgba(59,130,246,.35)"></i>ผ่านกระจก</span>
+      <span><i class="sw" style="background:rgba(168,85,247,.4)"></i>กระจกส่องใกล้</span>
+    </div>
+    <div class="touch" aria-hidden="true">
+      <div class="col"><button data-key="left">◀</button></div>
+      <div class="col"><button data-key="up">▲</button><button data-key="down">▼</button></div>
+      <div class="col"><button data-key="right">▶</button></div>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <section>
+      <h2>เลือกรถ</h2>
+      <div class="rigs" id="rigs"></div>
+    </section>
+
+    <section>
+      <h2>ระยะมุมอับตอนนี้ (วัดจากขอบตัวรถ)</h2>
+      <table>
+        <tr id="r-front"><td>ด้านหน้า</td><td id="pv-front">–</td></tr>
+        <tr id="r-ldoor"><td>ซ้าย ข้างห้องโดยสาร</td><td id="pv-ldoor">–</td></tr>
+        <tr id="r-rdoor"><td>ขวา ข้างห้องโดยสาร</td><td id="pv-rdoor">–</td></tr>
+        <tr id="r-lmid"><td id="lb-lmid">ซ้าย กลางตัวรถ</td><td id="pv-lmid">–</td></tr>
+        <tr id="r-rmid"><td id="lb-rmid">ขวา กลางตัวรถ</td><td id="pv-rmid">–</td></tr>
+        <tr id="r-rear"><td>ด้านหลัง</td><td id="pv-rear">–</td></tr>
+        <tr><td>พื้นที่มุมอับรวม (ในระยะที่พิจารณา)</td><td id="pv-area">–</td></tr>
+      </table>
+      <p class="sub">โซนอันตรายตามความเร็ว (กรอบสีส้มบนแผนที่ ยาวขึ้นเมื่อขับเร็วขึ้น)</p>
+      <table id="zones"></table>
+      <p class="note">ค่าประมาณเพื่อการเรียนรู้ คิดจากคนขับนั่งขวา (รถไทย) ตาสูงจากพื้น 2.45 ม. และวัตถุสูงตามที่ตั้งไว้ด้านล่าง มุมอับจริงขึ้นกับรุ่นรถ ตำแหน่งที่นั่ง และการปรับกระจก</p>
+    </section>
+
+    <section>
+      <h2>สถานะรถ</h2>
+      <table id="state"></table>
+    </section>
+
+    <section>
+      <h2>น้ำหนัก ถนน และการเบรก</h2>
+      <div class="range">
+        <label for="cargo">น้ำหนักบรรทุก <b id="cargov"></b></label>
+        <input type="range" id="cargo" min="0" max="30" step="0.5" value="13">
+        <p class="note" id="cargoNote"></p>
+      </div>
+      <p class="sub">สภาพถนน</p>
+      <div class="seg" id="road">
+        <button data-mu="0.7" aria-pressed="true">แห้ง</button>
+        <button data-mu="0.45">เปียก</button>
+        <button data-mu="0.25">ลื่นมาก</button>
+      </div>
+      <div id="tbWrap">
+        <p class="sub">เบรกของตัวลูก / หาง</p>
+        <div class="seg" id="tbrake">
+          <button data-m="abs" aria-pressed="true">ปกติ มี ABS</button>
+          <button data-m="weak">เบรกอ่อน</button>
+          <button data-m="lock">ล้อล็อก</button>
+        </div>
+      </div>
+      <table id="phys" style="margin-top:10px"></table>
+
+      <p class="sub" style="margin-top:14px">ทดสอบเบรกกะทันหัน (รถทดสอบให้เอง)</p>
+      <div class="range">
+        <label for="testSpeed">ความเร็วตอนเริ่มเบรก <b id="testSpeedv"></b></label>
+        <input type="range" id="testSpeed" min="30" max="100" step="5" value="80">
+      </div>
+      <div class="btns">
+        <button class="pill" id="btnTestStraight">เบรกทางตรง</button>
+        <button class="pill" id="btnTestSwerve">หักหลบแล้วเบรก</button>
+      </div>
+      <p class="result" id="testResult">ลองเปลี่ยนความเร็ว น้ำหนัก ถนน และเบรกตัวลูก แล้วกดทดสอบเพื่อเทียบระยะหยุดและการปัดของหาง</p>
+      <details class="note">
+        <summary>สมมติฐานที่ใช้คำนวณ</summary>
+        <ul>
+          <li>ระยะหยุด = ระยะคิดตัดสินใจ (1.0 วินาที + ลมเบรกสร้างแรง 0.4 วินาที) + ระยะเบรก v² / (2a)</li>
+          <li>เบรกได้สูงสุด = ค่าที่น้อยกว่าระหว่าง 90% ของความฝืดถนน (μg) กับระบบเบรกรถใหญ่ ≈ 7 ม./วิ² ตอนรถเปล่า ลดเหลือ ≈ 5 ม./วิ² ตอนบรรทุกเต็มพิกัด และลดต่อเมื่อน้ำหนักเกิน</li>
+          <li>ความฝืดยางรถบรรทุก: ถนนแห้ง ≈ 0.7 · เปียก ≈ 0.45 · ลื่นมาก (โคลน/คราบน้ำมัน) ≈ 0.25</li>
+          <li>ออกตัว: กำลังเครื่องหารด้วยมวล หักแรงต้านยาง (0.7% ของน้ำหนัก) และแรงต้านลม</li>
+          <li>หาง: วัตถุแข็งหมุนรอบจุดต่อพ่วง ถูกแรงยางด้านข้าง (มีขีดจำกัดตามวงกลมแรงเสียดทาน) แรงเฉื่อยตอนหัวเบรก และเบรกซ้าย-ขวาไม่เท่ากัน 8%</li>
+          <li>ล้อล็อก = ล้อหางหยุดหมุน แรงยึดด้านข้างเหลือ ≈ 10% → หางปัด · เบรกอ่อน = ตัวลูกเบรกแค่ 40% ที่ควร → ดันท้ายตัวแม่</li>
+          <li>เกณฑ์พลิกคว่ำ: รถบรรทุกน้ำมัน ≈ 0.33 g · รถขนรถยนต์ (ศูนย์ถ่วงสูง) ≈ 0.30 g</li>
+          <li>ตัวแม่ยังวิ่งตามพวงมาลัยเสมอ (ไม่จำลองตัวแม่ลื่นไถล) แต่จะเตือนเมื่อแรงจากตัวลูกสูงพอให้ท้ายปัด</li>
+        </ul>
+      </details>
+    </section>
+
+    <section>
+      <h2>ตั้งค่า</h2>
+      <div class="range">
+        <label for="objH">ความสูงวัตถุรอบรถ <b id="objHv"></b></label>
+        <input type="range" id="objH" min="0.6" max="1.8" step="0.1" value="1.2">
+        <p class="note">เด็ก ≈ 1.0 ม. · คนเดิน ≈ 1.6 ม. · มอเตอร์ไซค์มีคนขี่ ≈ 1.4 ม.</p>
+      </div>
+      <div class="range">
+        <label for="range">แสดงมุมอับรอบตัวรถ <b id="rangev"></b></label>
+        <input type="range" id="range" min="3" max="15" step="1" value="8">
+      </div>
+      <label class="opt"><input type="checkbox" id="optProx"> กระจกส่องใกล้ด้านซ้าย (Class V)</label>
+      <label class="opt"><input type="checkbox" id="optFront"> กระจกส่องหน้ารถ (Class VI)</label>
+      <label class="opt"><input type="checkbox" id="optVis" checked> แสดงพื้นที่ที่มองเห็น</label>
+      <label class="opt"><input type="checkbox" id="optZone" checked> แสดงโซนอันตรายตามความเร็ว</label>
+      <label class="opt"><input type="checkbox" id="optTrail" checked> แสดงเส้นทางล้อ (วงเลี้ยว)</label>
+      <label class="opt"><input type="checkbox" id="optCenter" checked> คืนพวงมาลัยเองเมื่อปล่อยปุ่ม</label>
+    </section>
+
+    <section>
+      <h2>วัตถุบนถนน</h2>
+      <div class="seg" id="place">
+        <button data-t="ped">คนเดิน</button>
+        <button data-t="moto" aria-pressed="true">มอเตอร์ไซค์</button>
+        <button data-t="car">รถเก๋ง</button>
+      </div>
+      <p class="note">คลิกบนแผนที่เพื่อวาง · คลิกขวาหรือ Shift + คลิก เพื่อลบ · วัตถุที่อยู่ในมุมอับจะเป็นสีแดง</p>
+      <div class="btns">
+        <button class="pill" id="btnOvertake">มอเตอร์ไซค์แซงซ้าย</button>
+        <button class="pill" id="btnClear">ล้างวัตถุ</button>
+        <button class="pill" id="btnReset">เริ่มใหม่</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>ปุ่มควบคุม</h2>
+      <div class="keys">
+        <kbd>↑ / W</kbd><span>เร่ง</span>
+        <kbd>↓ / S</kbd><span>เบรก · หยุดแล้วกดค้าง = ถอย</span>
+        <kbd>← → / A D</kbd><span>เลี้ยว</span>
+        <kbd>Space</kbd><span>เบรกมือ</span>
+        <kbd>1 2 3</kbd><span>เปลี่ยนรถ</span>
+        <kbd>V · T · Z</kbd><span>เปิด/ปิดพื้นที่ที่มองเห็น · เส้นทางล้อ · โซนอันตราย</span>
+        <kbd>+ − / ล้อเมาส์</kbd><span>ซูม (หรือปุ่มมุมขวาบนของแผนที่)</span>
+        <kbd>R</kbd><span>เริ่มใหม่</span>
+      </div>
+    </section>
+  </aside>
+</div>
+
+<script type="module" src="./truck_blind_spot_simulator.js?v=20261122-4"></script>
+</body>
+</html>
