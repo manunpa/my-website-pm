@@ -13,7 +13,7 @@ const QS = new URLSearchParams(location.search);
 const LINE_ID = QS.get("line") === "arl" ? "arl" : "north";
 const LINES = {
   north: { name: "สายเหนือ กรุงเทพ–เชียงใหม่", data: "./train_line_north.js?v=20261128-1", bld: "./bkk_bld_north.js?v=20261127-1", train: "loco" },
-  arl: { name: "สายสนามบิน กรุงเทพ–อุรุพงษ์–สุวรรณภูมิ", data: "./train_line_arl.js?v=20261129-3", bld: "./bkk_bld_arl.js?v=20261127-1", train: "emu" }
+  arl: { name: "สายสนามบิน กรุงเทพ–อุรุพงษ์–สุวรรณภูมิ", data: "./train_line_arl.js?v=20261130-1", bld: "./bkk_bld_arl.js?v=20261127-1", train: "emu" }
 };
 const { makeTraffic } = await import("./train_traffic.js?v=20261129-2");
 const TTN = LINE_ID === "north" ? (await import("./train_tt_north.js?v=20261129-2")).TT : null;
@@ -814,11 +814,13 @@ async function start() {
   pressed("trains", "k", S.type);
   buildPanel(); initMap(); updAtoBtn();
   try {
-    const mod = await import("./train_sim_3d.js?v=20261129-3");
+    const mod = await import("./train_sim_3d.js?v=20261130-1");
     const bld = await loadBuildings();
     const branch = branchFor();
     // สายสนามบินอยู่ในเขตกรุงเทพฯ ทั้งสาย → ฉากเมืองตลอด (ช่วงที่ OSM มีตึกน้อยจะเติมตึกให้) · สายเหนือตัดสินจากจำนวนตึก
-    world = mod.createWorld($("view"), { geo, bld, branch, roads: roadsFor(), urban: (a, b) => LINE_ID === "arl" || countBld(bld, a, b) > 25, electric: () => !!TRAINS[S.type].electric });
+    // สถานีสุวรรณภูมิ (ใต้ดิน): โถงใหญ่ ชานชาลายาวตั้งแต่ปลายทางลาด (31,720) ถึงปลายราง
+    const grand = LINE_ID === "arl" ? { name: "สุวรรณภูมิ", s0: 31720, s1: TOTAL - 6 } : null;
+    world = mod.createWorld($("view"), { geo, bld, branch, grand, roads: roadsFor(), urban: (a, b) => LINE_ID === "arl" || countBld(bld, a, b) > 25, electric: () => !!TRAINS[S.type].electric });
     window.addEventListener("resize", () => world.resize());
     world.setEnv({ tod: S.tod, wx: S.wx });
   } catch (e) { console.error(e); flash("โหลดกราฟิก 3 มิติไม่สำเร็จ — ยังขับได้จากหน้าปัดและแผนที่", "", 6000); }
