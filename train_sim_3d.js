@@ -1173,8 +1173,10 @@ export function createWorld(host, api) {
   let DIR = 1;
   const laneOf = (d) => (d > 0 ? 0 : -DT);
   const mirO = (o) => (DIR > 0 ? o : -DT - o);   // offset กล้องข้างทาง: สะท้อนข้ามกึ่งกลางรางคู่ตามทิศ
-  function trackAt(g, pts, oc, zf, cx, cy) {
-    const off2 = (p, o, dz) => [p.x - Math.sin(p.th) * o, p.y + Math.cos(p.th) * o, zf(p) + dz];
+  // ยกโค้ง: หมุนหน้าตัดรางรอบกึ่งกลางราง oc ตามมุม p.b (+ = รางขวาสูง) → จุดที่ห่างกลาง (o−oc) สูงขึ้น −(o−oc)·tan b
+  const bankZ = (p, o, oc) => (p.b ? -(o - oc) * Math.tan(p.b) : 0);
+  function trackAt(g, pts, oc, zf, cx, cy, bank) {
+    const off2 = (p, o, dz) => [p.x - Math.sin(p.th) * o, p.y + Math.cos(p.th) * o, zf(p) + dz + (bank ? bankZ(p, o, oc) : 0)];
     [oc + 0.5, oc - 0.5].forEach((o) => {
       g.add(new THREE.Mesh(ribbon(pts.map((p) => [off2(p, o - 0.035, 0.17), off2(p, o + 0.035, 0.17)])), M.rail));
       g.add(new THREE.Mesh(ribbon(pts.map((p) => [off2(p, o, 0.04), off2(p, o, 0.17)])), M.railWeb));
@@ -1187,7 +1189,7 @@ export function createWorld(host, api) {
       const a = pts[j], b = pts[j + 1], t = (s - a.s) / ((b.s - a.s) || 1);
       const p = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, th: a.th + (b.th - a.th) * t, z: zf(a) + (zf(b) - zf(a)) * t };
       const [x, y] = [p.x - Math.sin(p.th) * oc, p.y + Math.cos(p.th) * oc];
-      eu.set(0, p.th, 0, "YXZ"); q.setFromEuler(eu); m4.compose(v3.set(x, p.z + 0.02, -y), q, sc.set(0.24, 0.16, 1.85)); sl.setMatrixAt(i, m4);
+      eu.set(bank ? -((a.b || 0) + ((b.b || 0) - (a.b || 0)) * t) : 0, p.th, 0, "YXZ"); q.setFromEuler(eu); m4.compose(v3.set(x, p.z + 0.02, -y), q, sc.set(0.24, 0.16, 1.85)); sl.setMatrixAt(i, m4);
     }
     sl.receiveShadow = true; g.add(sl);
   }
@@ -1204,7 +1206,7 @@ export function createWorld(host, api) {
     const P = [];
     for (let s = s0; s <= s1 + 0.01; s += 5) {
       const t = trackPoint(Math.min(s, geo.total));
-      P.push({ s, x: t.x - cx, y: t.y - cy, z: t.z, th: t.th, f: geo.flag(s), gz: geo.ground(Math.min(s, geo.total)) });
+      P.push({ s, x: t.x - cx, y: t.y - cy, z: t.z, th: t.th, f: geo.flag(s), gz: geo.ground(Math.min(s, geo.total)), b: geo.bank ? geo.bank(Math.min(s, geo.total)) : 0 });
     }
     const off = (p, o, dz = 0) => [p.x - Math.sin(p.th) * o, p.y + Math.cos(p.th) * o, p.z + dz];
     const isB = (p) => p.f & 2, isT = (p) => p.f & 1, isV = (p) => p.f & 4;
@@ -1263,24 +1265,25 @@ export function createWorld(host, api) {
       w.rotation.x = -Math.PI / 2; w.rotation.z = p.th + Math.PI / 2; w.position.set(p.x, p.z - 11, -p.y); g.add(w);
     }
     // --- หินโรยทาง (ไม่มีบนสะพาน)
-    const ballastRows = P.filter((p) => !isB(p)).map((p) => [off(p, -DT - 2.0, -0.45), off(p, -DT - 1.35, 0.02), off(p, 1.35, 0.02), off(p, 2.0, -0.45)].map((q, i) => [q[0], q[1], q[2], i * 0.5, p.s / 2]));
+    // หน้าหินโรยทางเอียงตามยกโค้งของแต่ละราง (ขอบนอกบ่าหินคงเดิม)
+    const ballastRows = P.filter((p) => !isB(p)).map((p) => [off(p, -DT - 2.0, -0.45), off(p, -DT - 1.35, 0.02 + bankZ(p, -DT - 1.35, -DT)), off(p, -DT + 1.35, 0.02 + bankZ(p, -DT + 1.35, -DT)), off(p, -1.35, 0.02 + bankZ(p, -1.35, 0)), off(p, 1.35, 0.02 + bankZ(p, 1.35, 0)), off(p, 2.0, -0.45)].map((q, i) => [q[0], q[1], q[2], i * 0.4, p.s / 2]));
     if (ballastRows.length > 1) { const m = new THREE.Mesh(ribbon(ballastRows.map((r2) => r2)), M.ballast); m.receiveShadow = true; g.add(m); }
     // --- รางเหล็ก (ขนาดทาง 1 ม.) + หมอนคอนกรีตทุก 0.6 ม.
     [0.5, -0.5].forEach((o) => {
-      const head = ribbon(P.map((p) => [off(p, o - 0.035, 0.17), off(p, o + 0.035, 0.17)]));
-      const web = ribbon(P.map((p) => [off(p, o, 0.04), off(p, o, 0.17)]));
+      const head = ribbon(P.map((p) => [off(p, o - 0.035, 0.17 + bankZ(p, o, 0)), off(p, o + 0.035, 0.17 + bankZ(p, o, 0))]));
+      const web = ribbon(P.map((p) => [off(p, o, 0.04 + bankZ(p, o, 0)), off(p, o, 0.17 + bankZ(p, o, 0))]));
       const mh = new THREE.Mesh(head, M.rail); mh.castShadow = true; g.add(mh); g.add(new THREE.Mesh(web, M.railWeb));
     });
     const nS = Math.floor((s1 - s0) / 0.62);
     const sl = new THREE.InstancedMesh(geoBox, M.sleeper, nS), m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), v3 = new THREE.Vector3(), eu = new THREE.Euler();
     for (let i = 0; i < nS; i++) {
       const s = s0 + i * 0.62, t = trackPoint(s);
-      eu.set(0, t.th, 0, "YXZ"); q.setFromEuler(eu);
+      eu.set(geo.bank ? -geo.bank(s) : 0, t.th, 0, "YXZ"); q.setFromEuler(eu);   // หมอนเอียงตามยกโค้ง
       m4.compose(v3.set(t.x - cx, t.z + 0.02, -(t.y - cy)), q, sc.set(0.24, 0.16, 1.85)); sl.setMatrixAt(i, m4);
     }
     sl.receiveShadow = true; g.add(sl);
     // --- รางที่ 2 (ทางคู่ ขาล่อง) ขวามือ 4.2 ม. — ช่วงทางยกระดับมีรางคู่ของตัวเองอยู่แล้ว
-    { let run = []; const flush = () => { if (run.length > 1) trackAt(g, run, -DT, (p) => p.z, cx, cy); run = []; };
+    { let run = []; const flush = () => { if (run.length > 1) trackAt(g, run, -DT, (p) => p.z, cx, cy, true); run = []; };
       P.forEach((p) => { if (isV(p)) flush(); else run.push(p); }); flush(); }
     // --- สะพานเหล็กโครงถัก + ตอม่อ
     if (bridgeIdx.length > 1) {
@@ -1460,7 +1463,7 @@ export function createWorld(host, api) {
         const pier = new THREE.Mesh(geoBox, M.concrete); pier.scale.set(2.0, hp, 2.6); pier.position.set(x, p.gz + hp / 2, -y); pier.rotation.y = p.th; pier.castShadow = true; g.add(pier);
         const cap = new THREE.Mesh(geoBox, M.concrete); cap.scale.set(1.8, 1.2, 8.4); cap.position.set(x, p.z - 2.9, -y); cap.rotation.y = p.th; g.add(cap);
       }
-      trackAt(g, via, -4.2, (p) => p.z, cx, cy);
+      trackAt(g, via, -4.2, (p) => p.z, cx, cy, true);
       if (urban) g.add(new THREE.Mesh(ribbon(via.map((p) => [off(p, -13, 0, ), off(p, 9, 0)].map((q, k) => [q[0], q[1], p.gz + 0.04, k * 2.75, p.s / 16]))), M.road));
     }
     // --- ทางแยกที่อุรุพงษ์: รางสายตะวันออกระดับดิน ค่อย ๆ แยกออกข้างทางลาด
@@ -2147,7 +2150,8 @@ export function createWorld(host, api) {
         const A = sideP(sc + a.P.dir * h, lane), B = sideP(sc - a.P.dir * h, lane);
         const th = Math.atan2(A.y - B.y, A.x - B.x), pitch = Math.atan2(A.z - B.z, Math.hypot(A.x - B.x, A.y - B.y));
         c.g.position.set((A.x + B.x) / 2, (A.z + B.z) / 2 + 0.18, -(A.y + B.y) / 2);
-        c.g.rotation.order = "YZX"; c.g.rotation.set(0, th, pitch);
+        // เอียงตามยกโค้งของราง (หันตามทิศที่ขบวนนั้นวิ่ง)
+        c.g.rotation.order = "YZX"; c.g.rotation.set(geo.bank ? -a.P.dir * geo.bank(sc) : 0, th, pitch);
         c.doors.forEach((d) => { d.g.position.x = d.x0 + d.dx * de; });
       });
     });
@@ -2383,7 +2387,10 @@ export function createWorld(host, api) {
       const yaw = hd + view.yaw, pitch = view.pitch - 0.04 + hp;
       cam.up.set(0, 1, 0);
       cam.lookAt(v.x + Math.cos(yaw) * Math.cos(pitch), v.y + Math.sin(pitch), v.z - Math.sin(yaw) * Math.cos(pitch));
-      cab.visible = true; cab.position.copy(v); cab.rotation.set(0, hd, 0, "YXZ");
+      // ห้องคนขับเอียงไปกับตัวรถในโค้งยกระดับ → เห็นขอบฟ้าเอียงเหมือนนั่งอยู่บนรถจริง
+      const lr = lead.roll || 0;
+      cam.rotateZ(-lr);
+      cab.visible = true; cab.position.copy(v); cab.rotation.set(lr, hd, 0, "YXZ");
       cab.children.forEach((m) => { m.visible = true; });
       cab.position.add(new THREE.Vector3(Math.cos(hd) * 0.9, -0.15, -Math.sin(hd) * 0.9));
     } else {

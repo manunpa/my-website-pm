@@ -64,11 +64,35 @@ const geo = {
   // ความโค้ง (1/R) แบบต่อเนื่อง: ประมาณค่าเชิงเส้นระหว่างจุด แล้วเฉลี่ยช่วง ±30 ม. → ไม่กระตุกเป็นขั้นทุก 50 ม.
   curv(s) { const x = clamp(s, 0, TOTAL) / STEP, i = Math.min(N - 2, Math.floor(x)), t = x - i; return K[i] + (K[i + 1] - K[i]) * t; },
   curvS(s) { return (geo.curv(s - 30) + 2 * geo.curv(s - 15) + 3 * geo.curv(s) + 2 * geo.curv(s + 15) + geo.curv(s + 30)) / 9; },
-  radius(s) { const k = geo.curvS(s); return Math.abs(k) < 1 / 4000 ? 0 : Math.round(Math.sign(k) * Math.max(150, 1 / Math.abs(k))); }
+  radius(s) { const k = geo.curvS(s); return Math.abs(k) < 1 / 4000 ? 0 : Math.round(Math.sign(k) * Math.max(150, 1 / Math.abs(k))); },
+  // ยกโค้งที่จุด s (ม./วินาที², มีเครื่องหมายตามทิศโค้ง: + = โค้งซ้าย ยกรางขวา) — ใช้ทั้งฟิสิกส์ รางในฉาก 3 มิติ และการเอียงตัวรถ
+  cant(s) { const x = clamp(s, 0, TOTAL) / STEP, i = Math.min(N - 2, Math.floor(x)), t = x - i; return CA[i] + (CA[i + 1] - CA[i]) * t; },
+  // มุมเอียงหน้าตัดราง (เรเดียน): + = รางขวาสูงกว่ารางซ้าย (มองตามทิศ s เพิ่ม)
+  bank(s) { return Math.asin(clamp(geo.cant(s) / G, -0.2, 0.2)); }
 };
-// ยกโค้ง (cant) ที่สมมติตามรัศมี: ชดเชยแรงเหวี่ยงได้สูงสุด ~0.9 ม./วินาที² (ยกราง ~10 ซม. บนทาง 1 ม.)
-const cantAcc = (R) => (R ? Math.min(0.9, 600 / Math.abs(R)) : 0);
 const COMFORT = 0.65;  // ม./วินาที² แรงเหวี่ยงเหลือที่ผู้โดยสารยังสบาย
+/* ---------------- ยกโค้ง (cant / superelevation) ทุกโค้งในแผนที่ ----------------
+   ออกแบบแบบทางรถไฟจริง: ยกรางนอกโค้งให้ "รับตัวรถ" ที่ความเร็วของสาย (สายเหนือ 120 / สนามบิน 160 กม./ชม.)
+   · ยกโค้งสมดุล = v²/R แต่ไม่เกินค่าสูงสุดของราง: ทางเมตร ~100 มม. บนราง 1.067 ม. · ทางมาตรฐาน ~150 มม. บนราง 1.5 ม.
+   · โค้งแคบที่วิ่งความเร็วสายไม่ได้: คิดจากความเร็วที่โค้งนั้นรับได้ แล้วใช้ยกโค้งสูงสุด
+   · ช่วงเปลี่ยน (transition): ค่อย ๆ ยกขึ้นก่อนเข้าโค้ง/ลดลงหลังออกโค้ง ราว 120–150 ม. ไม่ยกพรวดเดียว */
+const V_LINE = (LINE.id === "arl" ? 160 : 120) / KMH;
+const CANT_MAX = LINE.id === "arl" ? G * 0.15 / 1.5 : G * 0.10 / 1.067;   // ม./วินาที² ≈ g × ยกราง / ระยะห่างราง
+const CANT_RAMP = 60;   // ม. ครึ่งความยาวช่วงเปลี่ยน
+const CA = new Float32Array(N);
+{
+  const raw = new Float64Array(N);
+  for (let i = 0; i < N; i++) {
+    const k = Math.abs(K[i]); if (!k) continue;
+    const v = Math.min(V_LINE, Math.sqrt((CANT_MAX + COMFORT) / k));
+    raw[i] = Math.sign(K[i]) * Math.min(CANT_MAX, v * v * k);
+  }
+  const w = Math.max(1, Math.round(CANT_RAMP / STEP)), pre = new Float64Array(N + 1);
+  for (let i = 0; i < N; i++) pre[i + 1] = pre[i] + raw[i];
+  for (let i = 0; i < N; i++) { const a = Math.max(0, i - w), b = Math.min(N - 1, i + w); CA[i] = (pre[b + 1] - pre[a]) / (b - a + 1); }
+}
+// ยกโค้งที่ช่วยรถในโค้งรัศมี R ณ จุด s (ไม่ติดลบ: ช่วงต่อโค้งกลับทิศไม่นับเป็นตัวช่วย)
+const cantFor = (R, s) => (R ? Math.max(0, geo.cant(s) * Math.sign(R)) : 0);
 
 /* ---------------- ชนิดรถไฟ (ค่าประมาณตามประเภท) ---------------- */
 function consist(list) { let acc = 0; return list.map((c) => { const o = Object.assign({}, c, { off: acc + c.len / 2 }); acc += c.len + 0.8; return o; }); }
@@ -240,7 +264,8 @@ function stepPhysics(dt) {
   // แรงเหวี่ยงในโค้ง (คิดที่รถคันหน้าซึ่งเข้าโค้งก่อน)
   const R = geo.radius(sAhead(-10));
   S.R = R;
-  S.au = R ? S.v * S.v / Math.abs(R) - cantAcc(R) : 0;
+  S.cant = cantFor(R, sAhead(-10));
+  S.au = R ? S.v * S.v / Math.abs(R) - S.cant : 0;
   const lim = G * 0.535 / tr.hcg * 0.75;   // ขีดพลิกคว่ำ (รวมค่าเผื่อแรงกระแทกแบบพลวัต 25%)
   S.auLim = lim;
   // ขากลับ: โค้งซ้าย/ขวาสลับกันเมื่อมองจากห้องคนขับ → ด้านที่รถล้มสลับด้วย
@@ -254,8 +279,9 @@ function derail(side) {
   flash(`ตกรางที่ กม. ${(S.s / 1000).toFixed(1)} · ${Math.round(S.v * KMH)} กม./ชม. ในโค้งรัศมี ${Math.abs(S.R)} ม. (ปลอดภัยไม่เกิน ${Math.round(safeV(S.R) * KMH)})`, "", 9000);
   sfx.crash();
 }
-const safeV = (R) => (R ? Math.sqrt((COMFORT + cantAcc(R)) * Math.abs(R)) : Infinity);
-const flipV = (R, tr) => (R ? Math.sqrt((G * 0.535 / tr.hcg * 0.75 + cantAcc(R)) * Math.abs(R)) : Infinity);
+// ความเร็วสบาย/พลิกคว่ำในโค้งรัศมี R ที่จุด s (รวมยกโค้งจริงของจุดนั้น) · ไม่ส่ง s = โค้งที่รถอยู่ตอนนี้
+const safeV = (R, s = sAhead(-10)) => (R ? Math.sqrt((COMFORT + cantFor(R, s)) * Math.abs(R)) : Infinity);
+const flipV = (R, tr, s = sAhead(-10)) => (R ? Math.sqrt((G * 0.535 / tr.hcg * 0.75 + cantFor(R, s)) * Math.abs(R)) : Infinity);
 // ระยะหยุดจากความเร็ว v ด้วยเบรกเต็มที่ (รวมเวลาหน่วงเบรกลม) บนความชันปัจจุบัน
 function stopDist(v, b) { const tr = TRAINS[S.type]; const d = Math.max(0.15, b + G * (S.grade || 0)); return v * tr.airLag * 0.5 + v * v / (2 * d); }
 
@@ -347,7 +373,7 @@ function atoTarget() {
   const look = Math.max(1500, stopDist(S.v, b) * 1.4 + 300);
   for (let d = -tr.length; d <= look; d += 25) {
     const R = geo.radius(sAhead(d)); if (!R) continue;
-    const vc = safeV(R) * 0.96;
+    const vc = safeV(R, sAhead(d)) * 0.96;
     const v = d <= 0 ? vc : Math.sqrt(vc * vc + 2 * b * Math.max(0, d - S.v * tr.airLag));
     if (v < vAllow) { vAllow = v; why = `โค้ง R${Math.abs(R)} ข้างหน้า ${Math.max(0, Math.round(d))} ม.`; }
   }
@@ -476,7 +502,7 @@ function drawReadouts() {
     ["ตำแหน่ง", "กม. " + (S.s / 1000).toFixed(2)],
     ["ระดับสูง", geo.z(S.s).toFixed(0) + " ม. รทก.", 1],
     ["ความชัน", ((S.grade || 0) * 1000).toFixed(1) + " ‰ " + ((S.grade || 0) > 0.0015 ? "ขึ้น" : (S.grade || 0) < -0.0015 ? "ลง" : "ราบ")],
-    ["โค้ง", R ? `R ${Math.abs(R)} ม. ${R > 0 ? "ซ้าย" : "ขวา"}` : "ทางตรง"],
+    ["โค้ง", R ? `R ${Math.abs(R)} ม. ${R * S.dir > 0 ? "ซ้าย" : "ขวา"} · ยกโค้ง ${Math.round((S.cant || 0) / G * (LINE.id === "arl" ? 1500 : 1067))} มม.` : "ทางตรง"],
     ["แรงเหวี่ยงเหลือ", R ? S.au.toFixed(2) + " ม./วิ²" : "–", 1],
     ["ความเร่ง", (S.a || 0).toFixed(2) + " ม./วิ²", 1],
     ["แรงฉุด", kN(S.fT || 0) + (S.slip ? " ⚠ล้อฟรี" : "")],
@@ -544,7 +570,7 @@ function drawAhead() {
     const R = geo.radius(sAhead(d)); if (!R) continue;
     const x = d / L * W, k = clamp(400 / Math.abs(R), 0.15, 1);
     g.fillStyle = `rgba(255,140,30,${k * 0.7})`; g.fillRect(x, 0, W * 25 / L + 0.5, 16);
-    if (d - lastLabel > 600 && Math.abs(R) < 900) { lastLabel = d; g.fillStyle = "#ffb020"; g.font = "600 20px system-ui"; g.textAlign = "left"; g.fillText(Math.round(safeV(R) * KMH), x + 2, 36); }
+    if (d - lastLabel > 600 && Math.abs(R) < 900) { lastLabel = d; g.fillStyle = "#ffb020"; g.font = "600 20px system-ui"; g.textAlign = "left"; g.fillText(Math.round(safeV(R, sAhead(d)) * KMH), x + 2, 36); }
   }
   // อุโมงค์ / สะพาน
   for (let d = 0; d < L; d += 25) { const f = geo.flag(sAhead(d)); if (!f) continue; g.fillStyle = f & 1 ? "rgba(150,150,170,.5)" : "rgba(80,160,255,.45)"; g.fillRect(d / L * W, H - 24, W * 25 / L + 0.5, 10); }
@@ -803,7 +829,12 @@ function pollPad(dt) {
 let world = null, last = 0, hudT = 0, slowT = 0, warnT = 0;
 // มุมเอียงเป้าหมายของตัวรถ: เอียงเข้าตามยกโค้ง + เอนออกตามแรงเหวี่ยงที่เหลือ (คิดจากความโค้งต่อเนื่อง)
 // ขากลับ: ตัวรถหันกลับด้าน → ซ้าย/ขวาของรถสลับกับซ้าย/ขวาของแนวทาง จึงคูณทิศ
-const rollFor = (s) => { const k = geo.curvS(s), ak = Math.abs(k); if (ak < 1e-5) return 0; const sg = Math.sign(k) * S.dir, cant = Math.min(0.9, 600 * ak), au = S.v * S.v * ak - cant; return -sg * cant / G + sg * clamp(au, -2, 3) / G * 0.12; };
+// ตัวรถเอียงตามหน้าตัดราง (geo.bank) ตรงกับรางในฉากพอดี + เอนออกนอกโค้งเล็กน้อยตามแรงเหวี่ยงที่ยกโค้งชดเชยไม่หมด (สปริงช่วงล่าง)
+const rollFor = (s) => {
+  const k = geo.curvS(s), c = geo.cant(s), sg = Math.sign(k) || Math.sign(c) || 1;
+  const au = sg * (S.v * S.v * k - c);   // แรงเหวี่ยงเหลือ (+ = ออกนอกโค้ง)
+  return S.dir * (-geo.bank(s) + sg * clamp(au, -2, 3) / G * 0.12);
+};
 function frame(now) {
   requestAnimationFrame(frame);
   const dtR = Math.min(0.1, (now - last) / 1000 || 0); last = now;
@@ -868,7 +899,7 @@ async function start() {
   pressed("trains", "k", S.type);
   buildPanel(); initMap(); updAtoBtn();
   try {
-    const mod = await import("./train_sim_3d.js?v=20261130-7");
+    const mod = await import("./train_sim_3d.js?v=20261130-8");
     const bld = await loadBuildings();
     const branch = branchFor();
     // สายสนามบินอยู่ในเขตกรุงเทพฯ ทั้งสาย → ฉากเมืองตลอด (ช่วงที่ OSM มีตึกน้อยจะเติมตึกให้) · สายเหนือตัดสินจากจำนวนตึก
