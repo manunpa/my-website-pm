@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#f4f7fb">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Access Hub">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="apple-touch-icon" sizes="152x152" href="./icons/apple-touch-icon-152.png">
@@ -237,7 +237,12 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 /* โหมดแอป: แถบบนสูงขึ้นเท่ารอยบาก/Dynamic Island, ด้านข้าง/ล่างเว้นขอบจอโค้งและแถบโฮม (เบราว์เซอร์ปกติเป็น 0) */
 .topbar{padding-top:env(safe-area-inset-top);height:calc(78px + env(safe-area-inset-top));flex-basis:calc(78px + env(safe-area-inset-top))}
 @media(max-width:850px){.topbar{height:calc(68px + env(safe-area-inset-top));flex-basis:calc(68px + env(safe-area-inset-top))}}
-.app{padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+/* แผนที่ลากยาวถึงขอบล่างสุด (ไม่มีแถบว่างใต้แผนที่) แต่ยกปุ่ม/คำอธิบาย/ข้อความลิขสิทธิ์ให้พ้นแถบโฮม */
+.app{padding:0 env(safe-area-inset-right) 0 env(safe-area-inset-left)}
+.mapbottom{bottom:calc(20px + env(safe-area-inset-bottom))}
+@media(max-width:850px){.mapbottom{bottom:calc(10px + env(safe-area-inset-bottom))}}
+.maparea .leaflet-bottom{bottom:env(safe-area-inset-bottom)}
+.sidefoot{padding-bottom:calc(13px + env(safe-area-inset-bottom))}
 </style>
 </head>
 <body>

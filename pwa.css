@@ -1,21 +1,9 @@
 /* ใช้ร่วมกันทุกหน้า (โหมดแอป / Standalone)
  *
- * iOS/iPadOS ที่ตั้ง status-bar-style = black-translucent จะวาดหน้าเว็บทะลุใต้แถบสถานะ
- * และตัวอักษรแถบสถานะเป็นสีขาวเสมอ หน้าที่พื้นสว่างจะมองไม่เห็นนาฬิกา/แบตเตอรี่
- * จึงปูแถบสีกรมท่า (สีเดียวกับไอคอนแอป) ไว้ใต้แถบสถานะ สูงเท่ากับ safe-area ด้านบนพอดี
- * บน Android / เดสก์ท็อป safe-area ด้านบนเป็น 0 แถบนี้จึงไม่แสดง
+ * iOS/iPadOS ใช้ status-bar-style = default: แถบสถานะเป็นพื้นสว่าง ตัวอักษรเข้ม
+ * และหน้าเว็บเริ่มใต้แถบสถานะพอดี จึงไม่ต้องปูแถบสีทับด้านบน
+ * ส่วนขอบล่าง (แถบโฮม) แต่ละหน้าจัดการเองด้วย env(safe-area-inset-bottom)
  */
-@media all and (display-mode: standalone), all and (display-mode: fullscreen) {
-  html::before {
-    content: "";
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    height: env(safe-area-inset-top, 0px);
-    background: #111a2d;
-    z-index: 2147483647;
-    pointer-events: none;
-  }
-}
 
 /* กันตัวอักษรขยายเองตอนหมุนจอ (iPhone/iPad) */
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
