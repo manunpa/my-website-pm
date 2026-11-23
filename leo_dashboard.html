@@ -92,6 +92,9 @@ tbody tr{cursor:pointer}
 .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:rgba(22,163,74,.15);color:var(--ok)}
 .tag.warn{background:rgba(245,163,0,.18);color:var(--accent)}
 .long{color:var(--bad);font-weight:500}
+.tag.cat{background:rgba(47,111,237,.13);color:var(--accent2);white-space:nowrap}
+.tag.cat.other{background:rgba(107,115,133,.15);color:var(--muted)}
+.cat-bars .hbar{grid-template-columns:150px 1fr 34px}
 .foot{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;margin:8px 2px}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;padding:16px;z-index:20}
 .modal.show{display:flex}
@@ -136,6 +139,7 @@ tbody tr{cursor:pointer}
     <div><label>ค้นหา (เคส, คนขับ, ทะเบียน, DO, สถานที่)</label><input type="search" id="q" placeholder="พิมพ์เพื่อค้นหา..."></div>
     <div><label>คนขับ</label><select id="fDriver"></select></div>
     <div><label>ผู้ปลด</label><select id="fUnlocker"></select></div>
+    <div><label>ประเภทการจอด</label><select id="fCat"></select></div>
     <div><label>ระยะเวลา</label><select id="fDur"><option value="">ทั้งหมด</option><option value="5">ไม่เกิน 5 นาที</option><option value="30">5-30 นาที</option><option value="31">เกิน 30 นาที</option></select></div>
   </div>
 </div>
@@ -146,6 +150,7 @@ tbody tr{cursor:pointer}
   <div class="panel"><h3>จำนวนเคสตามชั่วโมง (เวลาเริ่ม)</h3><div class="bars" id="cHour"></div></div>
   <div class="panel"><h3>จำนวนเคสตามผู้ปลด</h3><div id="cUnlock"></div></div>
   <div class="panel"><h3>คนขับที่มีเคสมากสุด</h3><div id="cDriver"></div></div>
+  <div class="panel"><h3>ประเภทการจอด <span style="color:var(--muted);font-weight:400;font-size:12px">(แยกจากคำในสาเหตุที่ปลดล็อค)</span></h3><div id="cCat" class="cat-bars"></div></div>
   <div class="panel"><h3>สาเหตุที่พบบ่อย</h3><div id="cReason"></div></div>
   <div class="panel"><h3>การแจ้งเตือนรายวัน <span style="color:var(--muted);font-weight:400;font-size:12px">(สูงสุด 60 วันล่าสุดในช่วงที่เลือก)</span></h3><div class="bars" id="cDay"></div></div>
   <div class="panel"><h3>การแจ้งเตือนรายเดือน</h3><div class="bars" id="cMonth"></div></div>
@@ -161,6 +166,6 @@ tbody tr{cursor:pointer}
 <div class="modal" id="modal"><div class="box"><div style="display:flex;justify-content:space-between;margin-bottom:10px"><h3 style="margin:0" id="mTitle"></h3><button class="btn" id="mClose">✕</button></div><div class="kv" id="mBody"></div></div></div>
 
 <!-- เรียกใช้งานไฟล์ JavaScript ภายนอกที่แยกออกมา -->
-<script type="module" src="./leo_dashboard.js?v=cut-20261122"></script>
+<script type="module" src="./leo_dashboard.js?v=20261124-stoptype"></script>
 </body>
 </html>

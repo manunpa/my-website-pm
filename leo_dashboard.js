@@ -12,6 +12,37 @@ const COLS = [
  ['dur','รวมเวลา'],['status','สถานะรถ'],['place','สถานที่'],['do','เลข DO'],['req','ขอปลด'],['appr','อนุมัติ/ไม่อนุมัติ'],
  ['imp','ความสำคัญ'],['unlockAt','วันที่ปลด'],['unlocker','ผู้ปลด'],['reason','สาเหตุที่ปลดล็อค'],['gps','จำนวน GPS/CCTV']
 ];
+/* ---------- ประเภทการจอด (จากสาเหตุที่ปลดล็อค) ----------
+ * มาจากสูตร IFS ใน "สูตรไว้แยก ประเภทการจอด ตาม Keyword ใน cell.txt" (occ share/z BANKเล็ก/BCP)
+ * ไล่จากบนลงล่าง เจอคำแรกที่ตรงก็ได้ประเภทนั้น (ไม่สนตัวพิมพ์เล็ก/ใหญ่และช่องว่าง เหมือน SEARCH)
+ * เพิ่มคำที่สะกดต่าง (สัญญาน, หน่อยงาน, การจารจร…) และประเภทใหม่จากข้อมูลจริง 955 เคส (1 ต.ค.–23 พ.ย. 69)
+ * แก้คำ/เพิ่มประเภท: แก้ที่รายการนี้ได้เลย ลำดับมีผล — กลุ่มที่อยู่บนกว่าชนะ */
+const STOP_TYPES = [
+  ['ติดไฟแดง/สัญญาณไฟ', ['ไฟแดง','สัญญาณไฟ','สัญญานไฟ','ติดไฟแยก','แยกไฟ','รอไฟ','รอสัญญาณ','รอสัญญาน','ทางรถไฟ','รางรถไฟ']],
+  ['การจราจรติดขัด', ['จราจร','รถติด','ติดขัด','เคลื่อนตัวช้า','ชะลอ','ชลอ','หนาแน่น','อุบัติเหตุ']],
+  ['เปลี่ยนขับ', ['เปลี่ยนขับ','เปลี่ยนคนขับ','เปลี่ยนมือขับ','เปลี่ยนพขร','เปลี่ยนพนักงาน']],
+  ['อยู่ลูกค้า', ['ลูกค้า','ลงน้ำมัน','ส่งน้ำมัน','ลงสินค้า']],
+  ['เติมน้ำมัน', ['เติมน้ำมัน','เติมน้ำ','ฟลีตการ์ด','ฟลีทการ์ด','fleetcard']],
+  ['เข้าห้องน้ำ/ส่วนตัว', ['ห้องน้ำ','ปัสสาวะ','ปัสวะ','ปวดท้อง','ล้างหน้า','ธุระ']],
+  ['เรือข้ามฟาก', ['เรือ']],
+  ['จอดหน่วยงาน/คลัง', ['หน่วยงาน','หน่อยงาน','คลัง','ฟลีท','hub']],
+  ['จุดลงเวลา/ด่าน/ทางด่วน', ['ลงเวลา','ตัดเวลา','ด่าน','ค่าผ่านทาง','ทางด่วน','stopwork']],
+  ['พักรถ/ทานข้าว', ['พักรถ','จุดพัก','จอดพัก','ขอพัก','กินข้าว','ทานข้าว','ซื้อข้าว','ทานอาหาร']],
+  ['ซ่อมบำรุง/ยาง', ['รถเสีย','ช่าง','hino','scania','สแกนเนีย','ฮีโน่','pm','ศูนย์','ยาง','ซ่อม','อู่','อู๋','ความร้อน','ลมรั่ว','เสียงดัง','ตรวจสอบรถ','เช็ครถ']],
+  ['โทรศัพท์/ติดต่อ', ['โทรศัพท์','เส้นทาง','ติดต่อ','หัวหน้างาน']],
+  ['GPS/ระบบ', ['gps','ออฟไลน์','สัญญาณผิดปกติ','ไม่ได้จอด','ไม่มีการจอด','ไม่พบการจอด']],
+  ['รถไม่ได้วิ่งงาน', ['ไม่ได้วิ่ง','ไม่มีวิ่งงาน','ไม่ได้ใช้วิ่งงาน','ไม่มีงาน']],
+].map(([name, words]) => [name, words.map(w => w.toLowerCase().replace(/\s+/g,''))]);
+const OTHER_TYPE = 'อื่นๆ';
+function stopType(reason){
+  const t = String(reason == null ? '' : reason).toLowerCase().replace(/\s+/g,'');
+  if(!t) return OTHER_TYPE;
+  for(const [name, words] of STOP_TYPES) if(words.some(w => t.includes(w))) return name;
+  return OTHER_TYPE;
+}
+// คอลัมน์ที่แสดง (ตาราง / รายละเอียด / CSV) = คอลัมน์จากชีต + ประเภทการจอดต่อจากสาเหตุ
+const VIEW_COLS = COLS.flatMap(c => c[0] === 'reason' ? [c, ['cat','ประเภทการจอด']] : [c]);
+
 const DEMO = `DEMO-0010|CAR-01|นายสมมติ ตัวอย่างหนึ่ง|1กข1001|31/10/2026 23:04:32|01/11/2026 00:15:24|01:10:52|จอดนอกจุด|บางนา, กรุงเทพมหานคร|9000000001|พิจารณาแล้ว|อนุมัติ|A|01/11/2026 03:32:08|ADMIN|ลงสินค้าที่ลูกค้า (ข้อมูลตัวอย่าง)|2 (1/1)
 DEMO-0009|CAR-02|นายทดสอบ ระบบดี|1กข1002|31/10/2026 23:33:37|31/10/2026 23:36:17|00:02:40|จอดนอกจุด|บางนา, กรุงเทพมหานคร|9000000002,9000000003|พิจารณาแล้ว|อนุมัติ|A|01/11/2026 03:31:59|ADMIN|การจราจรหนาแน่น|2 (1/1)
 DEMO-0008|CAR-03|นายจำลอง ใจเย็น|1กข1003|31/10/2026 20:58:36|31/10/2026 21:01:01|00:02:25|จอดนอกจุด|ลำลูกกา, ปทุมธานี|9000000004|พิจารณาแล้ว|อนุมัติ|A|31/10/2026 21:32:29|ADMIN|จอดติดไฟแดง|2 (1/1)
@@ -75,7 +106,7 @@ function fmtDur(sec){const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60),s=Ma
 function build(arr){
   return arr.filter(r => r[0]).map(r => {
     const o = {}; COLS.forEach((c,i) => o[c[0]] = (r[i] ?? '').toString().trim());
-    ['start','end','unlockAt','dur'].forEach(k => o[k] = cleanDate(o[k])); o.do = fixDO(o.do); o.startD = parseDT(o.start); o.endD = parseDT(o.end); o.unlockD = parseDT(o.unlockAt); o.sec = durSec(o.dur);
+    ['start','end','unlockAt','dur'].forEach(k => o[k] = cleanDate(o[k])); o.do = fixDO(o.do); o.startD = parseDT(o.start); o.endD = parseDT(o.end); o.unlockD = parseDT(o.unlockAt); o.sec = durSec(o.dur); o.cat = stopType(o.reason);
     return o;
   }).filter(o => o.startD);
 }
@@ -169,6 +200,13 @@ function fillSelects(){
   };
   fill('fDriver', ROWS.map(r => r.driver), 'ทั้งหมด');
   fill('fUnlocker', ROWS.map(r => r.unlocker), 'ทั้งหมด');
+  // ประเภทการจอด: เรียงตามรายการกฎ (ไม่ใช่ตามตัวอักษร) แสดงเฉพาะที่มีในข้อมูล
+  const catEl = $('fCat');
+  if(catEl){
+    const cur = catEl.value, have = new Set(ROWS.map(r => r.cat));
+    catEl.innerHTML = '<option value="">ทั้งหมด</option>' + [...STOP_TYPES.map(t => t[0]), OTHER_TYPE].filter(n => have.has(n)).map(n => `<option>${esc(n)}</option>`).join('');
+    catEl.value = have.has(cur) ? cur : '';
+  }
 }
 
 /* ---------- ฟิลเตอร์ ---------- */
@@ -194,7 +232,9 @@ function filtered(){
   const dr = drEl ? drEl.value : '';
   const un = unEl ? unEl.value : '';
   const du = duEl ? duEl.value : '';
+  const catEl = $('fCat'), cat = catEl ? catEl.value : '';
   return ROWS.filter(r => {
+    if(cat && r.cat !== cat) return false;
     if(f && r.startD < f) return false;
     if(t && r.startD > t) return false;
     if(nightOnly){ const h = r.startD.getHours(); if(!(h >= 22 || h < 6)) return false; }
@@ -280,7 +320,8 @@ function render(){
   }
   hbars('cUnlock', countBy(d, r=>r.unlocker));
   hbars('cDriver', countBy(d, r=>r.driver));
-  hbars('cReason', countBy(d, r=>r.reason.replace(/[\d.,]+\s*,\s*[\d.]+\s*/,'').slice(0,40)));  
+  hbars('cReason', countBy(d, r=>r.reason.replace(/[\d.,]+\s*,\s*[\d.]+\s*/,'').slice(0,40)));
+  hbars('cCat', countBy(d, r=>r.cat), STOP_TYPES.length + 1);
   renderTrend(d);
 
   d.sort((a,b) => {
@@ -290,15 +331,16 @@ function render(){
   });
   
   const theadEl = $('thead'), tbodyEl = $('tbody'), countEl = $('count');
-  if(theadEl) theadEl.innerHTML = COLS.map(c => `<th data-k="${c[0]}">${c[1]}${sortKey===c[0]?(sortDir>0?' ▲':' ▼'):''}</th>`).join('');
+  if(theadEl) theadEl.innerHTML = VIEW_COLS.map(c => `<th data-k="${c[0]}">${c[1]}${sortKey===c[0]?(sortDir>0?' ▲':' ▼'):''}</th>`).join('');
   if(tbodyEl){
-    tbodyEl.innerHTML = d.length ? d.map((r,i) => `<tr data-i="${ROWS.indexOf(r)}">` + COLS.map(c => {
+    tbodyEl.innerHTML = d.length ? d.map((r,i) => `<tr data-i="${ROWS.indexOf(r)}">` + VIEW_COLS.map(c => {
       let v = esc(r[c[0]]);
       if(c[0]==='dur') v = `<span class="${r.sec>1800?'long':''}">${v}</span>`;
+      else if(c[0]==='cat') v = `<span class="tag cat${r.cat===OTHER_TYPE?' other':''}">${v}</span>`;
       else if(c[0]==='appr') v = `<span class="tag">${v}</span>`;
       else if(c[0]==='req') v = `<span class="tag warn">${v}</span>`;
       return `<td>${v}</td>`;
-    }).join('') + '</tr>').join('') : `<tr><td colspan="${COLS.length}" class="empty">ไม่พบข้อมูลในช่วงที่เลือก</td></tr>`;
+    }).join('') + '</tr>').join('') : `<tr><td colspan="${VIEW_COLS.length}" class="empty">ไม่พบข้อมูลในช่วงที่เลือก</td></tr>`;
   }
   if(countEl) countEl.textContent = `แสดง ${d.length} จาก ${ROWS.length} รายการ`;
   window._d = d;
@@ -311,7 +353,7 @@ if(presetsEl) presetsEl.onclick = e => e.target.dataset.p && preset(e.target.dat
   const el = $(id);
   if(el) el.onchange = () => { nightOnly = false; document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on')); render(); };
 });
-['q','fDriver','fUnlocker','fDur'].forEach(id => {
+['q','fDriver','fUnlocker','fDur','fCat'].forEach(id => {
   const el = $(id);
   if(el) el.oninput = render;
 });
@@ -325,7 +367,7 @@ if(tbodyEl){
     const r = ROWS[+tr.dataset.i];
     const mTitle = $('mTitle'), mBody = $('mBody'), modal = $('modal');
     if(mTitle) mTitle.textContent = r.case;
-    if(mBody) mBody.innerHTML = COLS.map(c => `<b>${c[1]}</b><span>${esc(r[c[0]] || '-')}</span>`).join('');
+    if(mBody) mBody.innerHTML = VIEW_COLS.map(c => `<b>${c[1]}</b><span>${esc(r[c[0]] || '-')}</span>`).join('');
     if(modal) modal.classList.add('show');
   };
 }
@@ -341,7 +383,7 @@ if(refreshEl) refreshEl.onclick = load;
 const csvEl = $('csv');
 if(csvEl){
   csvEl.onclick = () => {
-    const rows = [COLS.map(c=>c[1])].concat((window._d||[]).map(r => COLS.map(c => r[c[0]])));
+    const rows = [VIEW_COLS.map(c=>c[1])].concat((window._d||[]).map(r => VIEW_COLS.map(c => r[c[0]])));
     const csv = '\ufeff' + rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'})); a.download = 'unlock-cases.csv'; a.click();
   };
