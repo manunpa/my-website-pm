@@ -817,7 +817,7 @@ async function start() {
   pressed("trains", "k", S.type);
   buildPanel(); initMap(); updAtoBtn();
   try {
-    const mod = await import("./train_sim_3d.js?v=20261130-4");
+    const mod = await import("./train_sim_3d.js?v=20261130-5");
     const bld = await loadBuildings();
     const branch = branchFor();
     // สายสนามบินอยู่ในเขตกรุงเทพฯ ทั้งสาย → ฉากเมืองตลอด (ช่วงที่ OSM มีตึกน้อยจะเติมตึกให้) · สายเหนือตัดสินจากจำนวนตึก
@@ -825,7 +825,7 @@ async function start() {
     const grand = LINE_ID === "arl" ? { name: "สุวรรณภูมิ", s0: 31720, s1: TOTAL - 6 } : null;
     const xb = LINE.xb ? { n: LINE.xb.n, e: LINE.xb.e, side: LINE.xb.side, dbl: LINE.xb.dbl, s: LINE.xb.s, lat: LINE.xb.lat.map((v) => v / 1e6), lon: LINE.xb.lon.map((v) => v / 1e6) } : null;   // ชุมทางยมราช: อีกสายที่แยกออกไป
     const term = geo.stations[0] && geo.stations[0].n === "กรุงเทพ" ? { name: "กรุงเทพ" } : null;   // สถานีหัวลำโพง (จุดเริ่ม)
-    world = mod.createWorld($("view"), { geo, bld, branch, grand, xb, term, roads: roadsFor(), urban: (a, b) => LINE_ID === "arl" || countBld(bld, a, b) > 25, electric: () => !!TRAINS[S.type].electric });
+    world = mod.createWorld($("view"), { geo, bld, branch, grand, xb, term, towns: LINE_ID === "north", roads: roadsFor(), urban: (a, b) => LINE_ID === "arl" || countBld(bld, a, b) > 25, electric: () => !!TRAINS[S.type].electric });
     window.addEventListener("resize", () => world.resize());
     world.setEnv({ tod: S.tod, wx: S.wx });
   } catch (e) { console.error(e); flash("โหลดกราฟิก 3 มิติไม่สำเร็จ — ยังขับได้จากหน้าปัดและแผนที่", "", 6000); }

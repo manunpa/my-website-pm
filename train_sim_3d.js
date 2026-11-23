@@ -234,6 +234,7 @@ export function createWorld(host, api) {
      · ราง 10 ราง ชานชาลา 6 แห่ง เลขชานชาลา 1–10 · หลังคาชานชาลาทรงผีเสื้อสีน้ำตาลถึง 330 ม. แล้วรางไหลมารวมกัน
      · หอสัญญาณ เสาไฟสนาม ขบวนรถจอดค้าง · ลานหน้าสถานี วงเวียนน้ำพุ ถนน ทางม้าลาย คลองผดุงกรุงเกษม */
   const TERM = api.term || null;
+  const TOWNS = !!api.towns;   // สายเหนือ: ตัวเมืองรอบสถานีหลัก
   const isTerm = (st) => !!(TERM && st && st.s < 1 && st.n === TERM.name);
   const T_TR = [24.8, 14.4, 10.2, 0, -4.2, -14.4, -18.6, -28.8, -33.0, -43.2];           // ศูนย์กลางราง (ม. ซ้าย+ / ขวา−)
   const T_NO = { "24.8": 10, "14.4": 9, "10.2": 8, "0": 7, "-4.2": 6, "-14.4": 5, "-18.6": 4, "-28.8": 3, "-33": 2, "-43.2": 1 };
@@ -517,6 +518,184 @@ export function createWorld(host, api) {
     });
   }
 
+
+
+  /* ---------------- สถานีหลักสายเหนือ (ตัวจังหวัด/อำเภอใหญ่/ชุมทาง) + ตัวเมืองรอบสถานี ----------------
+     แบบอาคารตามภูมิภาค: ไทยภาคกลาง (หลังคาจั่วซ้อน มุขกลาง ป้านลม ช่อฟ้า) · โคโลเนียล 2 ชั้น (ซุ้มโค้ง หน้าต่างบานเกล็ด)
+     · ล้านนา (ผนังไม้สัก หลังคาซ้อนชั้นทรงสูง กาแล) · ทันสมัย (กรุงเทพอภิวัฒน์: อาคารกระจกหลังคาโค้งใหญ่)
+     ชานชาลายาว (จังหวัด 300 ม. / อำเภอ 220 ม.) หลังคาชานชาลา เสาเหล็กหล่อ ป้ายชื่อ เสาไฟ ม้านั่ง หอถังน้ำ ลานหน้าสถานี
+     ตัวเมือง: ถนนเข้าสถานี + ถนนเลียบทางรถไฟ ตึกแถว บ้าน โกดัง อาคารสูงบ้าง วัด (เฉพาะตัวจังหวัด) */
+  const STYLE = { "เชียงใหม่": "lanna", "ลำพูน": "lanna", "ขุนตาน": "lanna", "นครลำปาง": "colonial", "อุตรดิตถ์": "colonial", "เด่นชัย": "colonial", "ศิลาอาสน์": "colonial", "พิษณุโลก": "colonial", "บ้านตาคลี": "colonial", "กรุงเทพอภิวัฒน์": "modern" };
+  const isMain = (st) => !!(st && st.m && !st.h && !isTerm(st) && !isGrand(st));
+  let NMc = null;
+  function northMats() {
+    if (NMc) return NMc;
+    const T = (w, h, f, rep) => canvasTex(w, h, f, rep);
+    const wall = (kind) => T(512, 256, (g, w, h) => {
+      if (kind === "lanna") {
+        g.fillStyle = "#6b4126"; g.fillRect(0, 0, w, h); const r = rnd(2); for (let x = 0; x < w; x += 12) { g.fillStyle = `rgba(30,15,5,${0.2 + r() * 0.2})`; g.fillRect(x, 0, 2, h); }
+        g.fillStyle = "#f0ead8"; g.fillRect(0, h - 48, w, 48);
+        for (let i = 0; i < 6; i++) { const x = 22 + i * 84; g.fillStyle = "#e8d7a8"; g.fillRect(x - 6, 54, 58, 108); g.fillStyle = "#2c1a10"; g.fillRect(x, 60, 46, 96); g.strokeStyle = "#c9a45a"; g.lineWidth = 3; g.strokeRect(x + 4, 64, 38, 88); g.beginPath(); g.moveTo(x + 23, 64); g.lineTo(x + 23, 152); g.stroke(); }
+      } else if (kind === "colonial") {
+        g.fillStyle = "#efdcae"; g.fillRect(0, 0, w, h); g.fillStyle = "#f7efd6"; g.fillRect(0, h / 2 - 8, w, 12); g.fillRect(0, 0, w, 10);
+        for (let i = 0; i < 8; i++) { const x = 8 + i * 64; g.fillStyle = "#f7efd6"; g.beginPath(); g.arc(x + 24, 182, 26, Math.PI, 0); g.fill(); g.fillRect(x - 2, 182, 52, 74); g.fillStyle = "#4a3324"; g.beginPath(); g.arc(x + 24, 184, 20, Math.PI, 0); g.fill(); g.fillRect(x + 4, 184, 40, 72);
+          g.fillStyle = "#f7efd6"; g.fillRect(x + 4, 30, 40, 76); g.fillStyle = "#2f6a4f"; g.fillRect(x + 8, 34, 15, 68); g.fillRect(x + 25, 34, 15, 68); g.fillStyle = "rgba(0,0,0,.25)"; for (let y = 38; y < 100; y += 6) { g.fillRect(x + 8, y, 15, 2); g.fillRect(x + 25, y, 15, 2); } }
+      } else {
+        g.fillStyle = "#efe0bd"; g.fillRect(0, 0, w, h); g.fillStyle = "#a8553a"; g.fillRect(0, h - 26, w, 26);
+        for (let i = 0; i < 8; i++) { const x = 10 + i * 64; g.fillStyle = "#f6eedb"; g.fillRect(x - 4, 50, 52, 150); g.fillStyle = "#6a3f26"; g.beginPath(); g.arc(x + 22, 74, 22, Math.PI, 0); g.fill(); g.fillRect(x, 74, 44, 124); g.strokeStyle = "#d6b98a"; g.lineWidth = 2; g.beginPath(); g.moveTo(x + 22, 56); g.lineTo(x + 22, 196); g.stroke(); for (let y = 90; y < 196; y += 26) { g.beginPath(); g.moveTo(x, y); g.lineTo(x + 44, y); g.stroke(); } }
+      }
+    }, true);
+    const tile = T(256, 256, (g, w, h) => { g.fillStyle = "#cfcfcf"; g.fillRect(0, 0, w, h); for (let y = 0; y < h; y += 16) { g.fillStyle = "rgba(0,0,0,.28)"; g.fillRect(0, y + 12, w, 4); for (let x = (y / 16) % 2 ? 8 : 0; x < w; x += 16) { g.fillStyle = "rgba(255,255,255,.12)"; g.fillRect(x, y, 2, 12); } } }, true);
+    const m = (c, o) => mat(c, Object.assign({ side: THREE.DoubleSide }, o));
+    NMc = {
+      wall: { thai: m(0xffffff, { map: wall("thai"), roughness: 0.8 }), colonial: m(0xffffff, { map: wall("colonial"), roughness: 0.8 }), lanna: m(0xffffff, { map: wall("lanna"), roughness: 0.7 }) },
+      roof: { thai: m(0xc0582f, { map: tile, roughness: 0.7 }), colonial: m(0x9c3b2c, { map: tile, roughness: 0.7 }), lanna: m(0x4f3020, { map: tile, roughness: 0.7 }), modern: m(0xe9ecef, { metalness: 0.5, roughness: 0.35 }) },
+      trimW: m(0xf6f1e4, { roughness: 0.6 }), gold: m(0xd2a63f, { metalness: 0.8, roughness: 0.3 }), post: m(0x2f4a3c, { metalness: 0.4, roughness: 0.5 }), postL: m(0x5a3a24, { roughness: 0.6 }),
+      canopy: m(0x9c4a32, { map: tile, roughness: 0.6, emissive: 0x3a2018 }), canopyL: m(0x6a4630, { map: tile, roughness: 0.6, emissive: 0x2e2016 }), plat: m(0xb9b5ac, { map: concreteTex, roughness: 0.85 }),
+      paving: m(0xc9c2b4, { map: concreteTex, roughness: 0.9 }), tank: m(0x9aa3aa, { metalness: 0.5, roughness: 0.45 }), steel: m(0x6c7177, { metalness: 0.6, roughness: 0.4 }),
+      wood: m(0x7a4a2a, { roughness: 0.55 }), chedi: m(0xf4f1ea, { roughness: 0.6 }), temple: m(0xffffff, { map: wall("thai"), roughness: 0.8 }), red: m(0xb3261e, { roughness: 0.5 })
+    };
+    return NMc;
+  }
+  // หลังคาจั่ว: สามเหลี่ยมกว้าง W สูง hr ยาว L (แกนยาวตามแนวราง)
+  function gableRoof(W, hr, L, m2) {
+    const sh = new THREE.Shape(); sh.moveTo(-W / 2, 0); sh.lineTo(0, hr); sh.lineTo(W / 2, 0); sh.lineTo(-W / 2, 0);
+    const gm = new THREE.ExtrudeGeometry(sh, { depth: L, bevelEnabled: false }); gm.translate(0, 0, -L / 2); gm.rotateY(Math.PI / 2);
+    const uv = gm.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 4, uv.getY(i) / 4);
+    return new THREE.Mesh(gm, m2);
+  }
+  function mainStation(g, st, P, cs0, cs1, cx, cy) {
+    const NM = northMats(), S = st.s, style = STYLE[st.n] || "thai", prov = st.m === 2, half = style === "modern" ? 200 : prov ? 150 : 110;
+    const off = (p, o, dz = 0) => [p.x - Math.sin(p.th) * o, p.y + Math.cos(p.th) * o, p.z + dz];
+    const tp = (s) => { const t = trackPoint(Math.max(0, Math.min(geo.total, s))); return { s, x: t.x - cx, y: t.y - cy, z: t.z, th: t.th }; };
+    const own = (s) => s >= cs0 && (s < cs1 || cs1 >= geo.total - 0.5);
+    const mesh = (geom, m2) => { const me = new THREE.Mesh(geom, m2); me.receiveShadow = true; g.add(me); return me; };
+    const strip = (pts, cols, m2, uv) => (pts.length > 1 ? mesh(ribbon(pts.map((p) => cols.map(([o, h], k) => off(p, o, h).concat(uv ? uv(p, k) : [o / 3, p.s / 3])))), m2) : null);
+    const put = (o3, p, o, h, rotY = 0) => { const [x, y, z] = off(p, o, h); o3.position.set(x, z, -y); o3.rotation.y = p.th + rotY; o3.traverse((q) => { if (q.isMesh) { q.castShadow = true; q.receiveShadow = true; } }); g.add(o3); return o3; };
+    const box = (m2, sx, sy, sz) => { const b = new THREE.Mesh(geoBox, m2); b.scale.set(sx, sy, sz); return b; };
+    const SP = P.filter((p) => Math.abs(p.s - S) <= half);
+    // ---- ชานชาลา 2 ฝั่ง (ซ้าย = รางเรา, ขวา = นอกรางที่ 2)
+    const PLs = [[2.0, 8.0], [-6.2, -12.2]];
+    PLs.forEach(([a, b]) => {
+      const lo = Math.min(a, b), hi = Math.max(a, b);
+      strip(SP, [[lo, 0.95], [hi, 0.95]], NM.plat); strip(SP, [[a, -0.4], [a, 0.95]], NM.plat); strip(SP, [[b, -0.4], [b, 0.95]], NM.plat);
+      const sg = Math.sign(b - a); strip(SP, [[a + sg * 0.05, 0.96], [a + sg * 0.35, 0.96]], M.yellow);
+    });
+    // ---- หลังคาชานชาลา: ซ้ายต่อจากชายคาอาคาร · ขวาเป็นหลังคาเสากลาง
+    const cHalf = style === "modern" ? 190 : prov ? 70 : 46, CP = P.filter((p) => Math.abs(p.s - S) <= cHalf), cm = style === "lanna" ? NM.canopyL : style === "modern" ? NM.roof.modern : NM.canopy;
+    if (style === "modern") {
+      const prof = []; for (let i = 0; i <= 16; i++) { const a = Math.PI * (1 - i / 16); prof.push([-2.1 + 14 * Math.cos(a), 9 + 5 * Math.sin(a)]); }
+      strip(CP, prof, cm, (p, k) => [k / 4, p.s / 6]);
+    } else {
+      strip(CP, [[2.6, 4.0], [11.2, 4.9]], cm, (p, k) => [k * 2, p.s / 4]); strip(CP, [[2.6, 3.75], [2.6, 4.05]], NM.trimW);
+      strip(CP, [[-12.8, 4.3], [-9.2, 3.9], [-5.6, 4.3]], cm, (p, k) => [k, p.s / 4]);
+    }
+    for (let s = Math.ceil((S - cHalf) / 6) * 6; s <= S + cHalf; s += 6) {
+      if (!own(s)) continue; const p = tp(s);
+      if (style === "modern") { if (s % 18 === 0) [9.5, -9.5 - DT / 2].forEach((o) => { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.45, 9, 12), NM.steel); put(c, p, o, 0.95 + 4.5); }); continue; }
+      const pm = style === "lanna" ? NM.postL : NM.post;
+      const c1 = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.14, 3.0, 8), pm); put(c1, p, 3.3, 0.95 + 1.5);
+      const br = box(pm, 0.06, 0.06, 1.2); br.rotation.x = 0.5; put(br, p, 3.6, 3.75);
+      const c2 = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.14, 2.9, 8), pm); put(c2, p, -9.2, 0.95 + 1.45);
+      [-1, 1].forEach((d) => { const b2 = box(pm, 0.06, 0.06, 1.8); b2.rotation.x = d * 0.35; put(b2, p, -9.2 + d * 0.8, 3.6); });
+    }
+    // ---- ป้ายชื่อสถานี / เสาไฟ / ม้านั่ง บนชานชาลา
+    const sm = new THREE.MeshStandardMaterial({ map: signTexture(st.n, st.e || "", (S / 1000).toFixed(2)), roughness: 0.6 });
+    [S - half + 12, S, S + half - 12].forEach((s) => { if (!own(s)) return; const p = tp(s); [5.0, -9.2].forEach((o) => {
+      const sgG = new THREE.Group(); [0, Math.PI].forEach((r2) => { const bd = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 1.25), sm); bd.rotation.y = r2; bd.position.z = r2 ? -0.03 : 0.03; sgG.add(bd); });
+      [-1.8, 1.8].forEach((x) => { const leg = box(M.pole, 0.1, 2.4, 0.1); leg.position.set(x, -1.6, 0); sgG.add(leg); }); put(sgG, p, o, 0.95 + 2.8); }); });
+    for (let s = Math.ceil((S - half + 6) / 18) * 18; s <= S + half - 6; s += 18) {
+      if (!own(s)) continue; const p = tp(s);
+      const lh = Math.abs(s - S) < cHalf + 4 ? 2.7 : 4.2; [7.3, -11.5].forEach((o) => { const lp = new THREE.Group(); const pole = box(M.pole, 0.12, lh, 0.12); pole.position.y = lh / 2; lp.add(pole); const hd = box(M.lamp, 0.7, 0.15, 0.3); hd.position.set(0, lh, o > 0 ? -0.3 : 0.3); lp.add(hd); put(lp, p, o, 0.95); });
+      if (Math.abs(s - S) < cHalf) [6.6, -10.8].forEach((o) => { const bn = new THREE.Group(); const seat = box(NM.wood, 2.4, 0.08, 0.5); seat.position.y = 0.45; bn.add(seat); const back = box(NM.wood, 2.4, 0.4, 0.05); back.position.set(0, 0.7, (o > 0 ? -1 : 1) * 0.24); bn.add(back); [-1, 1].forEach((x) => { const lg = box(NM.post, 0.06, 0.44, 0.45); lg.position.set(x, 0.22, 0); bn.add(lg); }); put(bn, tp(s + 9), o, 0.95); });
+    }
+    // ---- อาคารสถานี (หันหน้าเข้าราง) + ลานหน้าสถานี + หอถังน้ำ
+    if (!own(S)) return;
+    const p = tp(S), Lb = style === "modern" ? 220 : prov ? 52 : 34, D = style === "modern" ? 46 : 12, o0 = 11.2, oc = o0 + D / 2;
+        { const pz = []; for (let s = S - Lb / 2 - 20; s <= S + Lb / 2 + 20; s += 10) pz.push(tp(s)); strip(pz, [[o0 - 0.3, 0.9], [o0 + D + (style === "modern" ? 40 : 30), 0.9]], NM.paving, (q, k) => [k * 8, q.s / 8]); }
+    const bld = new THREE.Group();
+    const wallM = NM.wall[style === "modern" ? "thai" : style], roofM = NM.roof[style];
+    if (style === "modern") {
+      const glass = elevMats().glassWall, body = new THREE.Mesh(geoBox, [glass, glass, NM.roof.modern, NM.trimW, glass, glass]); body.scale.set(Lb, 16, D); body.position.y = 8; bld.add(body);
+      const prof = []; for (let i = 0; i <= 14; i++) { const a = Math.PI * (1 - i / 14); prof.push(new THREE.Vector2(Math.cos(a) * (D / 2 + 3), Math.sin(a) * 7)); }
+      const sh = new THREE.Shape(prof); const rg = new THREE.ExtrudeGeometry(sh, { depth: Lb + 8, bevelEnabled: false }); rg.translate(0, 0, -(Lb + 8) / 2); rg.rotateY(Math.PI / 2);
+      const rm = new THREE.Mesh(rg, NM.roof.modern); rm.position.y = 16; bld.add(rm);
+      const nm = new THREE.Mesh(new THREE.PlaneGeometry(60, 5), new THREE.MeshStandardMaterial({ map: signTexture(st.n, st.e || ""), roughness: 0.5, emissive: 0xffffff, emissiveIntensity: 0.15 })); nm.position.set(0, 12, D / 2 + 0.1); bld.add(nm);
+    } else {
+      const floors = style === "colonial" ? 2 : 1, Hw = floors === 2 ? 8.6 : 5.2;
+      const body = new THREE.Mesh(geoBox, [NM.trimW, NM.trimW, NM.trimW, NM.trimW, wallM, wallM]); body.scale.set(Lb, Hw, D); body.position.y = Hw / 2; bld.add(body);
+      wallM.map.repeat.set(Math.max(1, Math.round(Lb / 16)), 1);
+      const plinth = box(NM.red, Lb + 0.4, 0.5, D + 0.4); plinth.position.y = 0.25; plinth.material = style === "lanna" ? NM.trimW : NM.red; bld.add(plinth);
+      const cor = box(NM.trimW, Lb + 0.8, 0.35, D + 0.8); cor.position.y = Hw; bld.add(cor);
+      if (style === "lanna") {
+        [[D + 3, 4.2, Lb + 2, Hw + 0.2], [D * 0.75, 3.8, Lb * 0.55, Hw + 2.4], [D * 0.5, 3.2, Lb * 0.25, Hw + 4.4]].forEach(([W, hr, L, y]) => { const r1 = gableRoof(W, hr, L, roofM); r1.position.y = y; bld.add(r1);
+          [-L / 2, L / 2].forEach((x) => [-1, 1].forEach((d) => { const k = box(NM.gold, 0.12, 2.2, 0.12); k.position.set(x, y + hr + 0.7, d * 0.45); k.rotation.x = d * 0.6; bld.add(k); })); });
+      } else if (style === "colonial") {
+        const r1 = gableRoof(D + 2.4, 4.0, Lb + 2.4, roofM); r1.position.y = Hw + 0.2; bld.add(r1);
+        const tower = box(wallM, 10, Hw + 3, D + 1.2); tower.position.y = (Hw + 3) / 2; bld.add(tower);
+        const tr = gableRoof(D + 2.6, 3.6, 11.5, roofM); tr.position.y = Hw + 3.1; bld.add(tr);
+        const ck = new THREE.Mesh(new THREE.CircleGeometry(1.1, 24), new THREE.MeshStandardMaterial({ color: 0xf8f6ee, roughness: 0.5 })); ck.position.set(0, Hw + 1.6, D / 2 + 0.65); bld.add(ck);
+      } else {
+        const r1 = gableRoof(D + 2.6, 4.4, Lb + 2, roofM); r1.position.y = Hw + 0.2; bld.add(r1);
+        const r2 = gableRoof(D + 0.8, 3.0, Lb * 0.7, roofM); r2.position.y = Hw + 2.6; bld.add(r2);
+        const mukh = gableRoof(10, 4.6, D + 6, roofM); mukh.rotation.y = Math.PI / 2; mukh.position.set(0, Hw + 0.2, 1.5); bld.add(mukh);
+        [[(D + 6) / 2 + 1.5, 1]].forEach(([z]) => { [-1, 1].forEach((d) => { const pb = box(NM.gold, 0.15, 0.25, 6.0); pb.position.set(d * 2.5, Hw + 2.5, z + 0.1); pb.rotation.set(0, Math.PI / 2, d * 0.74); bld.add(pb); }); const cf = new THREE.Mesh(new THREE.ConeGeometry(0.2, 1.4, 8), NM.gold); cf.position.set(0, Hw + 5.3, z); bld.add(cf); });
+        [-Lb / 2 - 1, Lb / 2 + 1].forEach((x) => { const cf = new THREE.Mesh(new THREE.ConeGeometry(0.18, 1.2, 8), NM.gold); cf.position.set(x, Hw + 5.0, 0); bld.add(cf); });
+      }
+      const nm = new THREE.Mesh(new THREE.PlaneGeometry(9, 2.6), sm); nm.position.set(0, Hw - 1.0, D / 2 + (style === "thai" ? 4.6 : style === "colonial" ? 0.7 : 0.1)); bld.add(nm);
+    }
+    put(bld, p, oc, 0.9, 0);
+    if (style !== "modern") {
+      const wt = new THREE.Group(); [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([a, b]) => { const leg = box(NM.steel, 0.2, 9, 0.2); leg.position.set(a * 1.6, 4.5, b * 1.6); wt.add(leg); });
+      const tk = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.6, 3.2, 20), NM.tank); tk.position.y = 10.6; wt.add(tk); const tc = new THREE.Mesh(new THREE.ConeGeometry(2.8, 1.0, 20), NM.tank); tc.position.y = 12.7; wt.add(tc);
+      put(wt, tp(S + Lb / 2 + 26), 16, 0);
+    }
+  }
+  // ---- ตัวเมืองรอบสถานีหลัก (ช่วงที่ไม่มีข้อมูลตึก OSM)
+  function mainNear(s) { let best = null; geo.stations.forEach((st) => { if (!isMain(st) || st.h) return; const R = st.m === 2 ? 950 : 600; if (Math.abs(st.s - s) < R && (!best || Math.abs(st.s - s) < Math.abs(best.s - s))) best = st; }); return best; }
+  function addTown(g, s0, s1, cx, cy, P, r) {
+    const st = mainNear((s0 + s1) / 2); if (!st) return;
+    const NM = northMats(), prov = st.m === 2, R = prov ? 950 : 600, latMax = prov ? 430 : 280, S = st.s, style = STYLE[st.n] || "thai";
+    const off = (p, o, dz = 0) => [p.x - Math.sin(p.th) * o, p.y + Math.cos(p.th) * o, p.z + dz];
+    const near = P.filter((p) => Math.abs(p.s - S) < R); if (near.length < 2) return;
+    const mesh = (geom, m2) => { const me = new THREE.Mesh(geom, m2); me.receiveShadow = true; g.add(me); return me; };
+    // ถนนเข้าสถานี + ถนนเลียบทางรถไฟ
+    const lp = near.filter((p) => true);
+    mesh(ribbon(lp.map((p) => [off(p, 58, -0.3), off(p, 68, -0.3)].map((q, k) => q.concat([k, p.s / 16])))), M.road);
+    mesh(ribbon(lp.map((p) => [off(p, -DT - 70, -0.3), off(p, -DT - 60, -0.3)].map((q, k) => q.concat([k, p.s / 16])))), M.road);
+    if (S >= s0 && S < s1) { const t = trackPoint(S), q = { x: t.x - cx, y: t.y - cy, z: t.z, th: t.th }; const rows = []; for (let o = 30; o <= 420; o += 10) rows.push([off(q, o, -0.3).map((v, i) => (i === 0 ? v - Math.cos(q.th) * 5 : i === 1 ? v - Math.sin(q.th) * 5 : v)).concat([0, o / 16]), off(q, o, -0.3).map((v, i) => (i === 0 ? v + Math.cos(q.th) * 5 : i === 1 ? v + Math.sin(q.th) * 5 : v)).concat([1, o / 16])]); mesh(ribbon(rows), M.road); }
+    const frac = near.length / P.length, want = Math.round((prov ? 150 : 75) * frac * Math.max(0.35, 1 - Math.abs((s0 + s1) / 2 - S) / R));
+    const bk = { Wc: bucket(), Wg: bucket(), Rf: bucket() }, placed = [];
+    for (let k = 0, n = 0; k < want * 5 && n < want; k++) {
+      const p = near[Math.floor(r() * near.length)], side = r() < 0.55 ? 1 : -1;
+      const o = side > 0 ? 18 + Math.pow(r(), 1.3) * latMax : -(DT + 20 + Math.pow(r(), 1.3) * latMax);
+      if (Math.abs(p.s - S) < (prov ? 190 : 140) && o > -26 && o < 85) continue;            // ลานสถานี/ชานชาลา
+      if ((o > 54 && o < 72) || (o < -DT - 56 && o > -DT - 74)) continue;                     // ถนนเลียบทางรถไฟ
+      if (Math.abs(p.s - S) < 12 && o > 25) continue;                                         // ถนนเข้าสถานี
+      const t = r(); let w, d, H, house = false, along = true;
+      const dist = Math.abs(o) / latMax, core = Math.abs(p.s - S) < R * 0.45 && dist < 0.5;
+      if (core && t < 0.62) { w = (3 + Math.floor(r() * 8)) * 4.2; d = 11 + r() * 5; H = 3.3 * (2 + Math.floor(r() * 3)); }       // ตึกแถว
+      else if (t < 0.85) { w = 8 + r() * 6; d = 8 + r() * 6; H = 4 + r() * 3.5; house = true; along = r() < 0.6; }                 // บ้าน
+      else if (t < 0.96) { w = 22 + r() * 30; d = 16 + r() * 22; H = 6 + r() * 5; }                                                // โกดัง/ตลาด
+      else { w = 16 + r() * 14; d = 14 + r() * 10; H = (prov ? 14 + r() * 30 : 9 + r() * 8); }                                     // อาคารสูง/โรงแรม
+      const x = p.x - Math.sin(p.th) * o, y = p.y + Math.cos(p.th) * o, rad = Math.hypot(w, d) / 2;
+      if (placed.some(([px, py, pr]) => Math.hypot(px - x, py - y) < (pr + rad) * 0.78)) continue;
+      placed.push([x, y, rad]); n++;
+      const th = p.th + (along ? 0 : (r() - 0.5) * 0.8), c = Math.cos(th), sn = Math.sin(th);
+      const pts = [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]].map(([a, b]) => [x + a * c - b * sn, y + a * sn + b * c]);
+      emitBuilding(bk, pts, p.z - 2.0, H + 1.6, r(), house);
+    }
+    flushBuildings(g, bk);
+    // วัดประจำเมือง (เฉพาะตัวจังหวัด): โบสถ์หลังคาซ้อน + เจดีย์
+    const ts = S + 320; if (prov && ts >= s0 && ts < s1) {
+      const t = trackPoint(ts), q = { x: t.x - cx, y: t.y - cy, z: t.z, th: t.th }, [x, y, z] = off(q, -DT - 150, -1.5), wat = new THREE.Group();
+      const b = new THREE.Mesh(geoBox, NM.temple); b.scale.set(26, 6, 12); b.position.y = 3; wat.add(b);
+      [[15, 5, 28, 6.2], [11, 4.2, 20, 8.8], [7, 3.4, 12, 11.0]].forEach(([W, hr, L, yy]) => { const rr = gableRoof(W, hr, L, style === "lanna" ? NM.roof.lanna : NM.roof.thai); rr.position.y = yy; wat.add(rr); [-L / 2, L / 2].forEach((xx) => { const cf = new THREE.Mesh(new THREE.ConeGeometry(0.25, 1.8, 8), NM.gold); cf.position.set(xx, yy + hr + 0.6, 0); wat.add(cf); }); });
+      const ch = new THREE.Group(); const base = new THREE.Mesh(new THREE.CylinderGeometry(6, 7, 3, 24), NM.chedi); base.position.y = 1.5; ch.add(base); const bell = new THREE.Mesh(new THREE.SphereGeometry(5, 20, 14, 0, Math.PI * 2, 0, Math.PI / 2), NM.chedi); bell.position.y = 3; bell.scale.set(1, 1.3, 1); ch.add(bell);
+      const spire = new THREE.Mesh(new THREE.ConeGeometry(1.6, 14, 16), NM.chedi); spire.position.y = 15; ch.add(spire); const tip = new THREE.Mesh(new THREE.ConeGeometry(0.5, 4, 12), NM.gold); tip.position.y = 23; ch.add(tip); ch.position.set(0, 0, 26); wat.add(ch);
+      wat.position.set(x, z, -y); wat.rotation.y = q.th; wat.traverse((m2) => { if (m2.isMesh) { m2.castShadow = true; m2.receiveShadow = true; } }); g.add(wat);
+    }
+  }
 
   /* ---------------- สถานียกระดับแอร์พอร์ตเรล ลิงก์ (แบบเต็ม) ----------------
      ตามลักษณะสถานีจริง: 3 ระดับ (ถนน · ชั้นจำหน่ายตั๋ว/คอนคอร์สใต้ราง · ชั้นชานชาลา) ชานชาลาด้านข้าง 2 ฝั่ง ยาวรับรถ 10 ตู้
@@ -1068,7 +1247,7 @@ export function createWorld(host, api) {
         col.set([c.r, c.g, c.b], i * 3);
       }
       geom.setAttribute("color", new THREE.BufferAttribute(col, 3));
-      const m = new THREE.Mesh(geom, urban ? M.city : hill > 0.3 ? M.forest : M.rice); m.receiveShadow = true; m.userData.ground = true; g.add(m);
+      const m = new THREE.Mesh(geom, urban || (TOWNS && hill < 0.3 && mainNear((s0 + s1) / 2)) ? M.city : hill > 0.3 ? M.forest : M.rice); m.receiveShadow = true; m.userData.ground = true; g.add(m);
     };
     terrainSide(1); terrainSide(-1);
     // --- น้ำใต้สะพาน
@@ -1147,6 +1326,7 @@ export function createWorld(host, api) {
       const plat = P.filter((p) => Math.abs(p.s - st.s) <= (st.h ? 45 : 110));
       if (plat.length < 2) return;
       if (plat.some(isV)) { elevStation(g, st, P, s0, s1, cx, cy); return; }   // สถานียกระดับ: แบบเต็มของแอร์พอร์ตลิงก์
+      if (isMain(st) && !plat.some(isT) && !plat.some(isB)) { mainStation(g, st, P, s0, s1, cx, cy); return; }   // สถานีหลักสายเหนือ
       [1, -1].forEach((side) => {
         const elevSt = plat.some(isV);
         // ชานชาลาซ้าย = รางขาขึ้น (รางเรา) · ชานชาลาขวา = อยู่นอกรางที่ 2 (ขาล่อง)
@@ -1220,7 +1400,8 @@ export function createWorld(host, api) {
       const mess = ribbon(P.map((p) => [off(p, -0.02, 6.6), off(p, 0.02, 6.6)])); g.add(new THREE.Mesh(mess, M.wire));
     }
     // --- ต้นไม้ / ต้นตาล / บ้านชนบท
-    const nTree = Math.round(urban ? 45 : hill > 0.3 ? 420 : 140), trees = [];
+    const townC = !urban && TOWNS && mainNear((s0 + s1) / 2);
+    const nTree = Math.round(urban ? 45 : townC ? 70 : hill > 0.3 ? 420 : 140), trees = [];
     for (let i = 0; i < nTree; i++) {
       const p = P[Math.floor(r() * P.length)], side = r() < 0.5 ? -1 : 1, o = 14 + Math.pow(r(), 1.4) * (hill > 0.3 ? 500 : 380);
       if ((isT(p) && !under(p)) || isB(p) || inTermZone(p.s, o * side)) continue;
@@ -1248,7 +1429,8 @@ export function createWorld(host, api) {
       tk.castShadow = true; g.add(tk);
     }
     // บ้านเรือนใกล้สถานี
-    if (!urban) geo.stations.forEach((st) => {
+    if (!urban && TOWNS) addTown(g, s0, s1, cx, cy, P, r);
+    if (!urban && !TOWNS) geo.stations.forEach((st) => {
       if (st.s < s0 || st.s > s1) return;
       const nH = st.m ? 30 : 12, hb = new THREE.InstancedMesh(geoBox, M.house, nH), hr = new THREE.InstancedMesh(geoBox, M.houseRoof, nH);
       for (let i = 0; i < nH; i++) {
