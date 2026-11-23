@@ -12,7 +12,7 @@ import { requireLogin } from "./firebase-guard.js?v=20261122-cut";
 const QS = new URLSearchParams(location.search);
 const LINE_ID = QS.get("line") === "arl" ? "arl" : "north";
 const LINES = {
-  north: { name: "สายเหนือ กรุงเทพ–เชียงใหม่", data: "./train_line_north.js?v=20261130-2", bld: "./bkk_bld_north.js?v=20261127-1", train: "loco" },
+  north: { name: "สายเหนือ กรุงเทพ–เชียงใหม่", data: "./train_line_north.js?v=20261130-6", bld: "./bkk_bld_north.js?v=20261127-1", train: "loco" },
   arl: { name: "สายสนามบิน กรุงเทพ–อุรุพงษ์–สุวรรณภูมิ", data: "./train_line_arl.js?v=20261130-2", bld: "./bkk_bld_arl.js?v=20261127-1", train: "emu" }
 };
 const { makeTraffic } = await import("./train_traffic.js?v=20261129-2");
@@ -817,7 +817,7 @@ async function start() {
   pressed("trains", "k", S.type);
   buildPanel(); initMap(); updAtoBtn();
   try {
-    const mod = await import("./train_sim_3d.js?v=20261130-5");
+    const mod = await import("./train_sim_3d.js?v=20261130-6");
     const bld = await loadBuildings();
     const branch = branchFor();
     // สายสนามบินอยู่ในเขตกรุงเทพฯ ทั้งสาย → ฉากเมืองตลอด (ช่วงที่ OSM มีตึกน้อยจะเติมตึกให้) · สายเหนือตัดสินจากจำนวนตึก
