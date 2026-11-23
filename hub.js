@@ -83,6 +83,7 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
   var empty = document.getElementById("empty");
   var chipsBox = document.getElementById("chips");
   var quick = document.getElementById("quick");
+  var setsBox = document.getElementById("sets");
   var sections = Array.prototype.slice.call(document.querySelectorAll("section[data-sec]"));
   var cards = Array.prototype.slice.call(document.querySelectorAll("section[data-sec] .btn"));
 
@@ -231,11 +232,12 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
       var any = Array.prototype.some.call(s.querySelectorAll(".btn"), function (c) { return c.style.display !== "none"; });
       s.style.display = any ? "" : "none";
       // ตอนค้นหา/กรอง กางทุกหมวดให้เห็นผลลัพธ์ครบ
-      var folded = !filtering && collapsed.indexOf(s.getAttribute("data-sec")) > -1;
+      var folded = !filtering && !picking && collapsed.indexOf(s.getAttribute("data-sec")) > -1;
       s.classList.toggle("collapsed", folded);
       s.querySelector("h2").setAttribute("aria-expanded", folded ? "false" : "true");
     });
     quick.style.display = filtering ? "none" : "";
+    if (setsBox) setsBox.style.display = filtering ? "none" : "";
     empty.textContent = chip === "fav" && !favs.length
       ? "ยังไม่มีรายการโปรด กดรูปดาวบนการ์ดเพื่อปักหมุด"
       : "ไม่พบลิงก์ที่ตรงกับคำค้น";
@@ -267,8 +269,251 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
     return best;
   }
 
+  /* =====================================================================
+     เปิดทั้งชุด (ทดลองใช้งาน)
+     - ชุดพื้นฐาน: กำหนดด้วย href ของการ์ดด้านล่าง (การ์ดที่ถูกลบออกจากหน้าจะถูกข้ามเอง)
+     - ชุดของฉัน: เลือกการ์ดเอง เก็บในเครื่องนี้แยกตามบัญชี เหมือนรายการโปรด
+     - คอม: เปิดทุกลิงก์พร้อมกัน (ครั้งแรกเบราว์เซอร์อาจบล็อก ต้องกดอนุญาตป๊อปอัป)
+     - มือถือ/จอสัมผัส/โหมดแอป: เปิดทีละอัน กด "ถัดไป" ไปเรื่อย ๆ (ไม่โดนบล็อก)
+     ===================================================================== */
+  K.sets = "hub-sets:" + uid;
+  K.step = "hub-step:" + uid;
+  var BUILTIN_SETS = [
+    { id: "b-songdee", name: "Songdee", hrefs: [
+      "http://103.228.55.220/SDFMSV20/login/logout",
+      "http://203.151.66.75:9966/vss/#"] },
+    { id: "b-dtc", name: "DTC", hrefs: [
+      "https://gps.dtc.co.th/v2/login",
+      "https://cms.dtc.co.th/login"] },
+    { id: "b-pms", name: "PMS", hrefs: [
+      "https://hosting.wialon.eu/?lang=en",
+      "http://203.150.48.47:9966/vss/#"] },
+    { id: "b-sca", name: "SCA OB", hrefs: [
+      "https://tttwli.com/login.html",
+      "https://dvrai.net/808gps/login.html",
+      "https://hosting.mobileinnovation.asia/",
+      "https://superhero.mobileinnovation.asia/vss/"] },
+    { id: "b-marine", name: "มารีน", hrefs: [
+      "https://xpertone.shipexpert.online/login",
+      "http://203.151.66.75:9966/vss/#"] }
+  ];
+  var mySets = load(K.sets, []);
+  var stepRun = null;   // { name, hrefs, i, opened, blocked }
+  try { stepRun = JSON.parse(sessionStorage.getItem(K.step)); } catch (e) {}
+  var picking = null;   // { id, name, hrefs }
+  var stepMode = window.matchMedia("(display-mode: standalone), (pointer: coarse)").matches;
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (ch) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
+    });
+  }
+  function cardName(href) {
+    var c = firstCard(href), s = c && c.querySelector(".label strong");
+    return s ? s.textContent.trim() : href;
+  }
+  function liveHrefs(set) {
+    return set.hrefs.filter(function (h, i) { return firstCard(h) && set.hrefs.indexOf(h) === i; });
+  }
+  function findSet(id) {
+    return BUILTIN_SETS.concat(mySets).filter(function (s) { return s.id === id; })[0] || null;
+  }
+  function saveStep() {
+    try {
+      if (stepRun) sessionStorage.setItem(K.step, JSON.stringify(stepRun));
+      else sessionStorage.removeItem(K.step);
+    } catch (e) {}
+  }
+
+  var toastEl = document.createElement("div");
+  toastEl.className = "hubtoast";
+  toastEl.setAttribute("role", "status");
+  document.body.appendChild(toastEl);
+  var toastTimer;
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add("on");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove("on"); }, 3200);
+  }
+
+  function setCardHtml(set, mine) {
+    var hrefs = liveHrefs(set);
+    if (!hrefs.length) return "";
+    var acts = '<button type="button" class="setopen" data-act="open" data-id="' + esc(set.id) + '">' +
+      (stepMode ? "เปิดทีละอัน" : "เปิดทั้งชุด") + " ↗</button>";
+    acts += mine
+      ? '<button type="button" class="setghost" data-act="edit" data-id="' + esc(set.id) + '">แก้</button>' +
+        '<button type="button" class="setghost" data-act="del" data-id="' + esc(set.id) + '">ลบ</button>'
+      : '<button type="button" class="setghost" data-act="copy" data-id="' + esc(set.id) + '" title="คัดลอกชุดนี้ไปปรับเป็นชุดของฉัน">คัดลอกไปแก้</button>';
+    return '<div class="setcard' + (mine ? " mine" : "") + '">' +
+      '<div class="sethead"><strong>' + esc(set.name) + "</strong><small>" + (mine ? "ของฉัน · " : "") + hrefs.length + " ลิงก์</small></div>" +
+      '<p class="setlist">' + hrefs.map(function (h) { return esc(cardName(h)); }).join(" · ") + "</p>" +
+      '<div class="setacts">' + acts + "</div></div>";
+  }
+
+  function stepHtml() {
+    var r = stepRun, done = r.i >= r.hrefs.length;
+    var note = r.blocked
+      ? '<p class="stepnote">เบราว์เซอร์บล็อกหน้าต่างใหม่ไว้ เปิดได้ ' + r.opened + " จาก " + r.hrefs.length +
+        " ลิงก์ — กดไอคอนป๊อปอัปที่ถูกบล็อก (ขวาสุดของช่องที่อยู่เว็บ) เลือก <b>อนุญาตเสมอ</b> ครั้งหน้าจะเปิดครบทีเดียว" +
+        " หรือกด <b>ถัดไป</b> ด้านล่างเพื่อเปิดส่วนที่เหลือทีละอัน</p>"
+      : "";
+    var main = done
+      ? '<span class="stepdone">✓ เปิดครบ ' + r.hrefs.length + " ลิงก์แล้ว</span>"
+      : '<a class="setopen" data-act="next" href="' + esc(r.hrefs[r.i]) + '" target="_blank" rel="noopener">ถัดไป: ' +
+        esc(cardName(r.hrefs[r.i])) + " (" + (r.i + 1) + "/" + r.hrefs.length + ") ↗</a>";
+    return '<div class="stepbar">' + note +
+      '<div class="steprow"><strong>ชุด ' + esc(r.name) + "</strong>" + main +
+      '<button type="button" class="setghost" data-act="stop">' + (done ? "ปิด" : "หยุด") + "</button></div></div>";
+  }
+
+  function renderSets() {
+    if (!setsBox) return;
+    var html = '<section class="sets"><h2><span>เปิดทั้งชุด <em class="trial">ทดลองใช้งาน</em></span>' +
+      '<button type="button" class="setghost" data-act="new">＋ สร้างชุด</button></h2>';
+    if (stepRun) html += stepHtml();
+    html += '<div class="setgrid">' +
+      mySets.map(function (s) { return setCardHtml(s, true); }).join("") +
+      BUILTIN_SETS.map(function (s) { return setCardHtml(s, false); }).join("") + "</div></section>";
+    setsBox.innerHTML = html;
+  }
+
+  function startStep(set, hrefs, from, blocked) {
+    stepRun = { name: set.name, hrefs: hrefs, i: from, opened: from, blocked: !!blocked };
+    saveStep(); renderSets();
+    var a = setsBox.querySelector('[data-act="next"]');
+    if (a && !blocked) a.focus({ preventScroll: true });
+  }
+
+  function openSet(set) {
+    var hrefs = liveHrefs(set);
+    if (!hrefs.length) return;
+    if (stepMode) {
+      // มือถือ: เปิดอันแรกเลย (เป็นการกดของผู้ใช้ ไม่โดนบล็อก) แล้วให้กด "ถัดไป" ต่อ
+      var w0 = window.open(hrefs[0], "_blank");
+      if (w0) { try { w0.opener = null; } catch (e) {} }
+      startStep(set, hrefs, w0 ? 1 : 0, false);
+      return;
+    }
+    var opened = 0;
+    for (var i = 0; i < hrefs.length; i++) {
+      var w = window.open(hrefs[i], "_blank");
+      if (!w) break;               // โดนบล็อก: ที่เหลือก็จะโดนเหมือนกัน
+      try { w.opener = null; } catch (e) {}
+      opened++;
+    }
+    if (opened === hrefs.length) {
+      stepRun = null; saveStep(); renderSets();
+      toast("เปิดชุด " + set.name + " แล้ว " + opened + " ลิงก์");
+    } else {
+      startStep(set, hrefs, opened, true);
+    }
+  }
+
+  /* ----- โหมดเลือกการ์ดเข้าชุด ----- */
+  var pickBar = document.createElement("div");
+  pickBar.className = "pickbar";
+  pickBar.innerHTML =
+    '<div class="pickinner">' +
+      '<input type="text" id="pickName" maxlength="40" placeholder="ตั้งชื่อชุด เช่น ชุดเช้า" aria-label="ชื่อชุด">' +
+      '<span class="pickcount" id="pickCount"></span>' +
+      '<button type="button" class="setghost" id="pickCancel">ยกเลิก</button>' +
+      '<button type="button" class="setopen" id="pickSave">บันทึกชุด</button>' +
+    "</div>";
+  document.body.appendChild(pickBar);
+  var pickName = pickBar.querySelector("#pickName");
+  var pickCount = pickBar.querySelector("#pickCount");
+
+  cards.forEach(function (c) {
+    if (!hrefOf(c)) return;
+    var ck = document.createElement("span");
+    ck.className = "pickcheck";
+    ck.setAttribute("aria-hidden", "true");
+    c.insertBefore(ck, c.firstChild);
+  });
+
+  function syncPicks() {
+    cards.forEach(function (c) {
+      c.classList.toggle("picked", !!picking && picking.hrefs.indexOf(hrefOf(c)) > -1);
+    });
+    if (picking) pickCount.textContent = "เลือกแล้ว " + picking.hrefs.length + " ลิงก์ · แตะการ์ดเพื่อเลือก/เอาออก";
+  }
+  function startPick(base, keepId) {
+    picking = {
+      id: keepId ? base.id : null,
+      name: base ? (keepId ? base.name : base.name + " (ของฉัน)") : "",
+      hrefs: base ? liveHrefs(base) : []
+    };
+    pickName.value = picking.name;
+    q.value = ""; filter();
+    document.body.classList.add("picking");
+    syncPicks();
+    var first = document.querySelector("section[data-sec]");
+    if (first) first.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function endPick() {
+    picking = null;
+    document.body.classList.remove("picking");
+    syncPicks(); filter();
+  }
+  function savePick() {
+    var name = pickName.value.trim();
+    if (!picking.hrefs.length) { toast("เลือกการ์ดอย่างน้อย 1 ใบก่อนนะ"); return; }
+    if (!name) { pickName.focus(); toast("ตั้งชื่อชุดก่อนนะ"); return; }
+    var set = { id: picking.id || "m-" + Date.now().toString(36), name: name, hrefs: picking.hrefs.slice() };
+    var i = -1;
+    mySets.forEach(function (s, k) { if (s.id === set.id) i = k; });
+    if (i > -1) mySets[i] = set; else mySets.unshift(set);
+    save(K.sets, mySets);
+    endPick(); renderSets();
+    toast("บันทึกชุด " + name + " แล้ว");
+    setsBox.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  pickBar.querySelector("#pickCancel").addEventListener("click", endPick);
+  pickBar.querySelector("#pickSave").addEventListener("click", savePick);
+  pickName.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); savePick(); }
+    if (e.key === "Escape") { e.preventDefault(); endPick(); }
+  });
+
+  if (setsBox) setsBox.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-act]");
+    if (!b) return;
+    var act = b.getAttribute("data-act"), set = findSet(b.getAttribute("data-id"));
+    if (act === "open" && set) openSet(set);
+    else if (act === "new") startPick(null);
+    else if (act === "copy" && set) startPick(set, false);
+    else if (act === "edit" && set) startPick(set, true);
+    else if (act === "del" && set) {
+      if (!window.confirm('ลบชุด "' + set.name + '" ใช่ไหม?')) return;
+      mySets = mySets.filter(function (s) { return s.id !== set.id; });
+      save(K.sets, mySets); renderSets();
+    } else if (act === "next") {
+      // ปล่อยให้ลิงก์เปิดเอง แล้วค่อยเลื่อนไปอันถัดไป
+      stepRun.i++; stepRun.blocked = false; saveStep();
+      setTimeout(function () {
+        renderSets();
+        var n = setsBox.querySelector('[data-act="next"]');
+        if (n) n.focus({ preventScroll: true });
+      }, 0);
+    } else if (act === "stop") {
+      stepRun = null; saveStep(); renderSets();
+    }
+  });
+
   /* ----- เหตุการณ์ ----- */
   document.addEventListener("click", function (e) {
+    if (picking) {
+      var pc = e.target.closest("section[data-sec] .btn[href]");
+      if (pc) {
+        e.preventDefault(); e.stopPropagation();
+        var h = hrefOf(pc), k = picking.hrefs.indexOf(h);
+        if (k > -1) picking.hrefs.splice(k, 1); else picking.hrefs.push(h);
+        syncPicks();
+        return;
+      }
+    }
     var pin = e.target.closest(".pin");
     if (pin) {
       e.preventDefault(); e.stopPropagation();
@@ -303,7 +548,7 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
   });
 
   document.addEventListener("keydown", function (e) {
-    if (e.key === "/" && document.activeElement !== q) { e.preventDefault(); q.focus(); return; }
+    if (e.key === "/" && document.activeElement !== q && !(e.target.closest && e.target.closest("input, textarea"))) { e.preventDefault(); q.focus(); return; }
 
     // Enter/เว้นวรรค บนดาว = ปักหมุด (ไม่เปิดลิงก์)
     var pin = e.target.closest && e.target.closest(".pin");
@@ -332,6 +577,7 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
 
   renderQuick();
   renderChips();
+  renderSets();
   filter();
   };
 })();

@@ -307,6 +307,83 @@
   .btn.primary::before { background: radial-gradient(180px circle at var(--mx) var(--my), rgba(255,255,255,.14), transparent 70%); }
   :root[data-theme="dark"] .btn.primary::before { background: radial-gradient(180px circle at var(--mx) var(--my), rgba(0,0,0,.12), transparent 70%); }
 
+  /* ---------- เปิดทั้งชุด (ทดลองใช้งาน) ---------- */
+  .sets h2 { align-items: center; }
+  .trial {
+    font-style: normal; margin-left: 8px; padding: 1px 8px; border-radius: 999px;
+    font-size: 10.5px; font-weight: 600; color: #b45309; border: 1px solid currentColor; vertical-align: 1px; white-space: nowrap;
+  }
+  :root[data-theme="dark"] .trial { color: #f59e0b; }
+  .setgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+  .setcard {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 14px 16px; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 12px;
+  }
+  .setcard.mine { border-style: dashed; border-color: var(--muted); }
+  .sethead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .sethead strong { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sethead small, .setlist { font-size: .8rem; color: var(--muted); font-weight: 300; }
+  .sethead small { flex: none; }
+  .setacts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .setopen, .setghost {
+    font: inherit; font-size: .82rem; line-height: 1; text-decoration: none;
+    padding: 8px 12px; border-radius: 999px; cursor: pointer; white-space: nowrap;
+    border: 1px solid var(--line); background: var(--surface); color: var(--text);
+    transition: background .2s, color .2s, border-color .2s;
+  }
+  .setopen { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 500; }
+  .setopen:hover { opacity: .88; }
+  .setghost:hover { border-color: var(--muted); }
+  .setopen:focus-visible, .setghost:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  .stepbar {
+    margin-bottom: 12px; padding: 12px 14px; border-radius: 12px;
+    background: var(--surface); border: 1px solid var(--text);
+  }
+  .steprow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+  .steprow strong { font-weight: 500; margin-right: auto; }
+  .stepnote { font-size: .82rem; color: var(--muted); font-weight: 300; margin-bottom: 10px; }
+  .stepnote b { color: var(--text); font-weight: 500; }
+  .stepdone { font-size: .85rem; color: #15803d; }
+  :root[data-theme="dark"] .stepdone { color: #4ade80; }
+
+  /* โหมดเลือกการ์ดเข้าชุด */
+  .pickcheck { display: none; }
+  body.picking .pickcheck {
+    display: grid; place-items: center; flex: none; width: 22px; height: 22px; border-radius: 6px;
+    border: 1.5px solid var(--muted); font-size: 14px; line-height: 1; color: var(--accent-text);
+  }
+  body.picking .btn.picked .pickcheck { background: var(--text); border-color: var(--text); }
+  body.picking .btn.picked .pickcheck::after { content: "✓"; color: var(--bg); }
+  body.picking .btn.picked { border-color: var(--text); box-shadow: 0 0 0 1px var(--text); }
+  body.picking .btn.soon { display: none; }
+  body.picking .pin, body.picking .go { display: none; }
+  body.picking #sets, body.picking #quick, body.picking .chips, body.picking .search { display: none !important; }
+  body.picking .wrap { padding-bottom: 150px; }
+  .pickbar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; display: none;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -8px 24px -12px rgba(0,0,0,.25);
+  }
+  body.picking .pickbar { display: block; }
+  .pickinner { max-width: 920px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+  .pickinner input {
+    flex: 1 1 200px; min-width: 0; font: inherit; font-size: .95rem; color: var(--text);
+    padding: 9px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); outline: none;
+  }
+  .pickinner input:focus { border-color: var(--text); }
+  .pickcount { flex: 1 1 100%; order: 3; font-size: .8rem; color: var(--muted); font-weight: 300; }
+
+  .hubtoast {
+    position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); z-index: 60;
+    transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
+    max-width: calc(100% - 32px); padding: 10px 16px; border-radius: 999px;
+    background: var(--accent); color: var(--accent-text); font-size: .88rem;
+    transition: opacity .25s, transform .25s;
+  }
+  .hubtoast.on { opacity: 1; transform: translate(-50%, 0); }
+  body.picking .hubtoast { bottom: calc(120px + env(safe-area-inset-bottom)); }
+
   footer { margin-top: 56px; font-size: .82rem; color: var(--muted); font-weight: 300; }
 
   /* ---------- โหลดหน้าครั้งเดียว: เริ่มเล่นหลังยืนยันตัวตนแล้ว (.ready) ---------- */
@@ -330,6 +407,13 @@
     .chips::-webkit-scrollbar { display: none; }
     .user { display: none; }
     .top { margin-bottom: 40px; }
+    /* มือถือ: ชุดเลื่อนแนวนอนแถวเดียว ไม่ดันรายการโปรดลงไปไกล */
+    .setgrid {
+      grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 78%;
+      overflow-x: auto; scroll-snap-type: x mandatory; margin: 0 -18px; padding: 2px 18px 6px; scrollbar-width: none;
+    }
+    .setgrid::-webkit-scrollbar { display: none; }
+    .setcard { scroll-snap-align: start; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -366,6 +450,8 @@
   <p class="empty" id="empty">ไม่พบลิงก์ที่ตรงกับคำค้น</p>
 
   <!-- รายการโปรด / ใช้ล่าสุด (สร้างใน hub.js จากข้อมูลในเครื่องนี้) -->
+  <!-- เปิดทั้งชุด (ทดลองใช้งาน): ชุดพื้นฐาน + ชุดของฉัน สร้างใน hub.js -->
+  <div id="sets" class="reveal" style="--i:3"></div>
   <div id="quick" class="reveal" style="--i:3"></div>
 
   <!-- การ์ดแต่ละใบ: data-cat = หมวดสำหรับชิปกรอง (gps cctv sea tool scg), data-kw = คำค้นเพิ่มเติม -->
@@ -593,7 +679,7 @@
 </div>
 
 <!-- เรียกใช้งานไฟล์ JavaScript ภายนอกที่แยกออกมา -->
-<script type="module" src="./hub.js?v=cut-20261122"></script>
+<script type="module" src="./hub.js?v=sets-20261123"></script>
 <!-- ลูกเล่นเทศกาลลอยกระทง (ชั่วคราว เปิด/ปิดเองตามวันที่ในไฟล์) -->
 <script src="./festival-loykrathong.js" defer></script>
 <script src="./festival-atm.js" defer></script>
