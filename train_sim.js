@@ -12,8 +12,8 @@ import { requireLogin } from "./firebase-guard.js?v=20261122-cut";
 const QS = new URLSearchParams(location.search);
 const LINE_ID = QS.get("line") === "arl" ? "arl" : "north";
 const LINES = {
-  north: { name: "สายเหนือ กรุงเทพ–เชียงใหม่", data: "./train_line_north.js?v=20261128-1", bld: "./bkk_bld_north.js?v=20261127-1", train: "loco" },
-  arl: { name: "สายสนามบิน กรุงเทพ–อุรุพงษ์–สุวรรณภูมิ", data: "./train_line_arl.js?v=20261130-1", bld: "./bkk_bld_arl.js?v=20261127-1", train: "emu" }
+  north: { name: "สายเหนือ กรุงเทพ–เชียงใหม่", data: "./train_line_north.js?v=20261130-2", bld: "./bkk_bld_north.js?v=20261127-1", train: "loco" },
+  arl: { name: "สายสนามบิน กรุงเทพ–อุรุพงษ์–สุวรรณภูมิ", data: "./train_line_arl.js?v=20261130-2", bld: "./bkk_bld_arl.js?v=20261127-1", train: "emu" }
 };
 const { makeTraffic } = await import("./train_traffic.js?v=20261129-2");
 const TTN = LINE_ID === "north" ? (await import("./train_tt_north.js?v=20261129-2")).TT : null;
@@ -536,6 +536,7 @@ function initMap() {
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, className: "darktiles", attribution: "© OpenStreetMap" }).addTo(map);
   const pts = []; for (let i = 0; i < N; i += 6) pts.push([LAT[i], LON[i]]); pts.push([LAT[N - 1], LON[N - 1]]);
   L.polyline(pts, { color: "#f5b301", weight: 3, opacity: 0.9 }).addTo(map);
+  if (LINE.xb) L.polyline(LINE.xb.lat.map((v, i) => [v / 1e6, LINE.xb.lon[i] / 1e6]), { color: "#9aa6b8", weight: 3, opacity: 0.85, dashArray: "6 5" }).bindTooltip("ทางแยก: " + LINE.xb.n).addTo(map);
   geo.stations.forEach((st) => {
     const p = geo.at(st.s);
     L.circleMarker([p.lat, p.lon], { radius: st.m === 2 ? 5 : st.m ? 4 : 2.5, color: "#fff", weight: 1, fillColor: st.m === 2 ? "#30d158" : st.m ? "#f5b301" : "#9aa6b8", fillOpacity: 1 })
@@ -814,13 +815,14 @@ async function start() {
   pressed("trains", "k", S.type);
   buildPanel(); initMap(); updAtoBtn();
   try {
-    const mod = await import("./train_sim_3d.js?v=20261130-1");
+    const mod = await import("./train_sim_3d.js?v=20261130-2");
     const bld = await loadBuildings();
     const branch = branchFor();
     // สายสนามบินอยู่ในเขตกรุงเทพฯ ทั้งสาย → ฉากเมืองตลอด (ช่วงที่ OSM มีตึกน้อยจะเติมตึกให้) · สายเหนือตัดสินจากจำนวนตึก
     // สถานีสุวรรณภูมิ (ใต้ดิน): โถงใหญ่ ชานชาลายาวตั้งแต่ปลายทางลาด (31,720) ถึงปลายราง
     const grand = LINE_ID === "arl" ? { name: "สุวรรณภูมิ", s0: 31720, s1: TOTAL - 6 } : null;
-    world = mod.createWorld($("view"), { geo, bld, branch, grand, roads: roadsFor(), urban: (a, b) => LINE_ID === "arl" || countBld(bld, a, b) > 25, electric: () => !!TRAINS[S.type].electric });
+    const xb = LINE.xb ? { n: LINE.xb.n, e: LINE.xb.e, side: LINE.xb.side, dbl: LINE.xb.dbl, s: LINE.xb.s, lat: LINE.xb.lat.map((v) => v / 1e6), lon: LINE.xb.lon.map((v) => v / 1e6) } : null;   // ชุมทางยมราช: อีกสายที่แยกออกไป
+    world = mod.createWorld($("view"), { geo, bld, branch, grand, xb, roads: roadsFor(), urban: (a, b) => LINE_ID === "arl" || countBld(bld, a, b) > 25, electric: () => !!TRAINS[S.type].electric });
     window.addEventListener("resize", () => world.resize());
     world.setEnv({ tod: S.tod, wx: S.wx });
   } catch (e) { console.error(e); flash("โหลดกราฟิก 3 มิติไม่สำเร็จ — ยังขับได้จากหน้าปัดและแผนที่", "", 6000); }

@@ -418,6 +418,35 @@ export function createWorld(host, api) {
     }
   }
 
+  /* ---------------- ชุมทางยมราช: อีกสายแยกออกไปจริง ----------------
+     สายสนามบินเห็นสายเหนือแยกซ้ายไปเชียงใหม่ · สายเหนือเห็นสายตะวันออก (ไปสุวรรณภูมิ) แยกขวา
+     เริ่มจากประแจบนรางเรา ค่อย ๆ เบี่ยงออก แล้วเป็นทางคู่เมื่อห่างพอ + ป้ายบอกทางที่ปากทางแยก */
+  const XB = api.xb || null;
+  if (XB) { XB.acc = [0]; const k = Math.cos(13.75 * Math.PI / 180) * 111320; for (let i = 1; i < XB.lat.length; i++) XB.acc.push(XB.acc[i - 1] + Math.hypot((XB.lon[i] - XB.lon[i - 1]) * k, (XB.lat[i] - XB.lat[i - 1]) * 110574)); }
+  function addJunction(g, ci, cx, cy) {
+    if (!XB) return;
+    let a = -1, b = -1;
+    for (let i = 0; i < XB.s.length; i++) if (Math.floor(XB.s[i] / CHUNK) === ci) { if (a < 0) a = i; b = i; }
+    if (a < 0) return;
+    const i0 = Math.max(0, a - 1), i1 = Math.min(XB.s.length - 1, b + 1), pts = [];
+    for (let i = i0; i <= i1; i++) { const [x, y] = toXY(XB.lat[i], XB.lon[i]); pts.push({ i, s: XB.acc[i], x: x - cx, y: y - cy, z: geo.ground(XB.s[i]) }); }
+    pts.forEach((p, k) => { const q0 = pts[Math.max(0, k - 1)], q1 = pts[Math.min(pts.length - 1, k + 1)]; p.th = Math.atan2(q1.y - q0.y, q1.x - q0.x); });
+    if (pts.length < 2) return;
+    const off = (p, o, dz) => [p.x - Math.sin(p.th) * o, p.y + Math.cos(p.th) * o, p.z + dz];
+    const bal = ribbon(pts.map((p) => { const L = p.i >= XB.dbl ? -DT - 2.0 : -2.0; return [off(p, L, -0.45), off(p, L + 0.65, 0.02), off(p, 1.35, 0.02), off(p, 2.0, -0.45)].map((q, j) => q.concat([j * 0.5, p.s / 2])); }));
+    const bm = new THREE.Mesh(bal, M.ballast); bm.receiveShadow = true; g.add(bm);
+    trackAt(g, pts, 0, (p) => p.z, cx, cy);
+    const d2 = pts.filter((p) => p.i >= XB.dbl - 1); if (d2.length > 1) trackAt(g, d2, -DT, (p) => p.z, cx, cy);
+    // ป้ายบอกทางแยก (หันเข้าหาขบวนที่วิ่งมา)
+    const signAt = XB.acc.findIndex((v) => v > 140);
+    if (signAt >= a && signAt <= b) {
+      const p = pts.find((q) => q.i === signAt), o = XB.side > 0 ? 3.6 : -DT - 3.6, [x, y, z] = off(p, o, 0);
+      const sm = new THREE.MeshStandardMaterial({ map: signTexture(XB.n, XB.e), roughness: 0.6 });
+      [Math.PI / 2, -Math.PI / 2].forEach((rot) => { const bd = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 1.25), sm); bd.position.set(x, z + 3.2, -y); bd.rotation.y = p.th + rot; g.add(bd); });
+      [-1.8, 1.8].forEach((d) => { const leg = new THREE.Mesh(geoBox, M.pole); leg.scale.set(0.1, 2.6, 0.1); leg.position.set(x + Math.sin(p.th) * d, z + 1.3, -(y - Math.cos(p.th) * d)); g.add(leg); });
+    }
+  }
+
   /* ---------------- เติมเมืองช่วงที่ OpenStreetMap มีตึกน้อย ----------------
      ชานเมืองที่ข้อมูลตึกใน OSM ยังไม่ครบ → สุ่มตึกแถว บ้าน โกดัง ให้หนาแน่นพอ ๆ กับช่วงที่มีข้อมูล
      (ห่างรางพ้นถนนใต้ทางยกระดับ · ไม่เติมรอบทางแยกต่างระดับที่มีถนนจริง) */
@@ -808,6 +837,7 @@ export function createWorld(host, api) {
       }
     }
     if (G && s1 >= G.s0 - 5 && s0 <= G.s1 + 10) grandHall(g, P, s0, s1, cx, cy);
+    addJunction(g, ci, cx, cy);
     addBuildings(g, s0, s1, cx, cy);
     if (urban) addFiller(g, s0, s1, cx, cy, P, r);
     addRoads(g, ci, cx, cy);
