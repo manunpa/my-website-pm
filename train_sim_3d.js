@@ -180,6 +180,7 @@ export function createWorld(host, api) {
     const bk = { Wc: bucket(), Wg: bucket(), Rf: bucket() };
     for (let i = a; i < b; i++) {
       const lat = B.lat0 + B.y[i] / 110574, lon = B.lon0 + B.x[i] / B.kx, [wx, wy] = toXY(lat, lon), bx = wx - cx, by = wy - cy;
+      if (TERM && B.s[i] < 660) { const t = tpe(B.s[i]), dx = wx - t.x, dy = wy - t.y; if (inTermZone(B.s[i] + dx * Math.cos(t.th) + dy * Math.sin(t.th), -dx * Math.sin(t.th) + dy * Math.cos(t.th))) continue; }   // พื้นที่สถานีหัวลำโพง
       let pts = []; for (let j = B.o[i]; j < B.o[i + 1]; j++) pts.push([bx + B.p[j * 2] / 10, by + B.p[j * 2 + 1] / 10]);
       emitBuilding(bk, pts, geo.ground(B.s[i]) - 0.4, B.h[i], ((i * 2654435761) >>> 0) / 4294967296, B.k[i] === 1);
     }
@@ -223,6 +224,298 @@ export function createWorld(host, api) {
     });
   }
 
+
+
+  /* ---------------- สถานีกรุงเทพ (หัวลำโพง) — จุดเริ่มเกม ----------------
+     อ้างอิงภาพถ่ายจริง + ตำแหน่งชานชาลาจาก OSM (รางเราอยู่ฝั่งตะวันตกของลานราง = ชานชาลา 7)
+     · อาคารหน้า: ซุ้มโค้งกระจกตาราง นาฬิกา ตัวอักษร "กรุงเทพ" เสาเฉลียงขาว ระเบียงลูกกรง ธงชาติ ศาลามุม 2 หลัง ปีกเฉลียงข้าง
+     · โถงใหญ่: หลังคาโค้งกว้าง 58 ม. สูง 26 ม. ยาว 144 ม. ซี่โครงเหล็กถักทุก 10 ม. ช่องแสงกลางหลังคา กระจกสีครึ่งวงกลม
+       พื้นหินขัดเงาสีเข้ม ม้านั่งไม้แดง ซุ้มขายตั๋ว ปีกโถงเตี้ยสองข้าง
+     · ราง 10 ราง ชานชาลา 6 แห่ง เลขชานชาลา 1–10 · หลังคาชานชาลาทรงผีเสื้อสีน้ำตาลถึง 330 ม. แล้วรางไหลมารวมกัน
+     · หอสัญญาณ เสาไฟสนาม ขบวนรถจอดค้าง · ลานหน้าสถานี วงเวียนน้ำพุ ถนน ทางม้าลาย คลองผดุงกรุงเกษม */
+  const TERM = api.term || null;
+  const isTerm = (st) => !!(TERM && st && st.s < 1 && st.n === TERM.name);
+  const T_TR = [24.8, 14.4, 10.2, 0, -4.2, -14.4, -18.6, -28.8, -33.0, -43.2];           // ศูนย์กลางราง (ม. ซ้าย+ / ขวา−)
+  const T_NO = { "24.8": 10, "14.4": 9, "10.2": 8, "0": 7, "-4.2": 6, "-14.4": 5, "-18.6": 4, "-28.8": 3, "-33": 2, "-43.2": 1 };
+  const T_PL = [[27.0, 34.0], [16.6, 22.6], [2.0, 8.0], [-12.2, -6.2], [-26.6, -20.6], [-41.0, -35.0], [-52.0, -45.4]];
+  const TH = { s0: -34, s1: 110, oL: 20, oR: -38, eh: 9, cr: 26, fb: -44 };           // โถงใหญ่
+  TH.c = (TH.oL + TH.oR) / 2; TH.hw = (TH.oL - TH.oR) / 2;
+  const WG = [{ oA: 20, oB: 34, eh: 8, cr: 14 }, { oA: -38, oB: -52, eh: 8, cr: 14 }];  // ปีกโถงเตี้ย
+  const inTermZone = (s, o) => !!(TERM && s > -330 && s < 640 && o > -78 && o < 102);
+  // จุดบนราง (s ติดลบ = ยื่นต่อจากปลายรางไปทางหน้าสถานี)
+  function tpe(s) {
+    if (s >= 0) return trackPoint(Math.min(geo.total, s));
+    const t = trackPoint(0); return { x: t.x + Math.cos(t.th) * s, y: t.y + Math.sin(t.th) * s, z: t.z, th: t.th, pitch: 0 };
+  }
+  // ความสูงหลังคา (พิกัดโลก) ถ้าอยู่ใต้หลังคาโถง → ใช้กันกล้องทะลุหลังคา
+  function termRoof(x, z) {
+    if (!TERM) return null;
+    const t = trackPoint(0), dx = x - t.x, dy = -z - t.y, a = dx * Math.cos(t.th) + dy * Math.sin(t.th), l = -dx * Math.sin(t.th) + dy * Math.cos(t.th);
+    if (a < TH.fb - 2 || a > TH.s1 || l < WG[1].oB || l > WG[0].oB) return null;
+    if (a < TH.s0) return t.z + 7.2;
+    if (l <= TH.oL && l >= TH.oR) return t.z + TH.eh + (TH.cr - TH.eh) * Math.sqrt(Math.max(0, 1 - ((l - TH.c) / TH.hw) ** 2)) - 1.6;
+    const w = l > 0 ? WG[0] : WG[1], c = (w.oA + w.oB) / 2, hw = Math.abs(w.oB - w.oA) / 2;
+    return t.z + w.eh + (w.cr - w.eh) * Math.sqrt(Math.max(0, 1 - ((l - c) / hw) ** 2)) - 1.4;
+  }
+  let TMc = null;
+  function termMats() {
+    if (TMc) return TMc;
+    const T = (w, h, f, rep) => canvasTex(w, h, f, rep);
+    const fanGlass = T(512, 256, (g, w, h) => {
+      const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, "#3b5a52"); gr.addColorStop(1, "#1e302c"); g.fillStyle = gr; g.fillRect(0, 0, w, h);
+      const r = rnd(8); for (let j = 0; j < 12; j++) for (let i = 0; i < 28; i++) { g.fillStyle = `rgba(200,230,220,${r() * 0.12})`; g.fillRect(i * w / 28, j * h / 12, w / 28, h / 12); }
+      g.strokeStyle = "#e9e4d4"; g.lineWidth = 2; for (let i = 0; i <= 28; i++) { g.beginPath(); g.moveTo(i * w / 28, 0); g.lineTo(i * w / 28, h); g.stroke(); }
+      for (let j = 0; j <= 12; j++) { g.beginPath(); g.moveTo(0, j * h / 12); g.lineTo(w, j * h / 12); g.stroke(); }
+      g.lineWidth = 6; [w * 0.25, w * 0.5, w * 0.75].forEach((x) => { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); });
+      g.fillStyle = "#cfc9b5"; g.fillRect(w * 0.3, h * 0.72, w * 0.4, h * 0.28);   // แผงทึบตรงกลางล่าง
+      g.strokeStyle = "#8f8a78"; g.lineWidth = 2; for (let i = 0; i < 12; i++) { g.strokeRect(w * 0.3 + i * w * 0.4 / 12, h * 0.72, w * 0.4 / 12, h * 0.28); }
+    });
+    const stained = (glow) => T(512, 256, (g, w, h) => {
+      g.fillStyle = glow ? "#3a3020" : "#f6e7bd"; g.fillRect(0, 0, w, h);
+      const cols = ["#f4b42e", "#e9861b", "#f7d465", "#f0a024", "#fbe08a"];
+      for (let i = 0; i < 24; i++) { const x = i * w / 24; g.fillStyle = cols[i % cols.length]; const top = (i % 3) * 14 + 10; g.fillRect(x + 4, top, w / 24 - 8, h - top - 14); }
+      g.fillStyle = glow ? "#ffd27a" : "#c8781a"; g.beginPath(); g.arc(w / 2, h * 0.42, 46, 0, 7); g.fill();
+      g.fillStyle = glow ? "#fff1c2" : "#f7d465"; for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2; g.beginPath(); g.moveTo(w / 2, h * 0.42); g.lineTo(w / 2 + Math.cos(a) * 44, h * 0.42 + Math.sin(a) * 44); g.lineTo(w / 2 + Math.cos(a + 0.2) * 44, h * 0.42 + Math.sin(a + 0.2) * 44); g.fill(); }
+      g.strokeStyle = glow ? "#1a140a" : "#3a2a18"; g.lineWidth = 3; for (let j = 0; j <= 8; j++) { g.beginPath(); g.moveTo(0, j * h / 8); g.lineTo(w, j * h / 8); g.stroke(); }
+      for (let i = 0; i <= 24; i++) { g.beginPath(); g.moveTo(i * w / 24, 0); g.lineTo(i * w / 24, h); g.stroke(); }
+    });
+    const roofIn = (glow) => T(512, 64, (g, w, h) => {
+      g.fillStyle = glow ? "#050505" : "#3a3029"; g.fillRect(0, 0, w, h);
+      if (!glow) { g.fillStyle = "#56483c"; for (let x = 0; x < w; x += 16) g.fillRect(x, 0, 3, h); g.fillStyle = "#2a221c"; g.fillRect(0, 0, w, 4); }
+      g.fillStyle = glow ? "#fffbea" : "#e8f0ee"; g.fillRect(w * 0.43, 0, w * 0.14, h);
+      g.fillStyle = glow ? "#666" : "#7d8a88"; for (let x = w * 0.43; x < w * 0.57; x += 10) g.fillRect(x, 0, 2, h); g.fillRect(w * 0.43, h / 2, w * 0.14, 2);
+    }, true);
+    const pav = T(256, 512, (g, w, h) => {
+      g.fillStyle = "#ead9a6"; g.fillRect(0, 0, w, h);
+      g.fillStyle = "#f4ecd2"; g.fillRect(0, 0, 26, h); g.fillRect(w - 26, 0, 26, h); g.fillRect(0, 300, w, 14); g.fillRect(0, 34, w, 12);
+      g.fillStyle = "#3f3326"; for (let i = 0; i < 5; i++) g.fillRect(44 + i * 36, 62, 22, 40);
+      g.fillStyle = "#f4ecd2"; g.beginPath(); g.arc(w / 2, 190, 80, Math.PI, 0); g.fill(); g.fillRect(w / 2 - 80, 190, 160, 100);
+      g.fillStyle = "#4a3a2a"; g.beginPath(); g.arc(w / 2, 192, 68, Math.PI, 0); g.fill(); g.fillRect(w / 2 - 68, 192, 136, 92);
+      g.strokeStyle = "#d9c79a"; g.lineWidth = 3; for (let rr = 18; rr < 68; rr += 16) { g.beginPath(); g.arc(w / 2, 192, rr, Math.PI, 0); g.stroke(); }
+      for (let k = 0; k <= 8; k++) { const a = Math.PI + k / 8 * Math.PI; g.beginPath(); g.moveTo(w / 2, 192); g.lineTo(w / 2 + Math.cos(a) * 68, 192 + Math.sin(a) * 68); g.stroke(); }
+      for (let x = w / 2 - 68; x <= w / 2 + 68; x += 17) { g.beginPath(); g.moveTo(x, 192); g.lineTo(x, 284); g.stroke(); }
+      g.fillStyle = "#f4ecd2"; g.beginPath(); g.arc(w / 2, 400, 56, Math.PI, 0); g.fill(); g.fillRect(w / 2 - 56, 400, 112, 70);
+      g.fillStyle = "#6a4a32"; g.beginPath(); g.arc(w / 2, 402, 46, Math.PI, 0); g.fill(); g.fillRect(w / 2 - 46, 402, 92, 68);
+      g.fillStyle = "#8a4a3a"; g.fillRect(0, 470, w, 42);
+    });
+    const wingWall = T(512, 256, (g, w, h) => {
+      g.fillStyle = "#ead9a6"; g.fillRect(0, 0, w, h); g.fillStyle = "#f4ecd2"; g.fillRect(0, 18, w, 10);
+      for (let i = 0; i < 6; i++) { const x = 20 + i * 82; g.fillStyle = "#f4ecd2"; g.beginPath(); g.arc(x + 30, 110, 34, Math.PI, 0); g.fill(); g.fillRect(x - 4, 110, 68, 100); g.fillStyle = "#3d3428"; g.beginPath(); g.arc(x + 30, 112, 26, Math.PI, 0); g.fill(); g.fillRect(x + 4, 112, 52, 92); g.strokeStyle = "#cbb98c"; g.lineWidth = 2; g.beginPath(); g.moveTo(x + 30, 86); g.lineTo(x + 30, 204); g.stroke(); }
+      g.fillStyle = "#8a4a3a"; g.fillRect(0, 222, w, 34);
+    }, true);
+    const corr = T(128, 128, (g, w, h) => { g.fillStyle = "#6e4330"; g.fillRect(0, 0, w, h); for (let x = 0; x < w; x += 8) { g.fillStyle = "#5a3424"; g.fillRect(x, 0, 3, h); } }, true);
+    const balu = T(256, 64, (g, w, h) => {
+      g.clearRect(0, 0, w, h); g.fillStyle = "#f4f0e4"; g.fillRect(0, 0, w, 10); g.fillRect(0, h - 8, w, 8);
+      for (let x = 8; x < w; x += 16) { g.beginPath(); g.moveTo(x - 3, 10); g.quadraticCurveTo(x - 8, 34, x - 3, 56); g.lineTo(x + 3, 56); g.quadraticCurveTo(x + 8, 34, x + 3, 10); g.fill(); }
+    }, true);
+    const flag = T(240, 160, (g, w, h) => { [["#a51931", 0, 1], ["#f4f5f8", 1, 1], ["#2d2a4a", 2, 2], ["#f4f5f8", 4, 1], ["#a51931", 5, 1]].forEach(([c, y, n]) => { g.fillStyle = c; g.fillRect(0, y * h / 6, w, n * h / 6 + 1); }); });
+    const nameBand = T(512, 96, (g, w, h) => { g.fillStyle = "#ead9a6"; g.fillRect(0, 0, w, h); g.fillStyle = "#3b2f22"; g.font = "700 64px 'IBM Plex Sans Thai', system-ui"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("ก  ร  ุ ง  เ  ท  พ", w / 2, h / 2 + 2); });
+    const clockF = T(256, 256, (g, w, h) => {
+      g.fillStyle = "#f8f6ee"; g.beginPath(); g.arc(128, 128, 124, 0, 7); g.fill(); g.strokeStyle = "#2a2a2a"; g.lineWidth = 8; g.stroke();
+      g.fillStyle = "#222"; g.font = "700 30px serif"; g.textAlign = "center"; g.textBaseline = "middle";
+      ["XII", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI"].forEach((t, i) => { const a = i / 12 * Math.PI * 2 - Math.PI / 2; g.fillText(t, 128 + Math.cos(a) * 96, 128 + Math.sin(a) * 96); });
+      g.lineCap = "round"; g.lineWidth = 9; g.beginPath(); g.moveTo(128, 128); g.lineTo(128 + 40, 128 - 40); g.stroke(); g.lineWidth = 6; g.beginPath(); g.moveTo(128, 128); g.lineTo(128, 50); g.stroke();
+    });
+    const kioskSign = T(512, 160, (g, w, h) => { g.fillStyle = "#f7f7f2"; g.fillRect(0, 0, w, h); g.strokeStyle = "#333"; g.lineWidth = 6; g.strokeRect(3, 3, w - 6, h - 6); g.fillStyle = "#1d1d1d"; g.textAlign = "center"; g.font = "700 70px 'IBM Plex Sans Thai', system-ui"; g.fillText("กรุงเทพ", w / 2, 78); g.font = "600 40px system-ui"; g.fillText("BANGKOK", w / 2, 132); });
+    const sbox = T(256, 128, (g, w, h) => { g.fillStyle = "#efece2"; g.fillRect(0, 0, w, h); g.fillStyle = "#4b5560"; for (let i = 0; i < 6; i++) g.fillRect(14 + i * 40, 36, 28, 54); g.fillStyle = "#d8d3c5"; g.fillRect(0, 100, w, 6); }, true);
+    const m = (c, o) => mat(c, Object.assign({ side: THREE.DoubleSide }, o));
+    TMc = {
+      cream: m(0xead9a6, { roughness: 0.8 }), trim: m(0xf4f0e4, { roughness: 0.7 }), plinth: m(0x8a4a3a, { roughness: 0.85 }),
+      pav: m(0xffffff, { map: pav, roughness: 0.8 }), wing: m(0xffffff, { map: wingWall, roughness: 0.8 }),
+      fan: m(0xffffff, { map: fanGlass, roughness: 0.2, metalness: 0.3, emissive: 0xffffff, emissiveMap: fanGlass, emissiveIntensity: 0.12 }),
+      stained: m(0xffffff, { map: stained(false), emissive: 0xffffff, emissiveMap: stained(true), emissiveIntensity: 0.9, roughness: 0.4 }),
+      roofIn: m(0xffffff, { map: roofIn(false), emissive: 0xffffff, emissiveMap: roofIn(true), emissiveIntensity: 1.1, roughness: 0.8 }),
+      roofOut: m(0xa8aeb3, { metalness: 0.55, roughness: 0.4 }), steel: m(0x2f2a26, { metalness: 0.5, roughness: 0.55 }),
+      floor: m(0x2c2e33, { roughness: 0.28, metalness: 0.1, envMapIntensity: 0.35 }), plat: m(0x6b6e73, { roughness: 0.6 }), tactile: m(0xe8b830, { roughness: 0.6 }),
+      edge: m(0xcfcac0, { map: concreteTex, roughness: 0.7 }), corr: m(0xffffff, { map: corr, roughness: 0.7, metalness: 0.2 }),
+      colBrown: m(0x7a5238, { roughness: 0.6 }), colDark: m(0x3a2c22, { roughness: 0.6 }),
+      balu: new THREE.MeshStandardMaterial({ map: balu, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.7 }),
+      flag: new THREE.MeshStandardMaterial({ map: flag, side: THREE.DoubleSide, roughness: 0.8 }),
+      name: new THREE.MeshStandardMaterial({ map: nameBand, side: THREE.DoubleSide, roughness: 0.8 }),
+      clock: new THREE.MeshStandardMaterial({ map: clockF, roughness: 0.5, emissive: 0xffffff, emissiveMap: clockF, emissiveIntensity: 0.15 }),
+      kiosk: new THREE.MeshStandardMaterial({ map: kioskSign, side: THREE.DoubleSide, roughness: 0.6 }), kioskF: new THREE.MeshStandardMaterial({ map: kioskSign, roughness: 0.6 }),
+      bench: m(0x9b2c22, { roughness: 0.45 }), kioskRed: m(0x8e1f22, { roughness: 0.5 }), kioskYel: m(0xe8c34a, { roughness: 0.5 }),
+      lamp: new THREE.MeshBasicMaterial({ color: 0xfff0cc }), buffer: m(0xc0281e, { roughness: 0.5 }), white: m(0xf2f2ee, { roughness: 0.6 }),
+      asphalt: m(0x3c3e41, { roughness: 0.9 }), plaza: m(0xb9b4aa, { map: concreteTex, roughness: 0.9 }), grass: m(0x4f7a3a, { roughness: 1 }),
+      sbox: m(0xffffff, { map: sbox, roughness: 0.7 }), tile: m(0x55595e, { roughness: 0.6 }), metal: m(0x8d9399, { metalness: 0.6, roughness: 0.4 })
+    };
+    TMc.num = {}; Object.values(T_NO).forEach((n) => { TMc.num[n] = new THREE.MeshStandardMaterial({ roughness: 0.6, map: T(128, 128, (g, w, h) => { g.fillStyle = "#f4f4f0"; g.fillRect(0, 0, w, h); g.strokeStyle = "#1c1c1c"; g.lineWidth = 8; g.strokeRect(4, 4, w - 8, h - 8); g.fillStyle = "#1c1c1c"; g.font = "700 88px system-ui"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(String(n), w / 2, h / 2 + 4); }) }); });
+    [TMc.floor, TMc.roofOut, TMc.fan].forEach((x) => { if (envTex) x.envMap = envTex; trainMats.push(x); });
+    return TMc;
+  }
+  function terminal(g, cx, cy) {
+    const TM = termMats();
+    const tp = (s) => { const t = tpe(s); return { s, x: t.x - cx, y: t.y - cy, z: t.z, th: t.th }; };
+    const off = (p, o, dz = 0) => [p.x - Math.sin(p.th) * o, p.y + Math.cos(p.th) * o, p.z + dz];
+    const line = (a, b, st) => { const out = []; for (let s = a; s < b - 1e-6; s += st) out.push(tp(s)); out.push(tp(b)); return out; };
+    const nos = (o3) => { o3.traverse((q) => { if (q.isMesh) { q.receiveShadow = false; q.castShadow = false; } }); return o3; };
+    const mesh = (geom, m2) => { const me = new THREE.Mesh(geom, m2); g.add(nos(me)); return me; };
+    const strip = (pts, cols, m2, uv) => mesh(ribbon(pts.map((p) => cols.map(([o, h], k) => off(p, o, h).concat(uv ? uv(p, k, o, h) : [k, p.s / 8])))), m2);
+    const put = (o3, p, o, h, rotY = 0) => { const [x, y, z] = off(p, o, h); o3.position.set(x, z, -y); o3.rotation.y = p.th + rotY; g.add(nos(o3)); return o3; };
+    const box = (m2, sx, sy, sz) => { const b = new THREE.Mesh(geoBox, m2); b.scale.set(sx, sy, sz); return b; };
+    const prof = (c, hw, eh, cr, n, k = 1) => { const out = []; for (let i = 0; i <= n; i++) { const a = Math.PI * (1 - i / n); out.push([c + hw * k * Math.cos(a), eh + (cr - eh) * k * Math.sin(a)]); } return out; };
+    const VP = prof(TH.c, TH.hw, TH.eh, TH.cr, 24);
+    // ---- ลานหน้าสถานี ถนน วงเวียนน้ำพุ คลอง
+    strip(line(-330, 0, 30), [[-330, -0.08], [330, -0.08]], TM.plaza, (p, k) => [k * 30, p.s / 11]);
+    strip(line(-64, -50, 14), [[-170, -0.03], [170, -0.03]], TM.asphalt);
+    for (let i = 0; i < 9; i++) put(box(TM.white, 11, 0.02, 0.8), tp(-57), TH.c - 8 + i * 2, -0.01, Math.PI / 2);
+    { const p = tp(-120), [x, y, z] = off(p, TH.c, -0.02), add2 = (geo2, m2, yy) => { const me = new THREE.Mesh(geo2, m2); me.rotation.x = -Math.PI / 2; me.position.set(x, z + yy, -y); g.add(nos(me)); return me; };
+      add2(new THREE.RingGeometry(26, 39, 64), TM.asphalt, 0); add2(new THREE.CircleGeometry(26, 48), TM.grass, 0.04);
+      const pool = new THREE.Mesh(new THREE.CylinderGeometry(9, 9.4, 0.8, 40), TM.trim); pool.position.set(x, z + 0.4, -y); g.add(nos(pool));
+      const water = new THREE.Mesh(new THREE.CircleGeometry(8.6, 40), M.water); water.rotation.x = -Math.PI / 2; water.position.set(x, z + 0.75, -y); g.add(nos(water));
+      [[0, 3.2, 2.6], [3.2, 1.0, 3.8], [4.2, 1.6, 0.6]].forEach(([y0, hh, r]) => { const c = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.8, r, hh, 24), TM.trim); c.position.set(x, z + 0.8 + y0 + hh / 2, -y); g.add(nos(c)); });
+      const st2 = new THREE.Mesh(new THREE.SphereGeometry(0.9, 16, 12), TM.metal); st2.position.set(x, z + 7.0, -y); g.add(nos(st2)); }
+    strip(line(-330, -133, 20), [[TH.c - 7, -0.03], [TH.c + 7, -0.03]], TM.asphalt);
+    [[-330, TH.c - 39], [TH.c + 39, 330]].forEach(([a, b]) => strip(line(-126, -114, 12), [[a, -0.03], [b, -0.03]], TM.asphalt));
+    strip(line(-330, 640, 10), [[78, -1.6], [98, -1.6]], M.water);                                               // คลองผดุงกรุงเกษม
+    [76, 100].forEach((o) => strip(line(-330, 640, 10), [[o, -2.4], [o, 0.6]], TM.edge));
+    // ---- ชานชาลา + พื้นโถง
+    strip(line(TH.s0, 0, 2), [[WG[1].oB, 0.95], [WG[0].oB, 0.95]], TM.floor, (p, k) => [k * 40, p.s / 6]);
+    strip(line(TH.s0, 0, 34), [[WG[1].oB, -0.45], [WG[0].oB, -0.45]], TM.floor);
+    strip([tp(-0.05), tp(0)], [[WG[1].oB, -0.45], [WG[0].oB, -0.45]], TM.edge);
+    { const p = tp(-0.05); mesh(ribbon([[off(p, WG[1].oB, -0.45), off(p, WG[0].oB, -0.45)], [off(p, WG[1].oB, 0.95), off(p, WG[0].oB, 0.95)]]), TM.edge); }
+    const PL = line(0, 330, 6);
+    T_PL.forEach(([a, b]) => {
+      strip(PL, [[a, 0.95], [b, 0.95]], TM.plat, (p, k) => [k * (b - a) / 3, p.s / 3]);
+      [a, b].forEach((o) => strip(PL, [[o, -0.45], [o, 0.95]], TM.edge));
+      [[a + 0.55, a + 0.85], [b - 0.85, b - 0.55]].forEach(([u, v]) => strip(PL, [[u, 0.958], [v, 0.958]], TM.tactile));
+    });
+    // ---- รางอื่น ๆ ในลานราง: ตรงถึง 330 ม. แล้วไหลมารวมรางหลักที่ ~560 ม.
+    T_TR.forEach((o0) => {
+      if (o0 === 0 || o0 === -DT) return;
+      const tgt = o0 > 0 ? 0 : -DT, pts = [];
+      for (let s = 0.5; s <= 560; s += 5) {
+        const w = s < 330 ? 0 : (() => { const t = (s - 330) / 230; return t * t * (3 - 2 * t); })(), o = o0 + (tgt - o0) * w;
+        const dw = s < 330 ? 0 : 6 * (tgt - o0) * ((s - 330) / 230) * (1 - (s - 330) / 230) / 230;
+        const p = tp(s), [x, y] = off(p, o); pts.push({ s, x, y, z: p.z, th: p.th + Math.atan(dw) });
+      }
+      const bal = ribbon(pts.map((p) => [[-2.0, -0.45], [-1.35, 0.02], [1.35, 0.02], [2.0, -0.45]].map(([o, h], j) => [p.x - Math.sin(p.th) * o, p.y + Math.cos(p.th) * o, p.z + h, j * 0.5, p.s / 2])));
+      const bm = new THREE.Mesh(bal, M.ballast); g.add(bm);
+      trackAt(g, pts, 0, (p) => p.z, cx, cy);
+    });
+    // กันชนปลายรางทุกราง
+    T_TR.forEach((o) => { const b2 = new THREE.Group(); const fr = box(TM.buffer, 0.6, 1.0, 2.2); fr.position.y = 0.75; b2.add(fr); [-0.7, 0.7].forEach((z) => { const pd = box(TM.metal, 0.5, 0.35, 0.35); pd.position.set(0.5, 0.75, z); b2.add(pd); }); put(b2, tp(0.6), o, 0); });
+    // ---- โถงใหญ่: หลังคาโค้งด้านใน (ช่องแสงกลาง) + ด้านนอกสีเงิน
+    const HP = line(TH.s0, TH.s1, 4);
+    strip(HP, VP, TM.roofIn, (p, k) => [k / 24, p.s / 8]);
+    strip(HP, prof(TH.c, TH.hw, TH.eh, TH.cr, 24, 1.012), TM.roofOut);
+    // ซี่โครงเหล็กถักทุก 10 ม. + เหล็กเฉียง + แป
+    const lat = [];
+    for (let s = TH.s0 + 4; s <= TH.s1; s += 10) {
+      const p = tp(s), outer = prof(TH.c, TH.hw, TH.eh, TH.cr, 24, 0.99), inner = prof(TH.c, TH.hw - 1.4, TH.eh, TH.cr - 1.4, 24, 0.99);
+      mesh(ribbon([outer.map(([o, h]) => off(p, o, h)), inner.map(([o, h]) => off(p, o, h))]), TM.steel);
+      for (let i = 0; i < 24; i++) { const A = off(p, ...(i % 2 ? outer[i] : inner[i])), B = off(p, ...(i % 2 ? inner[i + 1] : outer[i + 1])); lat.push([A, B]); }
+      [TH.oL, TH.oR].forEach((o) => { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, TH.eh - 0.95, 12), TM.steel); put(c, p, o, 0.95 + (TH.eh - 0.95) / 2); });
+    }
+    if (lat.length) {
+      const im = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.07, 0.07, 1, 5), TM.steel, lat.length), m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), v = new THREE.Vector3(), c3 = new THREE.Vector3();
+      lat.forEach(([A, B], i) => { const a3 = new THREE.Vector3(A[0], A[2], -A[1]), b3 = new THREE.Vector3(B[0], B[2], -B[1]); v.subVectors(b3, a3); const L = v.length(); q.setFromUnitVectors(up, v.normalize()); m4.compose(c3.addVectors(a3, b3).multiplyScalar(0.5), q, new THREE.Vector3(1, L, 1)); im.setMatrixAt(i, m4); });
+      g.add(nos(im));
+    }
+    [3, 6, 9, 15, 18, 21].forEach((k) => { const [o, h] = VP[k]; strip(HP, [[o - 0.15, h - 0.5], [o + 0.15, h - 0.5]], TM.steel); });
+    [TH.oL, TH.oR].forEach((o) => strip(HP, [[o, TH.eh - 1.2], [o, TH.eh + 0.2]], TM.cream));        // คานคอสองข้าง
+    // โคมแขวนในโถง
+    for (let s = TH.s0 + 9; s < TH.s1; s += 10) [-24, -9, 6].forEach((o) => { const lg = new THREE.Group(); const ball = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 10), TM.lamp); lg.add(ball); const rod = box(TM.steel, 0.05, 4, 0.05); rod.position.y = 2; lg.add(rod); put(lg, tp(s), o, 14.5); });
+    // ---- ซุ้มโค้งหน้า (กระจกตาราง ด้านนอก) + กระจกสีด้านใน + ปลายโถงด้านเหนือ
+    const fan = (s, m2, k = 1) => { const p = tp(s), pr = prof(TH.c, TH.hw * k, TH.eh, TH.eh + (TH.cr - TH.eh) * k, 24); mesh(ribbon([pr.map(([o]) => off(p, o, TH.eh).concat([(TH.oL - o) / (TH.oL - TH.oR), 0])), pr.map(([o, h]) => off(p, o, h).concat([(TH.oL - o) / (TH.oL - TH.oR), (h - TH.eh) / (TH.cr - TH.eh)]))]), m2); };
+    fan(TH.s0 - 0.35, TM.fan); fan(TH.s0 + 0.35, TM.stained, 0.995); fan(TH.s1, TM.fan);
+    { const p = tp(TH.s0 - 0.5), outer = prof(TH.c, TH.hw + 1.6, TH.eh, TH.cr + 1.6, 24), inner = VP; mesh(ribbon([outer.map(([o, h]) => off(p, o, h)), inner.map(([o, h]) => off(p, o, h))]), TM.cream);
+      const nm = new THREE.Mesh(new THREE.PlaneGeometry(9, 1.5), TM.name); put(nm, tp(TH.s0 - 0.7), TH.c, TH.cr + 0.75, -Math.PI / 2);
+      const ck = new THREE.Mesh(new THREE.CircleGeometry(2.3, 40), TM.clock); put(ck, tp(TH.s0 - 0.9), TH.c, TH.eh + (TH.cr - TH.eh) * 0.48, -Math.PI / 2);
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(2.35, 0.18, 8, 40), TM.trim); put(rim, tp(TH.s0 - 0.9), TH.c, TH.eh + (TH.cr - TH.eh) * 0.48, Math.PI / 2);
+      const p2 = tp(TH.s1 + 0.4), out2 = prof(TH.c, TH.hw + 1.0, TH.eh, TH.cr + 1.0, 24); mesh(ribbon([out2.map(([o, h]) => off(p2, o, h)), VP.map(([o, h]) => off(p2, o, h))]), TM.cream); }
+    // ผนังหน้าโถงใต้ซุ้ม (ประตูทางเข้า) + ซุ้มขายตั๋ว + ม้านั่งไม้แดง
+    { const p = tp(TH.s0); mesh(ribbon([[off(p, TH.oR, -0.45), off(p, TH.oL, -0.45)], [off(p, TH.oR, TH.eh), off(p, TH.oL, TH.eh)]].map((r, j) => r.map((q) => q.concat([0, j])))), TM.wing); }
+    { const k = new THREE.Group(), base = box(TM.kioskRed, 4, 3.0, 7); base.position.y = 1.5; k.add(base); const band = box(TM.kioskYel, 4.2, 0.7, 7.2); band.position.y = 3.35; k.add(band);
+      const rf = box(TM.kioskRed, 4.6, 0.25, 7.6); rf.position.y = 3.8; k.add(rf); [1, -1].forEach((d) => { const sg = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 1.3), TM.kioskF); sg.position.set(d * 0.04, 4.7, 0); sg.rotation.y = d * Math.PI / 2; k.add(sg); }); const sgb = box(TM.colDark, 0.06, 1.4, 4.3); sgb.position.y = 4.7; k.add(sgb);
+      [-1.8, 1.8].forEach((z) => { const pl = box(TM.metal, 0.08, 1.0, 0.08); pl.position.set(2.35, 4.1, z); k.add(pl); }); put(k, tp(-12), TH.c, 0.95); }
+    for (let s = TH.s0 + 6; s <= -4; s += 4.5) for (let o = WG[1].oB + 4; o <= WG[0].oB - 4; o += 5.5) {
+      if (Math.abs(o - TH.c) < 6 && s > -17 && s < -6) continue;
+      const bn = new THREE.Group(); const seat = box(TM.bench, 0.6, 0.12, 3.6); seat.position.y = 0.46; bn.add(seat); const back = box(TM.bench, 0.08, 0.5, 3.6); back.position.set(-0.28, 0.76, 0); bn.add(back);
+      [-1.6, 1.6].forEach((z) => { const leg = box(TM.colDark, 0.5, 0.44, 0.08); leg.position.set(0, 0.22, z); bn.add(leg); }); put(bn, tp(s), o, 0.95);
+    }
+    // ---- ปีกโถงเตี้ยสองข้าง
+    WG.forEach((w) => {
+      const c = (w.oA + w.oB) / 2, hw = Math.abs(w.oB - w.oA) / 2, wp = line(TH.s0, 92, 4);
+      strip(wp, prof(c, hw, w.eh, w.cr, 12), TM.roofIn, (p, k) => [0.2 + k / 60, p.s / 8]);
+      strip(wp, prof(c, hw, w.eh, w.cr, 12, 1.02), TM.roofOut);
+      strip(wp, [[w.oB, -0.45], [w.oB, w.eh]], TM.wing, (p, k) => [p.s / 14, k]);
+      const pE = tp(92); mesh(ribbon([prof(c, hw, w.eh, w.cr, 12).map(([o]) => off(pE, o, w.eh)), prof(c, hw, w.eh, w.cr, 12).map(([o, h]) => off(pE, o, h))]), TM.cream);
+      for (let s = TH.s0 + 4; s <= 92; s += 10) { const p = tp(s), ring = prof(c, hw, w.eh, w.cr, 12, 0.985), inn = prof(c, hw - 0.8, w.eh, w.cr - 0.8, 12, 0.985); mesh(ribbon([ring.map(([o, h]) => off(p, o, h)), inn.map(([o, h]) => off(p, o, h))]), TM.steel); }
+    });
+    // ---- อาคารหน้า: เฉลียงเสาขาว ระเบียงลูกกรง ธง ศาลามุม ปีกข้าง
+    { const fb0 = TH.fb, fb1 = TH.s0;
+      strip(line(fb0 - 3, fb1, 1), [[WG[1].oB - 16, 0.25], [WG[0].oB + 16, 0.25]], TM.plaza);
+      strip(line(fb0, fb1, 2), [[TH.oR, 0.95], [TH.oL, 0.95]], TM.floor, (p, k) => [k * 20, p.s / 6]);
+      strip(line(fb0 - 0.4, fb1, 2), [[TH.oR, 8.0], [TH.oL, 8.0]], TM.trim); strip(line(fb0 - 0.4, fb1, 2), [[TH.oR, 8.6], [TH.oL, 8.6]], TM.trim);
+      { const p = tp(fb0 - 0.4); mesh(ribbon([[off(p, TH.oR, 8.0), off(p, TH.oL, 8.0)], [off(p, TH.oR, 8.6), off(p, TH.oL, 8.6)]]), TM.trim);
+        mesh(ribbon([[off(p, TH.oR, 8.6).concat([0, 0]), off(p, TH.oL, 8.6).concat([(TH.oL - TH.oR) / 3, 0])], [off(p, TH.oR, 9.6).concat([0, 1]), off(p, TH.oL, 9.6).concat([(TH.oL - TH.oR) / 3, 1])]]), TM.balu); }
+      for (let o = TH.oR + 1.5; o <= TH.oL - 1.4; o += 3.6) {
+        const cg = new THREE.Group(); const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.45, 6.4, 16), TM.trim); sh.position.y = 3.2 + 0.6; cg.add(sh);
+        const bs = box(TM.trim, 1.1, 0.6, 1.1); bs.position.y = 0.3; cg.add(bs); const cp2 = box(TM.trim, 1.1, 0.5, 1.1); cp2.position.y = 7.25; cg.add(cp2);
+        put(cg, tp(fb0 + 0.8), o, 0.95);
+      }
+      for (let o = TH.oR + 5; o <= TH.oL - 4; o += 9) { const fg = new THREE.Group(); const pole = box(TM.metal, 0.08, 7.5, 0.08); pole.position.y = 3.75; fg.add(pole); const fl = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.6), TM.flag); fl.position.set(0, 6.6, 1.25); fl.rotation.y = Math.PI / 2; fg.add(fl); put(fg, tp(fb0 + 1.2), o, 8.6); }
+      // ศาลามุม 2 หลัง
+      WG.forEach((w) => {
+        const a = Math.min(w.oA, w.oB), b = Math.max(w.oA, w.oB), c = (a + b) / 2, wd = b - a, hb = 20;
+        const body = box(TM.cream, 16, hb, wd); put(body, tp(fb0 + 6), c, hb / 2 - 0.4);
+        const front = new THREE.Mesh(new THREE.PlaneGeometry(wd, hb), TM.pav); put(front, tp(fb0 - 2.05), c, hb / 2 - 0.4, -Math.PI / 2);
+        const pl2 = box(TM.plinth, 16.4, 1.6, wd + 0.4); put(pl2, tp(fb0 + 6), c, 0.4);
+        [hb - 4.6, hb - 0.2].forEach((hh) => { const cor = box(TM.trim, 16.8, 0.6, wd + 0.8); put(cor, tp(fb0 + 6), c, hh); });
+        const par = box(TM.trim, 16, 1.2, wd); put(par, tp(fb0 + 6), c, hb + 0.6);
+        const crown = box(TM.cream, 8, 2.4, wd * 0.5); put(crown, tp(fb0 + 6), c, hb + 2.0);
+        [a + 0.4, b - 0.4].forEach((o) => { const pil = box(TM.trim, 0.9, hb - 2, 0.9); put(pil, tp(fb0 - 2.2), o, hb / 2); });
+      });
+      // ปีกเฉลียงข้าง (นอกศาลา)
+      [[WG[0].oB, WG[0].oB + 16], [WG[1].oB - 16, WG[1].oB]].forEach(([a, b]) => {
+        const c = (a + b) / 2, wd = b - a; const body = box(TM.cream, 12, 9, wd); put(body, tp(fb0 + 8), c, 4.1);
+        const fr2 = new THREE.Mesh(new THREE.PlaneGeometry(wd, 9), TM.wing); put(fr2, tp(fb0 + 1.95), c, 4.1, -Math.PI / 2);
+        const p = tp(fb0 + 1.6); mesh(ribbon([[off(p, a, 9.0).concat([0, 0]), off(p, b, 9.0).concat([wd / 3, 0])], [off(p, a, 10).concat([0, 1]), off(p, b, 10).concat([wd / 3, 1])]]), TM.balu);
+        for (let o = a + 1.5; o <= b - 1; o += 3.4) { const col = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.36, 7.4, 12), TM.trim); put(col, tp(fb0 + 1.2), o, 0.25 + 3.7); }
+        const plb = box(TM.plinth, 12.2, 1.2, wd + 0.2); put(plb, tp(fb0 + 8), c, 0.2);
+      });
+    }
+    // ---- หลังคาชานชาลาทรงผีเสื้อ (นอกโถง) + เสา + ค้ำ + ป้ายเลขชานชาลา
+    const SP = line(TH.s1, 330, 6);
+    T_PL.forEach(([a, b]) => {
+      const c = (a + b) / 2, hw = (b - a) / 2 + 0.9;
+      strip(SP, [[c - hw, 6.1], [c, 5.2], [c + hw, 6.1]], TM.corr, (p, k) => [k * 3, p.s / 4]);
+      [c - hw, c + hw].forEach((o) => strip(SP, [[o, 5.75], [o, 6.25]], TM.colBrown));
+      for (let s = TH.s1 + 3; s <= 328; s += 9) {
+        const p = tp(s), cl = new THREE.Group(); const up = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.22, 3.4, 10), TM.colBrown); up.position.y = 1.7 + 1.6; cl.add(up);
+        const lo = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.26, 1.6, 10), TM.colDark); lo.position.y = 0.8; cl.add(lo);
+        [-1, 1].forEach((d) => { const br = box(TM.colBrown, 0.12, 2.0, 0.12); br.position.set(0, 4.1, d * 0.62); br.rotation.x = d * 0.8; cl.add(br); });
+        put(cl, p, c, 0.95);
+      }
+    });
+    // ป้ายเลขชานชาลาแขวน (ในโถงและใต้หลังคาชานชาลา)
+    T_TR.forEach((o) => {
+      const pl = T_PL.find(([a, b]) => Math.abs(a - o) < 2.4 || Math.abs(b - o) < 2.4); if (!pl) return;
+      const so = Math.abs(pl[0] - o) < 2.4 ? pl[0] + 1.3 : pl[1] - 1.3, n = T_NO[String(o)];
+      [40, 150, 240, 320].forEach((s) => { const sg = new THREE.Group(); [1, -1].forEach((d) => { const f = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), TM.num[n]); f.position.x = d * 0.06; f.rotation.y = d * Math.PI / 2; sg.add(f); }); const fr = box(TM.colDark, 0.1, 1.3, 1.3); sg.add(fr); const rod = box(TM.metal, 0.04, 1.2, 0.04); rod.position.y = 1.2; sg.add(rod); put(sg, tp(s), so, s < TH.s1 ? 6.0 : 4.3); });
+    });
+    // ---- หอสัญญาณกรุงเทพฯ + เสาไฟสนาม
+    { const p = tp(372), sg = new THREE.Group();
+      const b1 = box(TM.sbox, 16, 9, 11); b1.position.y = 4.5; sg.add(b1); const b2 = box(TM.sbox, 18, 3.2, 13); b2.position.y = 10.6; sg.add(b2);
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(12.5, 4, 4, 1), TM.tile); roof.rotation.y = Math.PI / 4; roof.scale.set(1, 1, 0.74); roof.position.y = 14.2; sg.add(roof);
+      const tw = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.6, 19, 24), TM.trim); tw.position.set(4, 9.5, -9); sg.add(tw);
+      const ck = new THREE.Mesh(new THREE.CircleGeometry(1.3, 24), TM.clock); ck.position.set(-8.05, 7.5, 0); ck.rotation.y = -Math.PI / 2; sg.add(ck);
+      put(sg, p, -64, -0.2); }
+    [[300, 44], [430, -66], [200, -60]].forEach(([s, o]) => {
+      const t = new THREE.Group(); [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([a, b]) => { const leg = box(TM.metal, 0.18, 30, 0.18); leg.position.set(a * 0.9, 15, b * 0.9); leg.rotation.set(b * 0.03, 0, -a * 0.03); t.add(leg); });
+      for (let y = 3; y < 30; y += 3) { const r2 = box(TM.metal, 2.0, 0.08, 2.0); r2.position.y = y; r2.scale.set(2.0 - y * 0.03, 0.08, 2.0 - y * 0.03); t.add(r2); }
+      const lampB = box(TM.lamp, 2.6, 1.2, 0.5); lampB.position.y = 30.5; t.add(lampB); put(t, tp(s), o, -0.3);
+    });
+    // ---- ขบวนรถจอดค้างในลานราง
+    [[10.2, 196, [{ type: "loco", len: 20 }].concat(Array(7).fill({ type: "coach", len: 20.5 }))], [-14.4, 82, [{ type: "dmu", len: 20.5, cab: 1 }, { type: "dmu", len: 20.5 }, { type: "dmu", len: 20.5, cabRear: 1 }]],
+      [-28.8, 150, Array(5).fill({ type: "coach", len: 20.5 })], [24.8, 236, [{ type: "loco", len: 20 }].concat(Array(4).fill({ type: "coach", len: 20.5 }))]].forEach(([o, sF, list]) => {
+      let acc = 0; const cl = list.map((c) => { const o2 = Object.assign({}, c, { off: acc + c.len / 2 }); acc += c.len + 0.8; return o2; });
+      const grp = new THREE.Group(); g.add(grp); const cs = buildCars(cl, grp);
+      cs.forEach((c) => { const sc = sF - c.off, A = tp(sc + c.len / 2 - 3.2), B = tp(sc - c.len / 2 + 3.2), [ax, ay] = off(A, o), [bx, by] = off(B, o);
+        c.g.position.set((ax + bx) / 2, (A.z + B.z) / 2 + 0.18, -(ay + by) / 2); c.g.rotation.order = "YZX"; c.g.rotation.set(0, Math.atan2(ay - by, ax - bx), 0); });
+    });
+  }
 
   /* ---------------- สถานีใหญ่ใต้ดิน (สุวรรณภูมิ) ----------------
      โถงหลังคาโค้งสูง 12 ม. กว้าง 24 ม. ชานชาลา 2 ฝั่ง กว้าง 8 ม. ยาวตลอดโถง (~340 ม.)
@@ -465,7 +758,7 @@ export function createWorld(host, api) {
       else { w = 18 + r() * 14; d = 14 + r() * 10; H = 20 + r() * 40; }                                                  // คอนโด/อาคารสูง
       const x = p.x - Math.sin(p.th) * o, y = p.y + Math.cos(p.th) * o, rad = Math.hypot(w, d) / 2;
       if (placed.some(([px, py, pr]) => Math.hypot(px - x, py - y) < (pr + rad) * 0.8)) continue;
-      if (Math.abs(o) - rad < (side > 0 ? 13 : 17)) continue;
+      if (Math.abs(o) - rad < (side > 0 ? 13 : 17) || inTermZone(p.s, o)) continue;
       placed.push([x, y, rad]); n++;
       const th = p.th + (r() < 0.8 ? 0 : (r() - 0.5) * 0.7), c = Math.cos(th), s = Math.sin(th);
       const pts = [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]].map(([a, b]) => [x + a * c - b * s, y + a * s + b * c]);
@@ -618,7 +911,7 @@ export function createWorld(host, api) {
         col.set([c.r, c.g, c.b], i * 3);
       }
       geom.setAttribute("color", new THREE.BufferAttribute(col, 3));
-      const m = new THREE.Mesh(geom, urban ? M.city : hill > 0.3 ? M.forest : M.rice); m.receiveShadow = true; g.add(m);
+      const m = new THREE.Mesh(geom, urban ? M.city : hill > 0.3 ? M.forest : M.rice); m.receiveShadow = true; m.userData.ground = true; g.add(m);
     };
     terrainSide(1); terrainSide(-1);
     // --- น้ำใต้สะพาน
@@ -693,7 +986,7 @@ export function createWorld(host, api) {
     }
     // --- สถานี
     geo.stations.forEach((st) => {
-      if (st.s < s0 - 120 || st.s > s1 + 120 || isGrand(st)) return;
+      if (st.s < s0 - 120 || st.s > s1 + 120 || isGrand(st) || isTerm(st)) return;
       const plat = P.filter((p) => Math.abs(p.s - st.s) <= (st.h ? 45 : 110));
       if (plat.length < 2) return;
       [1, -1].forEach((side) => {
@@ -754,7 +1047,7 @@ export function createWorld(host, api) {
     }
     // --- เสาไฟฟ้า + สายส่ง (เฉพาะรถไฟฟ้า/ความเร็วสูง)
     if (api.electric()) {
-      const poles = P.filter((p, i) => i % 10 === 0 && !isT(p));
+      const poles = P.filter((p, i) => i % 10 === 0 && !isT(p) && !(TERM && p.s < 340));
       poles.forEach((p) => {
         const [x, y, z] = off(p, 3.0, 0); const pl = new THREE.Mesh(geoBox, M.pole); pl.scale.set(0.3, 7.2, 0.3); pl.position.set(x, z + 3.6, -y); g.add(pl);
         const [ax, ay, az] = off(p, 1.2, 6.6); const arm = new THREE.Mesh(geoBox, M.pole); arm.scale.set(0.1, 0.1, 3.6); arm.position.set((x + ax) / 2, az, -(y + ay) / 2); arm.rotation.y = p.th; g.add(arm);
@@ -772,7 +1065,7 @@ export function createWorld(host, api) {
     const nTree = Math.round(urban ? 45 : hill > 0.3 ? 420 : 140), trees = [];
     for (let i = 0; i < nTree; i++) {
       const p = P[Math.floor(r() * P.length)], side = r() < 0.5 ? -1 : 1, o = 14 + Math.pow(r(), 1.4) * (hill > 0.3 ? 500 : 380);
-      if ((isT(p) && !under(p)) || isB(p)) continue;
+      if ((isT(p) && !under(p)) || isB(p) || inTermZone(p.s, o * side)) continue;
       const [x, y] = off(p, o * side);
       if (geo.stations.some((st) => Math.abs(st.s - p.s) < 130) && o < 30) continue;
       const far = Math.min(1, Math.max(0, (o - 5) / 70)), wx = x + cx, wy = y + cy;
@@ -837,6 +1130,7 @@ export function createWorld(host, api) {
       }
     }
     if (G && s1 >= G.s0 - 5 && s0 <= G.s1 + 10) grandHall(g, P, s0, s1, cx, cy);
+    if (TERM && ci === 0) terminal(g, cx, cy);
     addJunction(g, ci, cx, cy);
     addBuildings(g, s0, s1, cx, cy);
     if (urban) addFiller(g, s0, s1, cx, cy, P, r);
@@ -1535,11 +1829,11 @@ export function createWorld(host, api) {
       shirt: SHIRT[Math.floor(r() * SHIRT.length)], pants: PANTS[Math.floor(r() * PANTS.length)], skin: SKIN[Math.floor(r() * SKIN.length)], moving: false };
   }
   // ชานชาลา: กึ่งกลาง/ครึ่งความยาว/ความกว้างที่ยืนรอ (สถานีใหญ่ยาวทั้งโถง กว้าง 8 ม.)
-  const pc = (st) => (isGrand(st) ? (G.s0 + G.s1) / 2 : st.s), ph = (st) => (isGrand(st) ? (G.s1 - G.s0) / 2 - 10 : span(st)), pw = (st) => (isGrand(st) ? 5.6 : 2.5);
+  const pc = (st) => (isGrand(st) ? (G.s0 + G.s1) / 2 : isTerm(st) ? 60 : st.s), ph = (st) => (isGrand(st) ? (G.s1 - G.s0) / 2 - 10 : isTerm(st) ? 52 : span(st)), pw = (st) => (isGrand(st) ? 5.6 : isTerm(st) ? 4.2 : 2.5);
   const waitSpot = (cw, r) => [pc(cw.st) + (r() * 2 - 1) * ph(cw.st) * 0.85, Lo(cw.side, 2.9 + r() * pw(cw.st))];
   function makeCrowd(i, side) {
     const st = geo.stations[i], r = rnd(i * 977 + (side > 0 ? 1 : 2) * 31 + Math.floor(Math.random() * 1e6));
-    const base = isGrand(st) ? 60 : st.m === 2 ? 26 : st.m ? 16 : st.h ? 5 : 9;
+    const base = isGrand(st) ? 60 : isTerm(st) ? 34 : st.m === 2 ? 26 : st.m ? 16 : st.h ? 5 : 9;
     const cw = { st, i, side, r, base, people: [], serve: null, spawnT: 0 };
     for (let k = 0; k < base; k++) { const [s, o] = waitSpot(cw, r); cw.people.push(newPerson(cw, r, "wait", s, o)); }
     return cw;
@@ -1601,21 +1895,35 @@ export function createWorld(host, api) {
       if (s0.s < st.s - 700 || s0.s > st.s + 1200) return;
       [1, -1].forEach((side) => { const k = i * 2 + (side > 0 ? 0 : 1); near.add(k); if (!crowds.has(k)) crowds.set(k, makeCrowd(i, side)); });
     });
+    // หัวลำโพง: ผู้คนเดินเล่น/นั่งรอในโถงและชานชาลาอื่น (ไม่ผูกกับขบวน)
+    if (TERM && st.s < 2200) [["a0", -31, -4, -48, 30, 70], ["a1", 8, 104, 17.6, 21.6, 16], ["a2", 8, 104, -25.6, -21.6, 16], ["a3", 8, 104, -40, -36, 14], ["a4", 8, 104, 28, 33, 10]].forEach(([k, a, b, o0, o1, n]) => {
+      near.add(k); if (crowds.has(k)) return;
+      const r = rnd(k.charCodeAt(1) * 131 + 7), cw = { ambient: true, area: [a, b, o0, o1], r, people: [], st: { s: 0 }, side: 1 };
+      for (let i = 0; i < n; i++) { const p = newPerson(cw, r, "wait", a + r() * (b - a), o0 + r() * (o1 - o0)); p.face = r() * 6.3; p.delay = r() * 6; p.ts = p.s; p.to = p.o; cw.people.push(p); }
+      crowds.set(k, cw);
+    });
     crowds.forEach((cw, k) => { if (!near.has(k)) crowds.delete(k); });
     // ขบวนที่อาจจอดอยู่: ขบวนเรา (ชานชาลาซ้าย) + ขบวนสวน (ชานชาลาขวา)
     const mine = { id: "me", player: true, cars, s: st.s, dir: 1, v: st.v, door: st.door || 0, term: !!st.term, orig: false };
     const ais = []; aiLive.forEach((m) => ais.push({ id: m.id, cars: m.cars, s: m.s, dir: m.dir, v: m.v, door: m.door, st: m.st, term: m.term, orig: m.orig }));
     let n = 0;
     crowds.forEach((cw) => {
-      const here = cw.side > 0 ? (Math.abs(st.s - cw.st.s) < 400 ? [mine] : []) : ais.filter((a) => a.st === cw.i);
-      crowdTick(cw, dt, here);
+      if (cw.ambient) {
+        const [a, b, o0, o1] = cw.area, r = cw.r;
+        cw.people.forEach((p) => { if (p.delay > 0) { p.delay -= dt; p.moving = false; return; } const ds = p.ts - p.s, dO = p.to - p.o, d = Math.hypot(ds, dO);
+          if (d > 0.05) { const k = Math.min(d, p.spd * 0.8 * dt); p.s += ds / d * k; p.o += dO / d * k; p.ph += k * 5.2; p.moving = true; p.dirS = ds / d; p.dirO = dO / d; }
+          else { p.moving = false; p.face = Math.atan2(p.dirO || 0, p.dirS || 1); if (r() < 0.5) p.delay = 3 + r() * 12; p.ts = Math.max(a, Math.min(b, p.s + (r() - 0.5) * 30)); p.to = o0 + r() * (o1 - o0); } });
+      } else {
+        const here = cw.side > 0 ? (Math.abs(st.s - cw.st.s) < 400 ? [mine] : []) : ais.filter((a) => a.st === cw.i);
+        crowdTick(cw, dt, here);
+      }
       cw.people.forEach((p) => {
         if (n >= PMAX) return;
-        const t = trackPoint(Math.max(0, Math.min(geo.total, p.s)));
+        const t = tpe(Math.min(geo.total, p.s));
         const x = t.x - Math.sin(t.th) * p.o, y = t.y + Math.cos(t.th) * p.o, z = t.z + 0.95;
         let yaw;
         if (p.moving) { const wx = p.dirS * Math.cos(t.th) - p.dirO * Math.sin(t.th), wy = p.dirS * Math.sin(t.th) + p.dirO * Math.cos(t.th); yaw = Math.atan2(wy, wx); }
-        else yaw = t.th + (cw.side > 0 ? -Math.PI / 2 : Math.PI / 2) + Math.sin(p.ph) * 0.4;
+        else yaw = cw.ambient ? t.th + p.face : t.th + (cw.side > 0 ? -Math.PI / 2 : Math.PI / 2) + Math.sin(p.ph) * 0.4;
         const sw = p.moving ? Math.sin(p.ph) * 0.55 : 0, bob = p.moving ? Math.abs(Math.cos(p.ph)) * 0.035 : 0, h = p.h;
         ep.set(0, yaw, 0, "YZX"); qp.setFromEuler(ep);
         m4p.compose(vp.set(x, z + (0.8 + 0.32) * h + bob, -y), qp, sp1.set(h, h, h)); pBody.setMatrixAt(n, m4p); pBody.setColorAt(n, cp.setHex(p.shirt));
@@ -1766,6 +2074,20 @@ export function createWorld(host, api) {
         cam.position.lerpVectors(cam.position.clone(), ip, k); cam.lookAt(look);
       } else view.tin = 0;
     }
+    // กล้องนอกตัวรถ: ไม่ทะลุหลังคาโถงหัวลำโพง (ดึงเข้ามาใต้หลังคาตามแนวมองไปที่รถ) และไม่จมใต้ผิวดิน
+    if (view.mode !== "cab" && !(view.tk > 0.002)) {
+      const lp = lead.g.position, aim = new THREE.Vector3(lp.x, lp.y + 2, lp.z);
+      if (TERM && termRoof(lp.x, lp.z) !== null) {
+        const lim0 = termRoof(cam.position.x, cam.position.z);
+        if (lim0 === null || cam.position.y > lim0) {
+          const from = cam.position.clone();
+          for (let k = 1; k <= 40; k++) { const q = from.clone().lerp(aim, k / 40), lim = termRoof(q.x, q.z); if (lim !== null && q.y <= lim) { cam.position.copy(q); cam.lookAt(aim); break; } }
+        }
+      }
+      const gnd = groundAt(cam.position.x, cam.position.z);
+      if (gnd !== null && cam.position.y < gnd + 1.6) { const d = new THREE.Vector3(); cam.getWorldDirection(d); const tg = cam.position.clone().add(d.multiplyScalar(30)); cam.position.y = gnd + 1.6; cam.lookAt(tg); }
+    }
+    if (view.peek) { const k = view.peek, a = tpe(k.s), b = tpe(k.ts); cam.position.set(a.x - Math.sin(a.th) * k.o, a.z + k.h, -(a.y + Math.cos(a.th) * k.o)); cam.lookAt(b.x - Math.sin(b.th) * k.to, b.z + k.th, -(b.y + Math.cos(b.th) * k.to)); }
     // แสงแดด + เงาตามกล้อง
     sun.position.copy(cam.position).add(sd.clone().multiplyScalar(400)); sun.target.position.copy(cam.position).add(new THREE.Vector3(Math.cos(t0.th) * 60, -cam.position.y + t0.z, -Math.sin(t0.th) * 60)); sun.target.updateMatrixWorld();
     sky.position.copy(cam.position);
@@ -1783,6 +2105,14 @@ export function createWorld(host, api) {
     renderer.render(scene, cam);
     return newChunks;
   }
+  // ความสูงผิวดินใต้จุด (x,z) จากตาข่ายภูมิประเทศของชิ้นฉาก (ใช้กันกล้องจมดิน)
+  const rcG = new THREE.Raycaster(), rcO = new THREE.Vector3(), rcD = new THREE.Vector3(0, -1, 0);
+  function groundAt(x, z) {
+    const list = []; chunks.forEach((c) => c.children.forEach((m) => { if (m.userData.ground) list.push(m); }));
+    if (!list.length) return null;
+    root.updateMatrixWorld(); rcO.set(x, 6000, z); rcG.set(rcO, rcD); rcG.far = 12000;
+    const hit = rcG.intersectObjects(list, false)[0]; return hit ? hit.point.y : null;
+  }
   function warm(s) { let n = 0; while (refreshChunks(s) > 0 && n < 40) n++; }
-  return { pax: () => paxRun, aiCount: () => aiLive.size, crowdCount: () => { let n = 0; crowds.forEach((c) => { n += c.people.length; }); return n; }, camDist: () => (view.pos && cars[0] ? view.pos.distanceTo(cars[0].g.position) : -1), update, resize, setCam, setEnv, warm, get mode() { return view.mode; }, recenterAt: (s) => { const p = geo.at(s); recenter(p.lat, p.lon); view.pos = null; view.th = undefined; view.trackSpot = null; chunks.forEach((g) => { root.remove(g); g.traverse((o) => { if (o.geometry && o.geometry !== geoBox && !Object.values(treeGeo).includes(o.geometry)) o.geometry.dispose(); }); }); chunks.clear(); } };
+  return { dbg: { cars: () => cars.map((c) => [c.g.position.x, c.g.position.y, c.g.position.z]), groundAt, hit: (x, z) => { const list = []; const ids = []; chunks.forEach((c, i) => c.children.forEach((m) => { if (m.userData.ground) { list.push(m); ids.push(i); } })); root.updateMatrixWorld(); rcG.set(new THREE.Vector3(x, 6000, z), rcD); return rcG.intersectObjects(list, false).slice(0, 3).map((h) => ({ y: h.point.y, chunk: ids[list.indexOf(h.object)], face: h.faceIndex, n: h.object.geometry.attributes.position.count })); } }, peek: (k) => { view.peek = k || null; }, pax: () => paxRun, aiCount: () => aiLive.size, crowdCount: () => { let n = 0; crowds.forEach((c) => { n += c.people.length; }); return n; }, camDist: () => (view.pos && cars[0] ? view.pos.distanceTo(cars[0].g.position) : -1), update, resize, setCam, setEnv, warm, get mode() { return view.mode; }, recenterAt: (s) => { const p = geo.at(s); recenter(p.lat, p.lon); view.pos = null; view.th = undefined; view.trackSpot = null; chunks.forEach((g) => { root.remove(g); g.traverse((o) => { if (o.geometry && o.geometry !== geoBox && !Object.values(treeGeo).includes(o.geometry)) o.geometry.dispose(); }); }); chunks.clear(); } };
 }

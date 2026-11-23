@@ -29,6 +29,8 @@ const LAT = new Float64Array(N), LON = new Float64Array(N), Z = new Float32Array
 { let a = 0, b = 0, c = 0; for (let i = 0; i < N; i++) { a += LINE.lat[i]; b += LINE.lon[i]; c += LINE.z[i]; LAT[i] = a / (LINE.q || 1e5); LON[i] = b / (LINE.q || 1e5); Z[i] = c / 10; } }
 { let g = 0; for (let i = 0; i < N; i++) { if (LINE.g) { g += LINE.g[i]; GZ[i] = g / 10; } else GZ[i] = Z[i]; } }   // ระดับพื้นดิน (ต่างจากราง = ทางยกระดับ/ใต้ดิน)
 const TOTAL = (N - 1) * STEP;
+// หัวลำโพง: ข้อมูล OSM ติดป้าย "อุโมงค์" ตรงช่วงหลังคาสถานีปลายราง (ไม่ใช่อุโมงค์จริง) → เคยทำให้ท้ายขบวนยาวจมดิน/อยู่ในท่ออุโมงค์ตอนเริ่มเกม
+if (LINE.st[0] && LINE.st[0].n === "กรุงเทพ") for (let i = 0; i * STEP < 300 && (LINE.f[i] & 1); i++) LINE.f[i] &= ~1;
 const K = new Float32Array(N); for (let i = 0; i < N; i++) { const r = LINE.r[i]; K[i] = r ? Math.sign(r) / Math.max(150, Math.abs(r)) : 0; }
 const cr = (a, b, c, d, t) => { const t2 = t * t, t3 = t2 * t; return 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (3 * b - a - 3 * c + d) * t3); };
 const geo = {
@@ -815,14 +817,15 @@ async function start() {
   pressed("trains", "k", S.type);
   buildPanel(); initMap(); updAtoBtn();
   try {
-    const mod = await import("./train_sim_3d.js?v=20261130-2");
+    const mod = await import("./train_sim_3d.js?v=20261130-3");
     const bld = await loadBuildings();
     const branch = branchFor();
     // สายสนามบินอยู่ในเขตกรุงเทพฯ ทั้งสาย → ฉากเมืองตลอด (ช่วงที่ OSM มีตึกน้อยจะเติมตึกให้) · สายเหนือตัดสินจากจำนวนตึก
     // สถานีสุวรรณภูมิ (ใต้ดิน): โถงใหญ่ ชานชาลายาวตั้งแต่ปลายทางลาด (31,720) ถึงปลายราง
     const grand = LINE_ID === "arl" ? { name: "สุวรรณภูมิ", s0: 31720, s1: TOTAL - 6 } : null;
     const xb = LINE.xb ? { n: LINE.xb.n, e: LINE.xb.e, side: LINE.xb.side, dbl: LINE.xb.dbl, s: LINE.xb.s, lat: LINE.xb.lat.map((v) => v / 1e6), lon: LINE.xb.lon.map((v) => v / 1e6) } : null;   // ชุมทางยมราช: อีกสายที่แยกออกไป
-    world = mod.createWorld($("view"), { geo, bld, branch, grand, xb, roads: roadsFor(), urban: (a, b) => LINE_ID === "arl" || countBld(bld, a, b) > 25, electric: () => !!TRAINS[S.type].electric });
+    const term = geo.stations[0] && geo.stations[0].n === "กรุงเทพ" ? { name: "กรุงเทพ" } : null;   // สถานีหัวลำโพง (จุดเริ่ม)
+    world = mod.createWorld($("view"), { geo, bld, branch, grand, xb, term, roads: roadsFor(), urban: (a, b) => LINE_ID === "arl" || countBld(bld, a, b) > 25, electric: () => !!TRAINS[S.type].electric });
     window.addEventListener("resize", () => world.resize());
     world.setEnv({ tod: S.tod, wx: S.wx });
   } catch (e) { console.error(e); flash("โหลดกราฟิก 3 มิติไม่สำเร็จ — ยังขับได้จากหน้าปัดและแผนที่", "", 6000); }
