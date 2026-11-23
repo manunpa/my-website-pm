@@ -83,7 +83,6 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
   var empty = document.getElementById("empty");
   var chipsBox = document.getElementById("chips");
   var quick = document.getElementById("quick");
-  var setsBox = document.getElementById("sets");
   var sections = Array.prototype.slice.call(document.querySelectorAll("section[data-sec]"));
   var cards = Array.prototype.slice.call(document.querySelectorAll("section[data-sec] .btn"));
 
@@ -232,12 +231,11 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
       var any = Array.prototype.some.call(s.querySelectorAll(".btn"), function (c) { return c.style.display !== "none"; });
       s.style.display = any ? "" : "none";
       // ตอนค้นหา/กรอง กางทุกหมวดให้เห็นผลลัพธ์ครบ
-      var folded = !filtering && !picking && collapsed.indexOf(s.getAttribute("data-sec")) > -1;
+      var folded = !filtering && collapsed.indexOf(s.getAttribute("data-sec")) > -1;
       s.classList.toggle("collapsed", folded);
       s.querySelector("h2").setAttribute("aria-expanded", folded ? "false" : "true");
     });
     quick.style.display = filtering ? "none" : "";
-    if (setsBox) setsBox.style.display = filtering ? "none" : "";
     empty.textContent = chip === "fav" && !favs.length
       ? "ยังไม่มีรายการโปรด กดรูปดาวบนการ์ดเพื่อปักหมุด"
       : "ไม่พบลิงก์ที่ตรงกับคำค้น";
@@ -269,360 +267,8 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
     return best;
   }
 
-  /* =====================================================================
-     เปิดทั้งชุด (ทดลองใช้งาน)
-     - ชุดพื้นฐาน: กำหนดด้วย href ของการ์ดด้านล่าง (การ์ดที่ถูกลบออกจากหน้าจะถูกข้ามเอง)
-     - ชุดของฉัน: เลือกการ์ดเอง เก็บในเครื่องนี้แยกตามบัญชี เหมือนรายการโปรด
-     - คอม: เปิดทุกลิงก์พร้อมกัน (ครั้งแรกเบราว์เซอร์อาจบล็อก ต้องกดอนุญาตป๊อปอัป)
-     - ทุกเครื่องลองเปิดทั้งชุดก่อน ถ้าโดนบล็อก (มักเป็นมือถือ) จะขึ้นปุ่ม "ถัดไป" ให้เปิดที่เหลือทีละอัน
-     ===================================================================== */
-  K.sets = "hub-sets:" + uid;
-  K.step = "hub-step:" + uid;
-  var BUILTIN_SETS = [
-    { id: "b-songdee", name: "Songdee", hrefs: [
-      "http://103.228.55.220/SDFMSV20/login/logout",
-      "http://203.151.66.75:9966/vss/#"] },
-    { id: "b-dtc", name: "DTC", hrefs: [
-      "https://gps.dtc.co.th/v2/login",
-      "https://cms.dtc.co.th/login"] },
-    { id: "b-pms", name: "PMS", hrefs: [
-      "https://hosting.wialon.eu/?lang=en",
-      "http://203.150.48.47:9966/vss/#"] },
-    { id: "b-sca", name: "SCA OB", hrefs: [
-      "https://tttwli.com/login.html",
-      "https://dvrai.net/808gps/login.html",
-      "https://hosting.mobileinnovation.asia/",
-      "https://superhero.mobileinnovation.asia/vss/"] },
-    { id: "b-marine", name: "มารีน", hrefs: [
-      "https://xpertone.shipexpert.online/login",
-      "http://203.151.66.75:9966/vss/#"] }
-  ];
-  var mySets = load(K.sets, []);
-  var stepRun = null;   // { name, hrefs, i }
-  try { stepRun = JSON.parse(sessionStorage.getItem(K.step)); } catch (e) {}
-  var picking = null;   // { id, name, hrefs }
-
-  function esc(s) {
-    return String(s).replace(/[&<>"']/g, function (ch) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
-    });
-  }
-  function cardName(href) {
-    var c = firstCard(href), s = c && c.querySelector(".label strong");
-    return s ? s.textContent.trim() : href;
-  }
-  function liveHrefs(set) {
-    return set.hrefs.filter(function (h, i) { return firstCard(h) && set.hrefs.indexOf(h) === i; });
-  }
-  function findSet(id) {
-    return BUILTIN_SETS.concat(mySets).filter(function (s) { return s.id === id; })[0] || null;
-  }
-  function saveStep() {
-    try {
-      if (stepRun) sessionStorage.setItem(K.step, JSON.stringify(stepRun));
-      else sessionStorage.removeItem(K.step);
-    } catch (e) {}
-  }
-
-  var toastEl = document.createElement("div");
-  toastEl.className = "hubtoast";
-  toastEl.setAttribute("role", "status");
-  document.body.appendChild(toastEl);
-  var toastTimer;
-  function toast(msg) {
-    toastEl.textContent = msg;
-    toastEl.classList.add("on");
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { toastEl.classList.remove("on"); }, 3200);
-  }
-
-  function setCardHtml(set, mine) {
-    var hrefs = liveHrefs(set);
-    if (!hrefs.length) return "";
-    var acts = '<button type="button" class="setopen" data-act="open" data-id="' + esc(set.id) + '">' +
-      "เปิดทั้งชุด ↗</button>";
-    acts += mine
-      ? '<button type="button" class="setghost" data-act="edit" data-id="' + esc(set.id) + '">แก้</button>' +
-        '<button type="button" class="setghost" data-act="del" data-id="' + esc(set.id) + '">ลบ</button>'
-      : '<button type="button" class="setghost" data-act="copy" data-id="' + esc(set.id) + '" title="คัดลอกชุดนี้ไปปรับเป็นชุดของฉัน">คัดลอกไปแก้</button>';
-    return '<div class="setcard' + (mine ? " mine" : "") + '">' +
-      '<div class="sethead"><strong>' + esc(set.name) + "</strong><small>" + (mine ? "ของฉัน · " : "") + hrefs.length + " ลิงก์</small></div>" +
-      '<p class="setlist">' + hrefs.map(function (h) { return esc(cardName(h)); }).join(" · ") + "</p>" +
-      '<div class="setacts">' + acts + "</div></div>";
-  }
-
-  function stepHtml() {
-    var r = stepRun, done = r.i >= r.hrefs.length;
-    var note = "";
-    var main = done
-      ? '<span class="stepdone">✓ เปิดครบ ' + r.hrefs.length + " ลิงก์แล้ว</span>"
-      : '<a class="setopen" data-act="next" href="' + esc(r.hrefs[r.i]) + '" target="_blank" rel="noopener">ถัดไป: ' +
-        esc(cardName(r.hrefs[r.i])) + " (" + (r.i + 1) + "/" + r.hrefs.length + ") ↗</a>";
-    return '<div class="stepbar">' + note +
-      '<div class="steprow"><strong>ชุด ' + esc(r.name) + "</strong>" + main +
-      '<button type="button" class="setghost" data-act="stop">' + (done ? "ปิด" : "หยุด") + "</button></div></div>";
-  }
-
-  function renderSets() {
-    if (!setsBox) return;
-    var html = '<section class="sets"><h2><span>เปิดทั้งชุด <em class="trial">ทดลองใช้งาน</em></span>' +
-      '<button type="button" class="setghost" data-act="new">＋ สร้างชุด</button></h2>';
-    if (stepRun) html += stepHtml();
-    html += '<div class="setgrid">' +
-      mySets.map(function (s) { return setCardHtml(s, true); }).join("") +
-      BUILTIN_SETS.map(function (s) { return setCardHtml(s, false); }).join("") + "</div></section>";
-    setsBox.innerHTML = html;
-  }
-
-  function startStep(set, hrefs) {
-    stepRun = { name: set.name, hrefs: hrefs, i: 0 };
-    saveStep(); renderSets();
-    var a = setsBox.querySelector('[data-act="next"]');
-    if (a) { a.focus({ preventScroll: true }); setsBox.scrollIntoView({ behavior: "smooth", block: "start" }); }
-  }
-
-  /* ----- คู่มืออนุญาตป๊อปอัป แยกตามเบราว์เซอร์ -----
-     ไม่มีเบราว์เซอร์ไหนให้เว็บ "ขออนุญาตเปิดหลายแท็บ" เองได้ (ไม่มี API แบบกล้อง/ตำแหน่ง)
-     จึงตรวจว่าเป็นเบราว์เซอร์อะไร แล้วบอกขั้นตอนอนุญาตของเบราว์เซอร์นั้นแทน */
-  var POPUP_GUIDES = [
-    { id: "chrome", label: "Chrome / Brave / Opera บนคอม", steps: [
-      "คลิกไอคอนทางซ้ายของช่องที่อยู่เว็บ (รูปปรับแต่ง หรือแม่กุญแจ ก่อนชื่อเว็บ)",
-      "เลือก <b>การตั้งค่าเว็บไซต์</b> (Site settings)",
-      "หา <b>ป๊อปอัปและการเปลี่ยนเส้นทาง</b> (Pop-ups and redirects) แล้วเปลี่ยนเป็น <b>อนุญาต</b>",
-      "กลับมาหน้านี้ แล้วกด <b>ลองอีกครั้ง</b>"] },
-    { id: "edge", label: "Microsoft Edge บนคอม", steps: [
-      "คลิกรูปแม่กุญแจทางซ้ายของช่องที่อยู่เว็บ",
-      "เลือก <b>สิทธิ์สำหรับไซต์นี้</b> (Permissions for this site)",
-      "หา <b>ป๊อปอัปและการเปลี่ยนเส้นทาง</b> (Pop-ups and redirects) แล้วเปลี่ยนเป็น <b>อนุญาต</b>",
-      "กลับมาหน้านี้ แล้วกด <b>ลองอีกครั้ง</b>"] },
-    { id: "firefox", label: "Firefox บนคอม", steps: [
-      "ดูแถบสีเหลืองด้านบนหน้าเว็บที่เขียนว่า Firefox ป้องกันไม่ให้เปิดหน้าต่างป๊อปอัป",
-      "กดปุ่ม <b>ตัวเลือก</b> (Options) ที่ขวาสุดของแถบนั้น",
-      "เลือก <b>อนุญาตป๊อปอัปสำหรับ</b> เว็บนี้",
-      "ถ้าไม่เห็นแถบ: เมนู ☰ › การตั้งค่า › ความเป็นส่วนตัวและความปลอดภัย › สิทธิ์ › ปิดกั้นหน้าต่างป๊อปอัป › <b>ข้อยกเว้น</b> › เพิ่มเว็บนี้",
-      "กลับมาหน้านี้ แล้วกด <b>ลองอีกครั้ง</b>"] },
-    { id: "safari-mac", label: "Safari บน Mac", steps: [
-      "คลิกเมนู <b>Safari</b> ที่แถบเมนูด้านบนสุดของจอ",
-      "เลือก <b>การตั้งค่าสำหรับเว็บไซต์นี้</b> (Settings for This Website)",
-      "หา <b>หน้าต่างป๊อปอัป</b> (Pop-up Windows) แล้วเปลี่ยนเป็น <b>อนุญาต</b> (Allow)",
-      "กลับมาหน้านี้ แล้วกด <b>ลองอีกครั้ง</b>"] },
-    { id: "chrome-android", label: "Chrome / Edge บน Android", steps: [
-      "แตะไอคอนทางซ้ายของช่องที่อยู่เว็บ (รูปปรับแต่ง หรือแม่กุญแจ)",
-      "แตะ <b>สิทธิ์</b> (Permissions) หรือ <b>การตั้งค่าเว็บไซต์</b>",
-      "เปิด <b>ป๊อปอัปและการเปลี่ยนเส้นทาง</b> (Pop-ups and redirects) เป็นอนุญาต",
-      "ถ้าไม่เจอ: เมนู ⋮ › การตั้งค่า › การตั้งค่าเว็บไซต์ › ป๊อปอัปและการเปลี่ยนเส้นทาง › เปิด",
-      "กลับมาหน้านี้ แล้วกด <b>ลองอีกครั้ง</b>"] },
-    { id: "samsung", label: "Samsung Internet", steps: [
-      "แตะเมนู ☰ ที่มุมขวาล่าง แล้วแตะ <b>การตั้งค่า</b>",
-      "แตะ <b>เว็บไซต์และการดาวน์โหลด</b> (Sites and downloads)",
-      "ปิด <b>บล็อกป๊อปอัป</b> (Block pop-ups)",
-      "กลับมาหน้านี้ แล้วกด <b>ลองอีกครั้ง</b>"] },
-    { id: "safari-ios", label: "Safari บน iPhone / iPad", steps: [
-      "ออกไปที่แอป <b>การตั้งค่า</b> (Settings) ของเครื่อง",
-      "แตะ <b>Safari</b> (iOS รุ่นใหม่อยู่ใน การตั้งค่า › แอป › Safari)",
-      "ปิด <b>ปิดกั้นป๊อปอัป</b> (Block Pop-ups)",
-      "กลับมาหน้านี้ แล้วกด <b>ลองอีกครั้ง</b>"] },
-    { id: "chrome-ios", label: "Chrome / Edge บน iPhone / iPad", steps: [
-      "แตะเมนู ⋯ แล้วแตะ <b>การตั้งค่า</b>",
-      "Chrome: แตะ <b>การตั้งค่าเนื้อหา</b> (Content Settings) › <b>บล็อกป๊อปอัป</b> › ปิด",
-      "Edge: แตะ <b>ความเป็นส่วนตัวและความปลอดภัย</b> › <b>บล็อกป๊อปอัป</b> › ปิด",
-      "กลับมาหน้านี้ แล้วกด <b>ลองอีกครั้ง</b>"] },
-    { id: "firefox-mobile", label: "Firefox บนมือถือ", steps: [
-      "iPhone: เมนู ☰ › การตั้งค่า › ปิด <b>ปิดกั้นหน้าต่างป๊อปอัป</b>",
-      "Android: Firefox ไม่มีปุ่มอนุญาตให้กด ใช้ <b>เปิดทีละอัน</b> ด้านล่าง หรือเปิดเว็บนี้ใน Chrome แทน",
-      "กลับมาหน้านี้ แล้วกด <b>ลองอีกครั้ง</b>"] },
-    { id: "inapp", label: "เปิดอยู่ใน LINE / Facebook / แอปแชต", steps: [
-      "เบราว์เซอร์ในแอปแชตตั้งค่าอนุญาตไม่ได้",
-      "แตะ ⋮ หรือ ⋯ ที่มุมขวาบน แล้วเลือก <b>เปิดในเบราว์เซอร์</b> (Open in browser)",
-      "จากนั้นทำตามขั้นตอนของเบราว์เซอร์นั้น (เลือกได้จากรายการด้านบน)"] }
-  ];
-  function detectBrowser() {
-    var ua = navigator.userAgent || "";
-    var ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
-    if (/\bLine\/|FBAN|FBAV|FB_IAB|Instagram|Messenger|MicroMessenger/i.test(ua)) return "inapp";
-    if (/SamsungBrowser/.test(ua)) return "samsung";
-    if (ios) return /CriOS|EdgiOS/.test(ua) ? "chrome-ios" : /FxiOS/.test(ua) ? "firefox-mobile" : "safari-ios";
-    if (/Android/.test(ua)) return /Firefox/.test(ua) ? "firefox-mobile" : "chrome-android";
-    if (/Edg\//.test(ua)) return "edge";
-    if (/Firefox\//.test(ua)) return "firefox";
-    if (/Chrome\/|Chromium\/|OPR\//.test(ua)) return "chrome";
-    if (/Safari\//.test(ua)) return "safari-mac";
-    return "chrome";
-  }
-
-  var guideEl = document.createElement("div");
-  guideEl.className = "popguide";
-  guideEl.hidden = true;
-  guideEl.innerHTML =
-    '<div class="popcard" role="dialog" aria-modal="true" aria-labelledby="popTitle">' +
-      '<h3 id="popTitle">ขออนุญาตเปิดหลายแท็บ</h3>' +
-      '<p class="popwhy">เบราว์เซอร์กันไม่ให้เว็บเปิดหลายแท็บพร้อมกัน ต้องกดอนุญาตให้เว็บนี้ <b>ครั้งเดียว</b> ' +
-        'ครั้งต่อไปกดปุ่มเดียวเปิดครบทั้งชุด</p>' +
-      '<label class="popwho">เบราว์เซอร์ที่ใช้อยู่ <select id="popBrowser">' +
-        POPUP_GUIDES.map(function (g) { return '<option value="' + g.id + '">' + g.label + "</option>"; }).join("") +
-      "</select></label>" +
-      '<p class="popapp" id="popApp" hidden>ตอนนี้เปิดแบบแอปที่ติดตั้งไว้ ลิงก์จะไปเปิดในเบราว์เซอร์หลักของเครื่อง ' +
-        'ถ้าทำตามขั้นตอนแล้วยังไม่ได้ ลองเปิดเว็บนี้ในเบราว์เซอร์ แล้วอนุญาตที่นั่น</p>' +
-      '<ol id="popSteps"></ol>' +
-      '<div class="popacts">' +
-        '<button type="button" class="setopen" id="popRetry">ลองอีกครั้ง</button>' +
-        '<button type="button" class="setghost" id="popStep">เปิดทีละอันแทน</button>' +
-        '<button type="button" class="setghost" id="popClose">ปิด</button>' +
-      "</div>" +
-    "</div>";
-  document.body.appendChild(guideEl);
-  var popSel = guideEl.querySelector("#popBrowser");
-  var guideSet = null;
-  function renderGuide() {
-    var g = POPUP_GUIDES.filter(function (x) { return x.id === popSel.value; })[0] || POPUP_GUIDES[0];
-    guideEl.querySelector("#popSteps").innerHTML = g.steps.map(function (s) { return "<li>" + s + "</li>"; }).join("");
-  }
-  function showGuide(set) {
-    guideSet = set;
-    popSel.value = detectBrowser();
-    guideEl.querySelector("#popApp").hidden = !window.matchMedia("(display-mode: standalone)").matches;
-    renderGuide();
-    guideEl.hidden = false;
-    guideEl.querySelector("#popRetry").focus();
-  }
-  function hideGuide() { guideEl.hidden = true; }
-  popSel.addEventListener("change", renderGuide);
-  guideEl.querySelector("#popClose").addEventListener("click", hideGuide);
-  guideEl.querySelector("#popRetry").addEventListener("click", function () { hideGuide(); if (guideSet) openSet(guideSet); });
-  guideEl.querySelector("#popStep").addEventListener("click", function () {
-    hideGuide(); if (guideSet) startStep(guideSet, liveHrefs(guideSet));
-  });
-  guideEl.addEventListener("click", function (e) { if (e.target === guideEl) hideGuide(); });
-  guideEl.addEventListener("keydown", function (e) { if (e.key === "Escape") hideGuide(); });
-
-  function openSet(set) {
-    var hrefs = liveHrefs(set);
-    if (!hrefs.length) return;
-    // เปิดแท็บเปล่าให้ครบก่อน ถ้าโดนบล็อกกลางทาง ปิดแท็บที่เปิดไปแล้วทิ้ง
-    // ผู้ใช้จะได้อยู่หน้านี้และเห็นวิธีอนุญาตทันที (ไม่ถูกพาไปแท็บใหม่ก่อน)
-    var wins = [];
-    for (var i = 0; i < hrefs.length; i++) {
-      var w = window.open("", "_blank");
-      if (!w) break;
-      wins.push(w);
-    }
-    if (wins.length === hrefs.length) {
-      wins.forEach(function (w, k) {
-        try { w.opener = null; } catch (e) {}
-        try { w.location.href = hrefs[k]; } catch (e) {}
-      });
-      stepRun = null; saveStep(); renderSets();
-      toast("เปิดชุด " + set.name + " แล้ว " + hrefs.length + " ลิงก์");
-    } else {
-      wins.forEach(function (w) { try { w.close(); } catch (e) {} });
-      window.focus();
-      showGuide(set);
-    }
-  }
-
-  /* ----- โหมดเลือกการ์ดเข้าชุด ----- */
-  var pickBar = document.createElement("div");
-  pickBar.className = "pickbar";
-  pickBar.innerHTML =
-    '<div class="pickinner">' +
-      '<input type="text" id="pickName" maxlength="40" placeholder="ตั้งชื่อชุด เช่น ชุดเช้า" aria-label="ชื่อชุด">' +
-      '<span class="pickcount" id="pickCount"></span>' +
-      '<button type="button" class="setghost" id="pickCancel">ยกเลิก</button>' +
-      '<button type="button" class="setopen" id="pickSave">บันทึกชุด</button>' +
-    "</div>";
-  document.body.appendChild(pickBar);
-  var pickName = pickBar.querySelector("#pickName");
-  var pickCount = pickBar.querySelector("#pickCount");
-
-  cards.forEach(function (c) {
-    if (!hrefOf(c)) return;
-    var ck = document.createElement("span");
-    ck.className = "pickcheck";
-    ck.setAttribute("aria-hidden", "true");
-    c.insertBefore(ck, c.firstChild);
-  });
-
-  function syncPicks() {
-    cards.forEach(function (c) {
-      c.classList.toggle("picked", !!picking && picking.hrefs.indexOf(hrefOf(c)) > -1);
-    });
-    if (picking) pickCount.textContent = "เลือกแล้ว " + picking.hrefs.length + " ลิงก์ · แตะการ์ดเพื่อเลือก/เอาออก";
-  }
-  function startPick(base, keepId) {
-    picking = {
-      id: keepId ? base.id : null,
-      name: base ? (keepId ? base.name : base.name + " (ของฉัน)") : "",
-      hrefs: base ? liveHrefs(base) : []
-    };
-    pickName.value = picking.name;
-    q.value = ""; filter();
-    document.body.classList.add("picking");
-    syncPicks();
-    var first = document.querySelector("section[data-sec]");
-    if (first) first.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-  function endPick() {
-    picking = null;
-    document.body.classList.remove("picking");
-    syncPicks(); filter();
-  }
-  function savePick() {
-    var name = pickName.value.trim();
-    if (!picking.hrefs.length) { toast("เลือกการ์ดอย่างน้อย 1 ใบก่อนนะ"); return; }
-    if (!name) { pickName.focus(); toast("ตั้งชื่อชุดก่อนนะ"); return; }
-    var set = { id: picking.id || "m-" + Date.now().toString(36), name: name, hrefs: picking.hrefs.slice() };
-    var i = -1;
-    mySets.forEach(function (s, k) { if (s.id === set.id) i = k; });
-    if (i > -1) mySets[i] = set; else mySets.unshift(set);
-    save(K.sets, mySets);
-    endPick(); renderSets();
-    toast("บันทึกชุด " + name + " แล้ว");
-    setsBox.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-  pickBar.querySelector("#pickCancel").addEventListener("click", endPick);
-  pickBar.querySelector("#pickSave").addEventListener("click", savePick);
-  pickName.addEventListener("keydown", function (e) {
-    if (e.key === "Enter") { e.preventDefault(); savePick(); }
-    if (e.key === "Escape") { e.preventDefault(); endPick(); }
-  });
-
-  if (setsBox) setsBox.addEventListener("click", function (e) {
-    var b = e.target.closest("[data-act]");
-    if (!b) return;
-    var act = b.getAttribute("data-act"), set = findSet(b.getAttribute("data-id"));
-    if (act === "open" && set) openSet(set);
-    else if (act === "new") startPick(null);
-    else if (act === "copy" && set) startPick(set, false);
-    else if (act === "edit" && set) startPick(set, true);
-    else if (act === "del" && set) {
-      if (!window.confirm('ลบชุด "' + set.name + '" ใช่ไหม?')) return;
-      mySets = mySets.filter(function (s) { return s.id !== set.id; });
-      save(K.sets, mySets); renderSets();
-    } else if (act === "next") {
-      // ปล่อยให้ลิงก์เปิดเอง แล้วค่อยเลื่อนไปอันถัดไป
-      stepRun.i++; stepRun.blocked = false; saveStep();
-      setTimeout(function () {
-        renderSets();
-        var n = setsBox.querySelector('[data-act="next"]');
-        if (n) n.focus({ preventScroll: true });
-      }, 0);
-    } else if (act === "stop") {
-      stepRun = null; saveStep(); renderSets();
-    }
-  });
-
   /* ----- เหตุการณ์ ----- */
   document.addEventListener("click", function (e) {
-    if (picking) {
-      var pc = e.target.closest("section[data-sec] .btn[href]");
-      if (pc) {
-        e.preventDefault(); e.stopPropagation();
-        var h = hrefOf(pc), k = picking.hrefs.indexOf(h);
-        if (k > -1) picking.hrefs.splice(k, 1); else picking.hrefs.push(h);
-        syncPicks();
-        return;
-      }
-    }
     var pin = e.target.closest(".pin");
     if (pin) {
       e.preventDefault(); e.stopPropagation();
@@ -657,7 +303,7 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
   });
 
   document.addEventListener("keydown", function (e) {
-    if (e.key === "/" && document.activeElement !== q && !(e.target.closest && e.target.closest("input, textarea"))) { e.preventDefault(); q.focus(); return; }
+    if (e.key === "/" && document.activeElement !== q) { e.preventDefault(); q.focus(); return; }
 
     // Enter/เว้นวรรค บนดาว = ปักหมุด (ไม่เปิดลิงก์)
     var pin = e.target.closest && e.target.closest(".pin");
@@ -686,7 +332,6 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
 
   renderQuick();
   renderChips();
-  renderSets();
   filter();
   };
 })();
