@@ -2,7 +2,20 @@
 <html lang="th">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<!-- PWA: ติดตั้งเป็นแอปเต็มจอ (Android / iOS / iPadOS) -->
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#f4f7fb">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Access Hub">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="apple-touch-icon" sizes="152x152" href="./icons/apple-touch-icon-152.png">
+<link rel="apple-touch-icon" sizes="167x167" href="./icons/apple-touch-icon-167.png">
+<link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png">
+<link rel="stylesheet" href="./pwa.css">
+<script src="./pwa.js" defer></script>
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-MEC0JTJ5QJ"></script>
 <script>
   window.dataLayer = window.dataLayer || [];
@@ -221,6 +234,10 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 @keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:850px){.topbar{padding:0 13px;height:68px;flex-basis:68px;gap:10px}.brand{min-width:0}.brandmark{width:38px;height:38px}.brand h1{font-size:21px}.brand small{font-size:8px}.top-status{display:none}.sidebar{position:absolute;top:0;bottom:0;left:0;box-shadow:var(--shadow);width:min(325px,86vw);min-width:min(325px,86vw)}.sidebar.collapsed{transform:translateX(-100%);width:min(325px,86vw);min-width:min(325px,86vw)}.sidehead,.pointlist,.sidefoot{min-width:0}.mapstats .floating-card{min-width:78px;padding:9px}.statvalue{font-size:16px}.mapstats .statlabel{font-size:9px}.mapcontrols{top:10px;left:10px;right:10px}.mapbottom{left:10px;right:10px;bottom:10px}.legend .floating-card{gap:8px}.coordinates{display:none}.mapbtn{padding:0 9px}.actions{gap:5px}.logout span{display:none}}
 @media(max-width:470px){.mapstats{gap:5px}.mapstats .floating-card{min-width:0;padding:7px 9px}.statvalue{font-size:15px}.brand small{letter-spacing:1px}.brand{gap:8px}.actions .iconbtn{padding:0 9px}.map-switcher{gap:1px}.mapbtn{font-size:10px;padding:0 7px}.legend .floating-card{font-size:9px;gap:7px}.legend-item{gap:4px}}
+/* โหมดแอป: แถบบนสูงขึ้นเท่ารอยบาก/Dynamic Island, ด้านข้าง/ล่างเว้นขอบจอโค้งและแถบโฮม (เบราว์เซอร์ปกติเป็น 0) */
+.topbar{padding-top:env(safe-area-inset-top);height:calc(78px + env(safe-area-inset-top));flex-basis:calc(78px + env(safe-area-inset-top))}
+@media(max-width:850px){.topbar{height:calc(68px + env(safe-area-inset-top));flex-basis:calc(68px + env(safe-area-inset-top))}}
+.app{padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 </style>
 </head>
 <body>

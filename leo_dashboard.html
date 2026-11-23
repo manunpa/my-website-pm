@@ -2,7 +2,20 @@
 <html lang="th" data-theme="light">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<!-- PWA: ติดตั้งเป็นแอปเต็มจอ (Android / iOS / iPadOS) -->
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#f6f7fb">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Access Hub">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="apple-touch-icon" sizes="152x152" href="./icons/apple-touch-icon-152.png">
+<link rel="apple-touch-icon" sizes="167x167" href="./icons/apple-touch-icon-167.png">
+<link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png">
+<link rel="stylesheet" href="./pwa.css">
+<script src="./pwa.js" defer></script>
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-MEC0JTJ5QJ"></script>
 <script>
   window.dataLayer = window.dataLayer || [];
@@ -22,6 +35,8 @@
 *{box-sizing:border-box}
 body{margin:0;font-family:'Noto Sans Thai',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;transition:background .2s,color .2s}
 .wrap{max-width:1500px;margin:0 auto;padding:16px}
+/* โหมดแอป: เว้นรอยบาก/Dynamic Island/แถบโฮม (เบราว์เซอร์ปกติเป็น 0) */
+@media screen{body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}}
 header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px}
 h1{font-size:24px;margin:0;font-weight:700}
 .grad{background:linear-gradient(90deg,#f5a300,#ff5e62,#a855f7,#2f6fed,#14b8a6,#f5a300);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;animation:shift 6s linear infinite}
