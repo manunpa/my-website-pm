@@ -234,7 +234,18 @@
   @media (prefers-reduced-motion: reduce) { .msg { transition: none; } }
   /* โหมดแอป: เว้นรอยบาก/Dynamic Island/ขอบจอโค้ง/แถบโฮม (เบราว์เซอร์ปกติเป็น 0) */
   header.bar { padding-top: calc(10px + env(safe-area-inset-top)); padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
-  .layout { padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  /* ฉากจำลองและแผงด้านขวายาวถึงขอบล่างสุด แต่ปุ่ม/เนื้อหาด้านล่างยกพ้นแถบโฮม */
+  .layout { padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left); }
+  aside.panel { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+  /* แถบเลือกมุมมองไม่ล้นจอ (iPhone แนวนอน): กว้างไม่เกินพื้นที่ฉาก เลื่อนซ้ายขวาได้ */
+  .viewbar { max-width: calc(100% - 16px); overflow-x: auto; scrollbar-width: none; }
+  .viewbar::-webkit-scrollbar { display: none; }
+  .viewbar button { flex: none; }
+  @media (min-width: 901px) { /* จอกว้าง (iPad แนวนอน): ฉากจำลองชิดขอบล่างจอ */
+    .touch, .replaybar { bottom: calc(60px + env(safe-area-inset-bottom)); }
+    .legend-mini, .hint3d { bottom: calc(58px + env(safe-area-inset-bottom)); }
+    .viewbar { bottom: calc(12px + env(safe-area-inset-bottom)); }
+  }
 </style>
 </head>
 <body>
