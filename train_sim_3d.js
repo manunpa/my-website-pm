@@ -173,19 +173,25 @@ export function createWorld(host, api) {
   const B = api.bld || null;
   function lowerB(arr, v) { let lo = 0, hi = arr.length; while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < v) lo = m + 1; else hi = m; } return lo; }
   // ตึกในช่วง s0..s1 รวมเป็นก้อนเดียวต่อวัสดุ (ผนังคอนกรีต / ผนังกระจก / หลังคา)
+  const bucket = () => ({ pos: [], nrm: [], uv: [], col: [] });
   function addBuildings(g, s0, s1, cx, cy) {
     if (!B) return;
     const a = lowerB(B.s, s0), b = lowerB(B.s, s1); if (b <= a) return;
-    const bucket = () => ({ pos: [], nrm: [], uv: [], col: [] });
-    const Wc = bucket(), Wg = bucket(), Rf = bucket(), col = new THREE.Color();
+    const bk = { Wc: bucket(), Wg: bucket(), Rf: bucket() };
     for (let i = a; i < b; i++) {
       const lat = B.lat0 + B.y[i] / 110574, lon = B.lon0 + B.x[i] / B.kx, [wx, wy] = toXY(lat, lon), bx = wx - cx, by = wy - cy;
-      const gz = geo.ground(B.s[i]) - 0.4, H = B.h[i], top = gz + H + 0.4;
       let pts = []; for (let j = B.o[i]; j < B.o[i + 1]; j++) pts.push([bx + B.p[j * 2] / 10, by + B.p[j * 2 + 1] / 10]);
+      emitBuilding(bk, pts, geo.ground(B.s[i]) - 0.4, B.h[i], ((i * 2654435761) >>> 0) / 4294967296, B.k[i] === 1);
+    }
+    flushBuildings(g, bk);
+  }
+  // ตึก 1 หลัง (รูปเหลี่ยมใดก็ได้) → ผนังมีหน้าต่างตามขนาดจริง + หลังคา
+  function emitBuilding(bk, pts, gz, H, hs, isHouse) {
+    const { Wc, Wg, Rf } = bk, col = new THREE.Color(), top = gz + H + 0.4;
+    {
       let ar = 0; pts.forEach((p, j) => { const q = pts[(j + 1) % pts.length]; ar += p[0] * q[1] - q[0] * p[1]; });
       if (ar < 0) pts.reverse();
-      const hs = ((i * 2654435761) >>> 0) / 4294967296;
-      const glass = H >= 32 && hs < 0.65, house = B.k[i] === 1 && H < 12;
+      const glass = H >= 32 && hs < 0.65, house = isHouse && H < 12;
       const T = glass ? Wg : Wc;
       if (glass) col.setHSL(0.55 + hs * 0.08, 0.15 + hs * 0.2, 0.55 + hs * 0.25);
       else if (house) col.setHSL(0.08 + hs * 0.08, 0.25 + hs * 0.3, 0.7 + hs * 0.15);
@@ -206,12 +212,74 @@ export function createWorld(host, api) {
         [i0, i1, i2].forEach((k) => { Rf.pos.push(pts[k][0], top, -pts[k][1]); Rf.nrm.push(0, 1, 0); Rf.uv.push(0, 0); Rf.col.push(rc.r, rc.g, rc.b); });
       });
     }
-    [[Wc, M.bConc], [Wg, M.bGlass], [Rf, M.bRoof]].forEach(([T, m]) => {
+  }
+  function flushBuildings(g, bk) {
+    [[bk.Wc, M.bConc], [bk.Wg, M.bGlass], [bk.Rf, M.bRoof]].forEach(([T, m]) => {
       if (!T.pos.length) return;
       const gm = new THREE.BufferGeometry();
       gm.setAttribute("position", new THREE.Float32BufferAttribute(T.pos, 3)); gm.setAttribute("normal", new THREE.Float32BufferAttribute(T.nrm, 3));
       gm.setAttribute("uv", new THREE.Float32BufferAttribute(T.uv, 2)); gm.setAttribute("color", new THREE.Float32BufferAttribute(T.col, 3));
       const me = new THREE.Mesh(gm, m); me.castShadow = true; me.receiveShadow = true; g.add(me);
+    });
+  }
+
+  /* ---------------- เติมเมืองช่วงที่ OpenStreetMap มีตึกน้อย ----------------
+     ชานเมืองที่ข้อมูลตึกใน OSM ยังไม่ครบ → สุ่มตึกแถว บ้าน โกดัง ให้หนาแน่นพอ ๆ กับช่วงที่มีข้อมูล
+     (ห่างรางพ้นถนนใต้ทางยกระดับ · ไม่เติมรอบทางแยกต่างระดับที่มีถนนจริง) */
+  function addFiller(g, s0, s1, cx, cy, P, r) {
+    const have = B ? lowerB(B.s, s1) - lowerB(B.s, s0) : 0;
+    const want = Math.round(Math.max(0, 75 - have * 1.4)); if (want < 8) return;
+    if ((api.roads || []).some((rd) => rd.s > s0 - 450 && rd.s < s1 + 450)) return;
+    const bk = { Wc: bucket(), Wg: bucket(), Rf: bucket() }, placed = [];
+    for (let k = 0, n = 0; k < want * 4 && n < want; k++) {
+      const p = P[Math.floor(r() * P.length)], side = r() < 0.5 ? -1 : 1;
+      const o = side > 0 ? 16 + Math.pow(r(), 0.9) * 340 : -(20 + Math.pow(r(), 0.9) * 340);
+      const t = r(); let w, d, H, house = false;
+      if (t < 0.45) { w = (3 + Math.floor(r() * 6)) * 4.2; d = 10 + r() * 5; H = 3.3 * (2 + Math.floor(r() * 3)); }        // ตึกแถว
+      else if (t < 0.75) { w = 9 + r() * 6; d = 9 + r() * 6; H = 5 + r() * 3.5; house = true; }                          // บ้านเดี่ยว
+      else if (t < 0.93) { w = 25 + r() * 40; d = 18 + r() * 28; H = 7 + r() * 6; }                                      // โกดัง/โรงงาน
+      else { w = 18 + r() * 14; d = 14 + r() * 10; H = 20 + r() * 40; }                                                  // คอนโด/อาคารสูง
+      const x = p.x - Math.sin(p.th) * o, y = p.y + Math.cos(p.th) * o, rad = Math.hypot(w, d) / 2;
+      if (placed.some(([px, py, pr]) => Math.hypot(px - x, py - y) < (pr + rad) * 0.8)) continue;
+      if (Math.abs(o) - rad < (side > 0 ? 13 : 17)) continue;
+      placed.push([x, y, rad]); n++;
+      const th = p.th + (r() < 0.8 ? 0 : (r() - 0.5) * 0.7), c = Math.cos(th), s = Math.sin(th);
+      const pts = [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]].map(([a, b]) => [x + a * c - b * s, y + a * s + b * c]);
+      emitBuilding(bk, pts, p.gz - 0.4, H, r(), house);
+    }
+    flushBuildings(g, bk);
+  }
+  /* ---------------- ถนนจริงรอบทางแยกต่างระดับ (OSM) ----------------
+     ถนนกาญจนาภิเษก (ทล.9) × มอเตอร์เวย์ 7: ทางยกระดับตามชั้น (layer) พร้อมพื้นสะพาน ราวกันตก ตอม่อ · ทางลาดลงพื้น */
+  M.roadSide = mat(0xc9c5bc, { map: concreteTex, roughness: 0.85, side: THREE.DoubleSide });
+  function addRoads(g, ci, cx, cy) {
+    (api.roads || []).forEach((rd) => {
+      if (rd.ci !== ci) return;
+      const gz = geo.ground(rd.s), Pp = rd.pts.map(([la, lo]) => { const [x, y] = toXY(la, lo); return [x - cx, y - cy]; });
+      if (Pp.length < 2) return;
+      const nrm = Pp.map((p, i) => { const a = Pp[Math.max(0, i - 1)], b = Pp[Math.min(Pp.length - 1, i + 1)], L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; return [-(b[1] - a[1]) / L, (b[0] - a[0]) / L]; });
+      let acc = 0; const along = Pp.map((p, i) => (i ? (acc += Math.hypot(p[0] - Pp[i - 1][0], p[1] - Pp[i - 1][1])) : 0));
+      const hw = rd.w / 2, Z = (i) => gz + rd.h[i] + 0.08 + (rd.m ? 0.02 : 0);
+      const at = (i, o, dz) => [Pp[i][0] + nrm[i][0] * o, Pp[i][1] + nrm[i][1] * o, Z(i) + dz];
+      g.add(new THREE.Mesh(ribbon(Pp.map((p, i) => [at(i, -hw, 0).concat([0, along[i] / 16]), at(i, hw, 0).concat([1, along[i] / 16])])), M.road));
+      if (Math.max(...rd.h) < 1) return;
+      // พื้นสะพาน (ด้านล่าง) + ขอบข้าง + กำแพงกันตก
+      g.add(new THREE.Mesh(ribbon(Pp.map((p, i) => [at(i, hw + 0.4, -1.3), at(i, -hw - 0.4, -1.3)])), M.roadSide));
+      [-1, 1].forEach((sd) => g.add(new THREE.Mesh(ribbon(Pp.map((p, i) => [at(i, sd * (hw + 0.4), -1.3), at(i, sd * (hw + 0.4), 0.9), at(i, sd * hw, 0.9), at(i, sd * hw, 0)])), M.roadSide)));
+      // ตอม่อทุก ~35 ม. ตรงช่วงที่สูงจากพื้น
+      let next = 10;
+      for (let i = 1; i < Pp.length; i++) {
+        const L = along[i] - along[i - 1];
+        while (next <= along[i]) {
+          const t = (next - along[i - 1]) / (L || 1), h = rd.h[i - 1] + (rd.h[i] - rd.h[i - 1]) * t;
+          if (h > 3) {
+            const x = Pp[i - 1][0] + (Pp[i][0] - Pp[i - 1][0]) * t, y = Pp[i - 1][1] + (Pp[i][1] - Pp[i - 1][1]) * t;
+            const pier = new THREE.Mesh(geoBox, M.concrete); pier.scale.set(1.6, h - 1.3, Math.max(2.4, rd.w * 0.45)); pier.position.set(x, gz + (h - 1.3) / 2, -y);
+            pier.rotation.y = Math.atan2(Pp[i][1] - Pp[i - 1][1], Pp[i][0] - Pp[i - 1][0]); pier.castShadow = true; g.add(pier);
+          }
+          next += 35;
+        }
+      }
     });
   }
 
@@ -544,6 +612,8 @@ export function createWorld(host, api) {
       }
     }
     addBuildings(g, s0, s1, cx, cy);
+    if (urban) addFiller(g, s0, s1, cx, cy, P, r);
+    addRoads(g, ci, cx, cy);
     g.traverse((o) => { if (o.isMesh && o.castShadow === undefined) o.castShadow = false; });
     return g;
   }

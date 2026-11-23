@@ -13,7 +13,7 @@ const QS = new URLSearchParams(location.search);
 const LINE_ID = QS.get("line") === "arl" ? "arl" : "north";
 const LINES = {
   north: { name: "สายเหนือ กรุงเทพ–เชียงใหม่", data: "./train_line_north.js?v=20261128-1", bld: "./bkk_bld_north.js?v=20261127-1", train: "loco" },
-  arl: { name: "สายสนามบิน กรุงเทพ–อุรุพงษ์–สุวรรณภูมิ", data: "./train_line_arl.js?v=20261128-1", bld: "./bkk_bld_arl.js?v=20261127-1", train: "emu" }
+  arl: { name: "สายสนามบิน กรุงเทพ–อุรุพงษ์–สุวรรณภูมิ", data: "./train_line_arl.js?v=20261129-3", bld: "./bkk_bld_arl.js?v=20261127-1", train: "emu" }
 };
 const { makeTraffic } = await import("./train_traffic.js?v=20261129-2");
 const TTN = LINE_ID === "north" ? (await import("./train_tt_north.js?v=20261129-2")).TT : null;
@@ -789,6 +789,17 @@ async function loadBuildings() {
 }
 function lowerBound(arr, v) { let lo = 0, hi = arr.length; while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < v) lo = m + 1; else hi = m; } return lo; }
 function countBld(b, s0, s1) { return b ? lowerBound(b.s, s1) - lowerBound(b.s, s0) : 0; }
+// ถนนจริงรอบทางแยกต่างระดับ (ใส่ไว้ในข้อมูลสาย) → ผูกแต่ละเส้นกับระยะ s ที่ใกล้ที่สุด เพื่อสร้างพร้อมชิ้นฉากนั้น
+function roadsFor() {
+  if (!LINE.rd) return [];
+  return LINE.rd.map((r) => {
+    const pts = r.lat.map((la, i) => [la / 1e6, r.lon[i] / 1e6]), m = pts[Math.floor(pts.length / 2)];
+    let best = 0, bd = Infinity;
+    for (let i = 0; i < N; i++) { const d = (LAT[i] - m[0]) ** 2 + ((LON[i] - m[1]) * 0.97) ** 2; if (d < bd) { bd = d; best = i; } }
+    const s = best * STEP;
+    return { pts, h: r.h, w: r.w, m: r.m, s, ci: Math.floor(s / 400) };
+  });
+}
 // ทางแยกที่อุรุพงษ์: ทางรถไฟสายตะวันออก (ระดับดิน) แยกออกไปข้างทางลาดขึ้นทางยกระดับ
 function branchFor() {
   if (LINE_ID !== "arl") return null;
@@ -803,10 +814,11 @@ async function start() {
   pressed("trains", "k", S.type);
   buildPanel(); initMap(); updAtoBtn();
   try {
-    const mod = await import("./train_sim_3d.js?v=20261129-2");
+    const mod = await import("./train_sim_3d.js?v=20261129-3");
     const bld = await loadBuildings();
     const branch = branchFor();
-    world = mod.createWorld($("view"), { geo, bld, branch, urban: (a, b) => countBld(bld, a, b) > 25, electric: () => !!TRAINS[S.type].electric });
+    // สายสนามบินอยู่ในเขตกรุงเทพฯ ทั้งสาย → ฉากเมืองตลอด (ช่วงที่ OSM มีตึกน้อยจะเติมตึกให้) · สายเหนือตัดสินจากจำนวนตึก
+    world = mod.createWorld($("view"), { geo, bld, branch, roads: roadsFor(), urban: (a, b) => LINE_ID === "arl" || countBld(bld, a, b) > 25, electric: () => !!TRAINS[S.type].electric });
     window.addEventListener("resize", () => world.resize());
     world.setEnv({ tod: S.tod, wx: S.wx });
   } catch (e) { console.error(e); flash("โหลดกราฟิก 3 มิติไม่สำเร็จ — ยังขับได้จากหน้าปัดและแผนที่", "", 6000); }
