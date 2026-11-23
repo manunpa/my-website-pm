@@ -243,11 +243,18 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 @media(max-width:850px){.mapbottom{bottom:calc(10px + env(safe-area-inset-bottom))}}
 .maparea .leaflet-bottom{bottom:env(safe-area-inset-bottom)}
 .sidefoot{padding-bottom:calc(13px + env(safe-area-inset-bottom))}
+/* ปุ่มกลับหน้าหลัก (Hub): โหมดแอปไม่มีปุ่มย้อนกลับของเบราว์เซอร์ */
+a.iconbtn{text-decoration:none}
+.hubbtn{flex:none}
+.brandmark{flex:none}
+/* มือถือ: ปุ่ม Hub เหลือแค่ลูกศร ซ่อนโลโก้เล็กแทน เพื่อให้ชื่อ Access Maps ไม่ถูกบีบ */
+@media(max-width:470px){.hubbtn span{display:none}.brandmark{display:none}.brand h1{overflow:hidden;text-overflow:ellipsis}}
 </style>
 </head>
 <body>
 <div class="app">
   <header class="topbar">
+    <a class="iconbtn hubbtn" href="Access-Hub.html" title="กลับหน้า Hub">← <span style="font-size:11px">Hub</span></a>
     <div class="brand">
       <div class="brandmark">⌖</div>
       <div><h1>Access Maps</h1><small>GEOFENCE MONITORING</small></div>
