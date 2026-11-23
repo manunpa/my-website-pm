@@ -298,11 +298,9 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
       "http://203.151.66.75:9966/vss/#"] }
   ];
   var mySets = load(K.sets, []);
-  var stepRun = null;   // { name, hrefs, i, opened, blocked }
+  var stepRun = null;   // { name, hrefs, i }
   try { stepRun = JSON.parse(sessionStorage.getItem(K.step)); } catch (e) {}
   var picking = null;   // { id, name, hrefs }
-  // ใช้แค่เลือกคำอธิบายตอนโดนบล็อก (ทุกเครื่องลองเปิดทั้งชุดก่อนเสมอ)
-  var phone = window.matchMedia("(hover: none) and (pointer: coarse)").matches;
 
   function esc(s) {
     return String(s).replace(/[&<>"']/g, function (ch) {
@@ -355,13 +353,7 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
 
   function stepHtml() {
     var r = stepRun, done = r.i >= r.hrefs.length;
-    var note = r.blocked
-      ? '<p class="stepnote">เบราว์เซอร์บล็อกหน้าต่างใหม่ไว้ เปิดได้ ' + r.opened + " จาก " + r.hrefs.length +
-        (phone
-          ? " ลิงก์ — มือถือส่วนใหญ่ไม่ให้เปิดหลายแท็บพร้อมกัน กด <b>ถัดไป</b> ด้านล่างเพื่อเปิดส่วนที่เหลือทีละอัน</p>"
-          : " ลิงก์ — กดไอคอนป๊อปอัปที่ถูกบล็อก (ขวาสุดของช่องที่อยู่เว็บ) เลือก <b>อนุญาตเสมอ</b> ครั้งหน้าจะเปิดครบทีเดียว" +
-            " หรือกด <b>ถัดไป</b> ด้านล่างเพื่อเปิดส่วนที่เหลือทีละอัน</p>")
-      : "";
+    var note = "";
     var main = done
       ? '<span class="stepdone">✓ เปิดครบ ' + r.hrefs.length + " ลิงก์แล้ว</span>"
       : '<a class="setopen" data-act="next" href="' + esc(r.hrefs[r.i]) + '" target="_blank" rel="noopener">ถัดไป: ' +
@@ -382,28 +374,149 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
     setsBox.innerHTML = html;
   }
 
-  function startStep(set, hrefs, from, blocked) {
-    stepRun = { name: set.name, hrefs: hrefs, i: from, opened: from, blocked: !!blocked };
+  function startStep(set, hrefs) {
+    stepRun = { name: set.name, hrefs: hrefs, i: 0 };
     saveStep(); renderSets();
     var a = setsBox.querySelector('[data-act="next"]');
-    if (a && !blocked) a.focus({ preventScroll: true });
+    if (a) { a.focus({ preventScroll: true }); setsBox.scrollIntoView({ behavior: "smooth", block: "start" }); }
   }
+
+  /* ----- คู่มืออนุญาตป๊อปอัป แยกตามเบราว์เซอร์ -----
+     ไม่มีเบราว์เซอร์ไหนให้เว็บ "ขออนุญาตเปิดหลายแท็บ" เองได้ (ไม่มี API แบบกล้อง/ตำแหน่ง)
+     จึงตรวจว่าเป็นเบราว์เซอร์อะไร แล้วบอกขั้นตอนอนุญาตของเบราว์เซอร์นั้นแทน */
+  var POPUP_GUIDES = [
+    { id: "chrome", label: "Chrome / Brave / Opera บนคอม", steps: [
+      "คลิกไอคอนทางซ้ายของช่องที่อยู่เว็บ (รูปปรับแต่ง หรือแม่กุญแจ ก่อนชื่อเว็บ)",
+      "เลือก <b>การตั้งค่าเว็บไซต์</b> (Site settings)",
+      "หา <b>ป๊อปอัปและการเปลี่ยนเส้นทาง</b> (Pop-ups and redirects) แล้วเปลี่ยนเป็น <b>อนุญาต</b>",
+      "กลับมาหน้านี้ แล้วกด <b>ลองอีกครั้ง</b>"] },
+    { id: "edge", label: "Microsoft Edge บนคอม", steps: [
+      "คลิกรูปแม่กุญแจทางซ้ายของช่องที่อยู่เว็บ",
+      "เลือก <b>สิทธิ์สำหรับไซต์นี้</b> (Permissions for this site)",
+      "หา <b>ป๊อปอัปและการเปลี่ยนเส้นทาง</b> (Pop-ups and redirects) แล้วเปลี่ยนเป็น <b>อนุญาต</b>",
+      "กลับมาหน้านี้ แล้วกด <b>ลองอีกครั้ง</b>"] },
+    { id: "firefox", label: "Firefox บนคอม", steps: [
+      "ดูแถบสีเหลืองด้านบนหน้าเว็บที่เขียนว่า Firefox ป้องกันไม่ให้เปิดหน้าต่างป๊อปอัป",
+      "กดปุ่ม <b>ตัวเลือก</b> (Options) ที่ขวาสุดของแถบนั้น",
+      "เลือก <b>อนุญาตป๊อปอัปสำหรับ</b> เว็บนี้",
+      "ถ้าไม่เห็นแถบ: เมนู ☰ › การตั้งค่า › ความเป็นส่วนตัวและความปลอดภัย › สิทธิ์ › ปิดกั้นหน้าต่างป๊อปอัป › <b>ข้อยกเว้น</b> › เพิ่มเว็บนี้",
+      "กลับมาหน้านี้ แล้วกด <b>ลองอีกครั้ง</b>"] },
+    { id: "safari-mac", label: "Safari บน Mac", steps: [
+      "คลิกเมนู <b>Safari</b> ที่แถบเมนูด้านบนสุดของจอ",
+      "เลือก <b>การตั้งค่าสำหรับเว็บไซต์นี้</b> (Settings for This Website)",
+      "หา <b>หน้าต่างป๊อปอัป</b> (Pop-up Windows) แล้วเปลี่ยนเป็น <b>อนุญาต</b> (Allow)",
+      "กลับมาหน้านี้ แล้วกด <b>ลองอีกครั้ง</b>"] },
+    { id: "chrome-android", label: "Chrome / Edge บน Android", steps: [
+      "แตะไอคอนทางซ้ายของช่องที่อยู่เว็บ (รูปปรับแต่ง หรือแม่กุญแจ)",
+      "แตะ <b>สิทธิ์</b> (Permissions) หรือ <b>การตั้งค่าเว็บไซต์</b>",
+      "เปิด <b>ป๊อปอัปและการเปลี่ยนเส้นทาง</b> (Pop-ups and redirects) เป็นอนุญาต",
+      "ถ้าไม่เจอ: เมนู ⋮ › การตั้งค่า › การตั้งค่าเว็บไซต์ › ป๊อปอัปและการเปลี่ยนเส้นทาง › เปิด",
+      "กลับมาหน้านี้ แล้วกด <b>ลองอีกครั้ง</b>"] },
+    { id: "samsung", label: "Samsung Internet", steps: [
+      "แตะเมนู ☰ ที่มุมขวาล่าง แล้วแตะ <b>การตั้งค่า</b>",
+      "แตะ <b>เว็บไซต์และการดาวน์โหลด</b> (Sites and downloads)",
+      "ปิด <b>บล็อกป๊อปอัป</b> (Block pop-ups)",
+      "กลับมาหน้านี้ แล้วกด <b>ลองอีกครั้ง</b>"] },
+    { id: "safari-ios", label: "Safari บน iPhone / iPad", steps: [
+      "ออกไปที่แอป <b>การตั้งค่า</b> (Settings) ของเครื่อง",
+      "แตะ <b>Safari</b> (iOS รุ่นใหม่อยู่ใน การตั้งค่า › แอป › Safari)",
+      "ปิด <b>ปิดกั้นป๊อปอัป</b> (Block Pop-ups)",
+      "กลับมาหน้านี้ แล้วกด <b>ลองอีกครั้ง</b>"] },
+    { id: "chrome-ios", label: "Chrome / Edge บน iPhone / iPad", steps: [
+      "แตะเมนู ⋯ แล้วแตะ <b>การตั้งค่า</b>",
+      "Chrome: แตะ <b>การตั้งค่าเนื้อหา</b> (Content Settings) › <b>บล็อกป๊อปอัป</b> › ปิด",
+      "Edge: แตะ <b>ความเป็นส่วนตัวและความปลอดภัย</b> › <b>บล็อกป๊อปอัป</b> › ปิด",
+      "กลับมาหน้านี้ แล้วกด <b>ลองอีกครั้ง</b>"] },
+    { id: "firefox-mobile", label: "Firefox บนมือถือ", steps: [
+      "iPhone: เมนู ☰ › การตั้งค่า › ปิด <b>ปิดกั้นหน้าต่างป๊อปอัป</b>",
+      "Android: Firefox ไม่มีปุ่มอนุญาตให้กด ใช้ <b>เปิดทีละอัน</b> ด้านล่าง หรือเปิดเว็บนี้ใน Chrome แทน",
+      "กลับมาหน้านี้ แล้วกด <b>ลองอีกครั้ง</b>"] },
+    { id: "inapp", label: "เปิดอยู่ใน LINE / Facebook / แอปแชต", steps: [
+      "เบราว์เซอร์ในแอปแชตตั้งค่าอนุญาตไม่ได้",
+      "แตะ ⋮ หรือ ⋯ ที่มุมขวาบน แล้วเลือก <b>เปิดในเบราว์เซอร์</b> (Open in browser)",
+      "จากนั้นทำตามขั้นตอนของเบราว์เซอร์นั้น (เลือกได้จากรายการด้านบน)"] }
+  ];
+  function detectBrowser() {
+    var ua = navigator.userAgent || "";
+    var ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    if (/\bLine\/|FBAN|FBAV|FB_IAB|Instagram|Messenger|MicroMessenger/i.test(ua)) return "inapp";
+    if (/SamsungBrowser/.test(ua)) return "samsung";
+    if (ios) return /CriOS|EdgiOS/.test(ua) ? "chrome-ios" : /FxiOS/.test(ua) ? "firefox-mobile" : "safari-ios";
+    if (/Android/.test(ua)) return /Firefox/.test(ua) ? "firefox-mobile" : "chrome-android";
+    if (/Edg\//.test(ua)) return "edge";
+    if (/Firefox\//.test(ua)) return "firefox";
+    if (/Chrome\/|Chromium\/|OPR\//.test(ua)) return "chrome";
+    if (/Safari\//.test(ua)) return "safari-mac";
+    return "chrome";
+  }
+
+  var guideEl = document.createElement("div");
+  guideEl.className = "popguide";
+  guideEl.hidden = true;
+  guideEl.innerHTML =
+    '<div class="popcard" role="dialog" aria-modal="true" aria-labelledby="popTitle">' +
+      '<h3 id="popTitle">ขออนุญาตเปิดหลายแท็บ</h3>' +
+      '<p class="popwhy">เบราว์เซอร์กันไม่ให้เว็บเปิดหลายแท็บพร้อมกัน ต้องกดอนุญาตให้เว็บนี้ <b>ครั้งเดียว</b> ' +
+        'ครั้งต่อไปกดปุ่มเดียวเปิดครบทั้งชุด</p>' +
+      '<label class="popwho">เบราว์เซอร์ที่ใช้อยู่ <select id="popBrowser">' +
+        POPUP_GUIDES.map(function (g) { return '<option value="' + g.id + '">' + g.label + "</option>"; }).join("") +
+      "</select></label>" +
+      '<p class="popapp" id="popApp" hidden>ตอนนี้เปิดแบบแอปที่ติดตั้งไว้ ลิงก์จะไปเปิดในเบราว์เซอร์หลักของเครื่อง ' +
+        'ถ้าทำตามขั้นตอนแล้วยังไม่ได้ ลองเปิดเว็บนี้ในเบราว์เซอร์ แล้วอนุญาตที่นั่น</p>' +
+      '<ol id="popSteps"></ol>' +
+      '<div class="popacts">' +
+        '<button type="button" class="setopen" id="popRetry">ลองอีกครั้ง</button>' +
+        '<button type="button" class="setghost" id="popStep">เปิดทีละอันแทน</button>' +
+        '<button type="button" class="setghost" id="popClose">ปิด</button>' +
+      "</div>" +
+    "</div>";
+  document.body.appendChild(guideEl);
+  var popSel = guideEl.querySelector("#popBrowser");
+  var guideSet = null;
+  function renderGuide() {
+    var g = POPUP_GUIDES.filter(function (x) { return x.id === popSel.value; })[0] || POPUP_GUIDES[0];
+    guideEl.querySelector("#popSteps").innerHTML = g.steps.map(function (s) { return "<li>" + s + "</li>"; }).join("");
+  }
+  function showGuide(set) {
+    guideSet = set;
+    popSel.value = detectBrowser();
+    guideEl.querySelector("#popApp").hidden = !window.matchMedia("(display-mode: standalone)").matches;
+    renderGuide();
+    guideEl.hidden = false;
+    guideEl.querySelector("#popRetry").focus();
+  }
+  function hideGuide() { guideEl.hidden = true; }
+  popSel.addEventListener("change", renderGuide);
+  guideEl.querySelector("#popClose").addEventListener("click", hideGuide);
+  guideEl.querySelector("#popRetry").addEventListener("click", function () { hideGuide(); if (guideSet) openSet(guideSet); });
+  guideEl.querySelector("#popStep").addEventListener("click", function () {
+    hideGuide(); if (guideSet) startStep(guideSet, liveHrefs(guideSet));
+  });
+  guideEl.addEventListener("click", function (e) { if (e.target === guideEl) hideGuide(); });
+  guideEl.addEventListener("keydown", function (e) { if (e.key === "Escape") hideGuide(); });
 
   function openSet(set) {
     var hrefs = liveHrefs(set);
     if (!hrefs.length) return;
-    var opened = 0;
+    // เปิดแท็บเปล่าให้ครบก่อน ถ้าโดนบล็อกกลางทาง ปิดแท็บที่เปิดไปแล้วทิ้ง
+    // ผู้ใช้จะได้อยู่หน้านี้และเห็นวิธีอนุญาตทันที (ไม่ถูกพาไปแท็บใหม่ก่อน)
+    var wins = [];
     for (var i = 0; i < hrefs.length; i++) {
-      var w = window.open(hrefs[i], "_blank");
-      if (!w) break;               // โดนบล็อก: ที่เหลือก็จะโดนเหมือนกัน
-      try { w.opener = null; } catch (e) {}
-      opened++;
+      var w = window.open("", "_blank");
+      if (!w) break;
+      wins.push(w);
     }
-    if (opened === hrefs.length) {
+    if (wins.length === hrefs.length) {
+      wins.forEach(function (w, k) {
+        try { w.opener = null; } catch (e) {}
+        try { w.location.href = hrefs[k]; } catch (e) {}
+      });
       stepRun = null; saveStep(); renderSets();
-      toast("เปิดชุด " + set.name + " แล้ว " + opened + " ลิงก์");
+      toast("เปิดชุด " + set.name + " แล้ว " + hrefs.length + " ลิงก์");
     } else {
-      startStep(set, hrefs, opened, true);
+      wins.forEach(function (w) { try { w.close(); } catch (e) {} });
+      window.focus();
+      showGuide(set);
     }
   }
 
