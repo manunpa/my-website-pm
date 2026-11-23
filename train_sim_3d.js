@@ -1168,6 +1168,11 @@ export function createWorld(host, api) {
   }
 
   const DT = 4.2;   // ระยะห่างศูนย์กลางรางคู่ (ม.) — รางที่ 2 อยู่ขวามือของทิศขาขึ้น
+  // ทิศที่ขบวนเราวิ่ง: +1 ขาออก (s เพิ่ม) / −1 ขากลับ (s ลด) · เดินรถชิดซ้ายแบบไทย:
+  // ขาออกใช้รางที่ 1 (offset 0) · ขากลับใช้รางที่ 2 (offset −DT) · ขบวนสวนใช้อีกรางตามทิศของมันเอง
+  let DIR = 1;
+  const laneOf = (d) => (d > 0 ? 0 : -DT);
+  const mirO = (o) => (DIR > 0 ? o : -DT - o);   // offset กล้องข้างทาง: สะท้อนข้ามกึ่งกลางรางคู่ตามทิศ
   function trackAt(g, pts, oc, zf, cx, cy) {
     const off2 = (p, o, dz) => [p.x - Math.sin(p.th) * o, p.y + Math.cos(p.th) * o, zf(p) + dz];
     [oc + 0.5, oc - 0.5].forEach((o) => {
@@ -1480,7 +1485,8 @@ export function createWorld(host, api) {
   }
   function placeChunk(g) { g.position.set(g.userData.cx, 0, -g.userData.cy); }
   function refreshChunks(sNow) {
-    const a = Math.floor((sNow - BEHIND) / CHUNK), b = Math.floor((sNow + AHEAD) / CHUNK);
+    // สร้างฉากข้างหน้าไกลกว่าข้างหลัง — "ข้างหน้า" ตามทิศที่วิ่ง
+    const a = Math.floor((sNow - (DIR > 0 ? BEHIND : AHEAD)) / CHUNK), b = Math.floor((sNow + (DIR > 0 ? AHEAD : BEHIND)) / CHUNK);
     let built = 0;
     for (let i = Math.max(0, a); i <= b; i++) {
       if (chunks.has(i)) continue;
@@ -2131,14 +2137,14 @@ export function createWorld(host, api) {
   function placeAI(list, sNow) {
     const seen = new Set();
     (list || []).forEach((a) => {
-      if (a.s < sNow - 2500 || a.s > sNow + 4200) return;
+      const ah = DIR * (a.s - sNow); if (ah < -2500 || ah > 4200) return;   // แสดงเฉพาะขบวนช่วงข้างหน้า 4.2 กม. / ข้างหลัง 2.5 กม.
       seen.add(a.id);
       let m = aiLive.get(a.id); if (!m) { m = aiModel(a.P.spec); aiLive.set(a.id, m); aiRoot.add(m.g); }
       Object.assign(m, { s: a.s, v: a.v, door: a.door, st: a.st, dir: a.P.dir, term: a.term, orig: a.orig, id: a.id });
-      const de = a.door * a.door * (3 - 2 * a.door);
+      const de = a.door * a.door * (3 - 2 * a.door), lane = laneOf(a.P.dir);
       m.cars.forEach((c) => {
         const sc = a.s - a.P.dir * c.off, h = c.len / 2 - 3.2;
-        const A = sideP(sc + a.P.dir * h, -DT), B = sideP(sc - a.P.dir * h, -DT);
+        const A = sideP(sc + a.P.dir * h, lane), B = sideP(sc - a.P.dir * h, lane);
         const th = Math.atan2(A.y - B.y, A.x - B.x), pitch = Math.atan2(A.z - B.z, Math.hypot(A.x - B.x, A.y - B.y));
         c.g.position.set((A.x + B.x) / 2, (A.z + B.z) / 2 + 0.18, -(A.y + B.y) / 2);
         c.g.rotation.order = "YZX"; c.g.rotation.set(0, th, pitch);
@@ -2232,7 +2238,7 @@ export function createWorld(host, api) {
     // สร้าง/ลบกลุ่มคนตามสถานีที่อยู่ใกล้
     const near = new Set();
     geo.stations.forEach((s0, i) => {
-      if (s0.s < st.s - 700 || s0.s > st.s + 1200) return;
+      const ah = DIR * (s0.s - st.s); if (ah < -700 || ah > 1200) return;
       [1, -1].forEach((side) => { const k = i * 2 + (side > 0 ? 0 : 1); near.add(k); if (!crowds.has(k)) crowds.set(k, makeCrowd(i, side)); });
     });
     // หัวลำโพง: ผู้คนเดินเล่น/นั่งรอในโถงและชานชาลาอื่น (ไม่ผูกกับขบวน)
@@ -2243,8 +2249,9 @@ export function createWorld(host, api) {
       crowds.set(k, cw);
     });
     crowds.forEach((cw, k) => { if (!near.has(k)) crowds.delete(k); });
-    // ขบวนที่อาจจอดอยู่: ขบวนเรา (ชานชาลาซ้าย) + ขบวนสวน (ชานชาลาขวา)
-    const mine = { id: "me", player: true, cars, s: st.s, dir: 1, v: st.v, door: st.door || 0, term: !!st.term, orig: false };
+    // ขบวนที่อาจจอดอยู่: ชานชาลาซ้าย (side +1) = รางที่ 1 ขาออก · ชานชาลาขวา (side −1) = รางที่ 2 ขาเข้า
+    // ขบวนเราอยู่ฝั่งไหนขึ้นกับทิศที่วิ่ง · ขบวนสวนอยู่อีกฝั่ง
+    const mine = { id: "me", player: true, cars, s: st.s, dir: DIR, v: st.v, door: st.door || 0, term: !!st.term, orig: false };
     const ais = []; aiLive.forEach((m) => ais.push({ id: m.id, cars: m.cars, s: m.s, dir: m.dir, v: m.v, door: m.door, st: m.st, term: m.term, orig: m.orig }));
     let n = 0;
     crowds.forEach((cw) => {
@@ -2254,7 +2261,8 @@ export function createWorld(host, api) {
           if (d > 0.05) { const k = Math.min(d, p.spd * 0.8 * dt); p.s += ds / d * k; p.o += dO / d * k; p.ph += k * 5.2; p.moving = true; p.dirS = ds / d; p.dirO = dO / d; }
           else { p.moving = false; p.face = Math.atan2(p.dirO || 0, p.dirS || 1); if (r() < 0.5) p.delay = 3 + r() * 12; p.ts = Math.max(a, Math.min(b, p.s + (r() - 0.5) * 30)); p.to = o0 + r() * (o1 - o0); } });
       } else {
-        const here = cw.side > 0 ? (Math.abs(st.s - cw.st.s) < 400 ? [mine] : []) : ais.filter((a) => a.st === cw.i);
+        const onSide = (t) => (t.dir > 0) === (cw.side > 0);
+        const here = (onSide(mine) && Math.abs(st.s - cw.st.s) < 400 ? [mine] : []).concat(ais.filter((a) => onSide(a) && a.st === cw.i));
         crowdTick(cw, dt, here);
       }
       cw.people.forEach((p) => {
@@ -2325,6 +2333,8 @@ export function createWorld(host, api) {
   resize();
   const worldPos = (s) => { const t = trackPoint(s); return t; };
   function update(dt, st) {
+    DIR = st.dir || 1;
+    const lane = laneOf(DIR);
     // จุดอ้างอิงตามรถ
     const front = geo.at(st.s);
     const [fx, fy] = toXY(front.lat, front.lon);
@@ -2339,9 +2349,9 @@ export function createWorld(host, api) {
     const newChunks = refreshChunks(st.s);
     if (carsKey !== st.trainKey) { carsKey = st.trainKey; buildTrain(st.train); }
     if (st.jumped) cars.forEach((c) => { c.roll = undefined; });
-    // วางรถแต่ละคันตามราง: ตำแหน่ง = กลางระหว่างโบกี้หน้า/หลัง
+    // วางรถแต่ละคันตามราง: ตำแหน่ง = กลางระหว่างโบกี้หน้า/หลัง (ขากลับ: ตัวรถต่อไปทาง s มาก หัวรถหันไปทาง s น้อย บนรางที่ 2)
     cars.forEach((c) => {
-      const sc = st.s - c.off, a = trackPoint(Math.max(0, sc + c.len / 2 - 3.2)), b = trackPoint(Math.max(0, sc - c.len / 2 + 3.2));
+      const sc = st.s - DIR * c.off, h = c.len / 2 - 3.2, a = sideP(sc + DIR * h, lane), b = sideP(sc - DIR * h, lane);
       const th = Math.atan2(a.y - b.y, a.x - b.x), pitch = Math.atan2(a.z - b.z, Math.hypot(a.x - b.x, a.y - b.y));
       // เอียงตามยกโค้ง (cant) + เอียงเพิ่มตามแรงเหวี่ยง
       c.g.position.set((a.x + b.x) / 2, (a.z + b.z) / 2 + 0.18, -(a.y + b.y) / 2);
@@ -2364,32 +2374,34 @@ export function createWorld(host, api) {
     skyMat.uniforms.sunDir.value.copy(sd);
     // กล้อง
     const lead = cars[0], t0 = trackPoint(st.s);
+    // ทิศหน้ารถ/ความชันตามทิศที่วิ่ง (ขากลับ = หันกลับ 180°)
+    const hd = DIR > 0 ? t0.th : t0.th + Math.PI, hp = DIR * t0.pitch;
     if (view.mode === "cab") {
       const ex = st.train.eyeX !== undefined ? st.train.eyeX : lead.len / 2 - 1.6, ey = st.train.eye;
       const v = new THREE.Vector3(ex, ey, -0.45).applyEuler(lead.g.rotation).add(lead.g.position);
       cam.position.copy(v);
-      const yaw = t0.th + view.yaw, pitch = view.pitch - 0.04 + t0.pitch;
+      const yaw = hd + view.yaw, pitch = view.pitch - 0.04 + hp;
       cam.up.set(0, 1, 0);
       cam.lookAt(v.x + Math.cos(yaw) * Math.cos(pitch), v.y + Math.sin(pitch), v.z - Math.sin(yaw) * Math.cos(pitch));
-      cab.visible = true; cab.position.copy(v); cab.rotation.set(0, t0.th, 0, "YXZ");
+      cab.visible = true; cab.position.copy(v); cab.rotation.set(0, hd, 0, "YXZ");
       cab.children.forEach((m) => { m.visible = true; });
-      cab.position.add(new THREE.Vector3(Math.cos(t0.th) * 0.9, -0.15, -Math.sin(t0.th) * 0.9));
+      cab.position.add(new THREE.Vector3(Math.cos(hd) * 0.9, -0.15, -Math.sin(hd) * 0.9));
     } else {
       cab.visible = false;
       const cen = lead.g.position.clone();
       let want;
       if (view.mode === "track") {
-        if (!view.trackSpot || st.s - view.trackSpot.s > 220) {
-          const s2 = Math.min(geo.total, st.s + 650 + Math.max(0, st.v) * 8), tp = trackPoint(s2), side = Math.random() < 0.5 ? 1 : -1;
+        if (!view.trackSpot || DIR * (st.s - view.trackSpot.s) > 220) {
+          const s2 = Math.max(0, Math.min(geo.total, st.s + DIR * (650 + Math.max(0, st.v) * 8))), tp = trackPoint(s2), side = Math.random() < 0.5 ? 1 : -1;
           view.trackSpot = { s: s2, p: new THREE.Vector3(tp.x - Math.sin(tp.th) * 9 * side, tp.z + 2.2, -(tp.y + Math.cos(tp.th) * 9 * side)) };
         }
         want = view.trackSpot.p.clone();
         cam.position.copy(want); cam.lookAt(cen.x, cen.y + 2, cen.z);
       } else {
         // ทิศของราง: หน่วงเฉพาะ "มุม" (ให้โค้งนุ่ม) แต่ตำแหน่งยึดกับรถตลอด → กล้องไม่หลุดหลังเวลาวิ่งเร็ว
-        let dth = t0.th - (view.th === undefined ? t0.th : view.th);
+        let dth = hd - (view.th === undefined ? hd : view.th);
         dth = Math.atan2(Math.sin(dth), Math.cos(dth));
-        view.th = (view.th === undefined ? t0.th : view.th) + dth * Math.min(1, dt * 2.5);
+        view.th = (view.th === undefined ? hd : view.th) + dth * Math.min(1, dt * 2.5);
         const ang = view.th + Math.PI + view.orbit + (view.mode === "side" ? -Math.PI / 2 - 0.6 : 0);
         const tilt = view.mode === "drone" ? Math.max(view.tilt, 0.6) : view.mode === "side" ? 0.12 : view.tilt;
         const tgt = view.mode === "side" ? cars[Math.min(cars.length - 1, Math.floor(cars.length / 2))].g.position.clone() : cen;
@@ -2401,15 +2413,17 @@ export function createWorld(host, api) {
     // ในอุโมงค์/สถานีใต้ดิน: กล้องนอกตัวรถย้ายลงมาอยู่ในอุโมงค์กับขบวน (ไม่ลอยอยู่เหนือผิวดิน) · เปลี่ยนแบบนุ่มนวล
     {
       const inT = (s) => (geo.flag(Math.max(0, Math.min(geo.total, s))) & 1) !== 0;
-      const want = view.mode !== "cab" && inT(st.s - 5) && inT(st.s - Math.min(lead.len, 25)) ? 1 : 0;
+      const want = view.mode !== "cab" && inT(st.s - DIR * 5) && inT(st.s - DIR * Math.min(lead.len, 25)) ? 1 : 0;
       view.tk = view.tk === undefined ? want : view.tk + (want - view.tk) * Math.min(1, dt * 1.8);
       if (view.mode !== "cab" && view.tk > 0.002) {
-        const hall = !!(G && st.s > G.s0 - 30 && st.s < G.s1 + 50), sMax = hall ? G.s1 - 1 : geo.total - 3;
+        // ไม่ให้กล้องหลุดออกนอกโถงสถานีใต้ดิน/ปลายราง (ทั้งสองทิศ)
+        const hall = !!(G && st.s > G.s0 - 30 && st.s < G.s1 + 50), sLo = hall ? G.s0 + 1 : 3, sHi = hall ? G.s1 - 1 : geo.total - 3;
+        const sl = (s) => Math.max(sLo, Math.min(sHi, s));
         const tpv = (s, o, h) => { const t = trackPoint(Math.max(0, Math.min(geo.total, s))); return new THREE.Vector3(t.x - Math.sin(t.th) * o, t.z + h, -(t.y + Math.cos(t.th) * o)); };
         const cen = lead.g.position; let ip, look;
-        if (view.mode === "side") { const c = cars[Math.min(cars.length - 1, Math.floor(cars.length / 2))]; ip = tpv(Math.min(sMax, st.s - c.off + 9), hall ? -11 : -6.4, hall ? 3.4 : 2.4); look = c.g.position.clone().add(new THREE.Vector3(0, 1.8, 0)); }
-        else if (view.mode === "track") { if (!view.tin || st.s > view.tin + 25 || st.s < view.tin - 500) view.tin = Math.min(sMax, st.s + 150); ip = tpv(view.tin, hall ? -11 : -6.3, hall ? 2.8 : 2.2); look = cen.clone().add(new THREE.Vector3(0, 1.8, 0)); }
-        else { const drone = view.mode === "drone"; ip = tpv(Math.min(sMax, st.s + (drone ? 34 : 18)), drone && hall ? 4 : -2.1, drone ? (hall ? 9.5 : 4.6) : (hall ? 5.2 : 3.7)); look = cen.clone().add(new THREE.Vector3(0, 1.6, 0)); }
+        if (view.mode === "side") { const c = cars[Math.min(cars.length - 1, Math.floor(cars.length / 2))]; ip = tpv(sl(st.s - DIR * (c.off - 9)), mirO(hall ? -11 : -6.4), hall ? 3.4 : 2.4); look = c.g.position.clone().add(new THREE.Vector3(0, 1.8, 0)); }
+        else if (view.mode === "track") { const rel = DIR * (st.s - view.tin); if (!view.tin || rel > 25 || rel < -500) view.tin = sl(st.s + DIR * 150); ip = tpv(view.tin, mirO(hall ? -11 : -6.3), hall ? 2.8 : 2.2); look = cen.clone().add(new THREE.Vector3(0, 1.8, 0)); }
+        else { const drone = view.mode === "drone"; ip = tpv(sl(st.s + DIR * (drone ? 34 : 18)), mirO(drone && hall ? 4 : -2.1), drone ? (hall ? 9.5 : 4.6) : (hall ? 5.2 : 3.7)); look = cen.clone().add(new THREE.Vector3(0, 1.6, 0)); }
         const k = view.tk * view.tk * (3 - 2 * view.tk);
         cam.position.lerpVectors(cam.position.clone(), ip, k); cam.lookAt(look);
       } else view.tin = 0;
@@ -2429,7 +2443,7 @@ export function createWorld(host, api) {
     }
     if (view.peek) { const k = view.peek, a = tpe(k.s), b = tpe(k.ts); cam.position.set(a.x - Math.sin(a.th) * k.o, a.z + k.h, -(a.y + Math.cos(a.th) * k.o)); cam.lookAt(b.x - Math.sin(b.th) * k.to, b.z + k.th, -(b.y + Math.cos(b.th) * k.to)); }
     // แสงแดด + เงาตามกล้อง
-    sun.position.copy(cam.position).add(sd.clone().multiplyScalar(400)); sun.target.position.copy(cam.position).add(new THREE.Vector3(Math.cos(t0.th) * 60, -cam.position.y + t0.z, -Math.sin(t0.th) * 60)); sun.target.updateMatrixWorld();
+    sun.position.copy(cam.position).add(sd.clone().multiplyScalar(400)); sun.target.position.copy(cam.position).add(new THREE.Vector3(Math.cos(hd) * 60, -cam.position.y + t0.z, -Math.sin(hd) * 60)); sun.target.updateMatrixWorld();
     sky.position.copy(cam.position);
     // ฝน
     if (rain.visible) {
@@ -2454,5 +2468,5 @@ export function createWorld(host, api) {
     const hit = rcG.intersectObjects(list, false)[0]; return hit ? hit.point.y : null;
   }
   function warm(s) { let n = 0; while (refreshChunks(s) > 0 && n < 40) n++; }
-  return { dbg: { cars: () => cars.map((c) => [c.g.position.x, c.g.position.y, c.g.position.z]), groundAt, hit: (x, z) => { const list = []; const ids = []; chunks.forEach((c, i) => c.children.forEach((m) => { if (m.userData.ground) { list.push(m); ids.push(i); } })); root.updateMatrixWorld(); rcG.set(new THREE.Vector3(x, 6000, z), rcD); return rcG.intersectObjects(list, false).slice(0, 3).map((h) => ({ y: h.point.y, chunk: ids[list.indexOf(h.object)], face: h.faceIndex, n: h.object.geometry.attributes.position.count })); } }, peek: (k) => { view.peek = k || null; }, pax: () => paxRun, aiCount: () => aiLive.size, crowdCount: () => { let n = 0; crowds.forEach((c) => { n += c.people.length; }); return n; }, camDist: () => (view.pos && cars[0] ? view.pos.distanceTo(cars[0].g.position) : -1), update, resize, setCam, setEnv, warm, get mode() { return view.mode; }, recenterAt: (s) => { const p = geo.at(s); recenter(p.lat, p.lon); view.pos = null; view.th = undefined; view.trackSpot = null; chunks.forEach((g) => { root.remove(g); g.traverse((o) => { if (o.geometry && o.geometry !== geoBox && !Object.values(treeGeo).includes(o.geometry)) o.geometry.dispose(); }); }); chunks.clear(); } };
+  return { dbg: { cars: () => cars.map((c) => [c.g.position.x, c.g.position.y, c.g.position.z]), groundAt, hit: (x, z) => { const list = []; const ids = []; chunks.forEach((c, i) => c.children.forEach((m) => { if (m.userData.ground) { list.push(m); ids.push(i); } })); root.updateMatrixWorld(); rcG.set(new THREE.Vector3(x, 6000, z), rcD); return rcG.intersectObjects(list, false).slice(0, 3).map((h) => ({ y: h.point.y, chunk: ids[list.indexOf(h.object)], face: h.faceIndex, n: h.object.geometry.attributes.position.count })); } }, peek: (k) => { view.peek = k || null; }, pax: () => paxRun, aiCount: () => aiLive.size, crowdCount: () => { let n = 0; crowds.forEach((c) => { n += c.people.length; }); return n; }, camDist: () => (view.pos && cars[0] ? view.pos.distanceTo(cars[0].g.position) : -1), update, resize, setCam, setEnv, warm, setDir: (d) => { DIR = d > 0 ? 1 : -1; }, get mode() { return view.mode; }, recenterAt: (s) => { const p = geo.at(s); recenter(p.lat, p.lon); view.pos = null; view.th = undefined; view.trackSpot = null; chunks.forEach((g) => { root.remove(g); g.traverse((o) => { if (o.geometry && o.geometry !== geoBox && !Object.values(treeGeo).includes(o.geometry)) o.geometry.dispose(); }); }); chunks.clear(); } };
 }

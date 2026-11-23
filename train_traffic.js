@@ -2,7 +2,7 @@
    ขบวนรถอื่นบนรางที่ 2 (ทางคู่ ขาสวน) ตามตารางเดินรถ
    - สายเหนือ: ขบวนขาล่อง (เชียงใหม่/ต้นทางอื่น → กรุงเทพ) ทุกขบวนตามตารางเดินรถทางการของการรถไฟฯ (train_tt_north.js)
    - สายสนามบิน: รถไฟฟ้าแอร์พอร์ตเรล ลิงก์ สุวรรณภูมิ → พญาไท ทุก 10 นาทีช่วงเร่งด่วน / 13 นาทีช่วงปกติ (05:30–24:00)
-   - ไม่มีรถบนรางที่เราวิ่ง (รางขาขึ้น) → ไม่มีทางชนกัน
+   - ไม่มีรถบนรางที่เราวิ่ง → ไม่มีทางชนกัน (เราวิ่งขากลับ: ขบวนสวนเป็นขาขึ้น วิ่งรางที่ 1 แทน)
    - ตำแหน่งคำนวณจากเวลา: ออกตามเวลา เร่ง–วิ่งคงที่–เบรก ให้ถึงสถานีถัดไปตรงเวลาพอดี จอดเปิดประตูรับส่งผู้โดยสาร
    ===================================================================== */
 const DAY = 86400;
@@ -64,7 +64,7 @@ function plan(tr, geo, dir) {
     segs.push({ k: "dwell", t0: ta + seg.T, t1: tDep, s: sb, st: b, last });
     ta = tDep;
   }
-  return { id: tr.no, no: tr.no, kind: tr.kind, label: K.label, name: tr.name, from: st[S0[0]].n, to: st[SN[0]].n, dest: tr.dest, spec, segs, dir, t0: segs[0].t0, t1: segs[segs.length - 1].t1 };
+  return { id: (dir > 0 ? "u" : "d") + tr.no, no: tr.no, kind: tr.kind, label: K.label, name: tr.name, from: st[S0[0]].n, to: st[SN[0]].n, dest: tr.dest, spec, segs, dir, t0: segs[0].t0, t1: segs[segs.length - 1].t1 };
 }
 
 function stateAt(P, c) {
@@ -85,11 +85,23 @@ function stateAt(P, c) {
   return null;
 }
 
-export function makeTraffic(lineId, geo, TT) {
+// ขบวนขาขึ้นสายเหนือ: ในเกมยังไม่มีตารางขาขึ้นจริง → สร้างจากขบวนขาล่องแต่ละขบวน
+// วิ่งเส้นทางเดิมย้อนกลับ ใช้เวลาแต่ละช่วงเท่าเดิม ออกจากต้นทางเวลาเดียวกับที่ขาล่องออก · เลขขบวน = เลขคี่คู่กัน (ขาล่องเลขคู่) + "*"
+function mirrorTrip(t) {
+  const st = t.stops, n = st.length, out = [[st[n - 1][0], st[0][1]]];
+  for (let k = 1; k < n; k++) out.push([st[n - 1 - k][0], out[k - 1][1] + (st[n - k][1] - st[n - 1 - k][1])]);
+  const no = /^\d+$/.test(t.no) ? String(+t.no % 2 === 0 ? +t.no - 1 : +t.no + 1) : t.no;
+  return { no: no + "*", name: t.name, type: t.type, dest: t.dest, stops: out };
+}
+
+// dir = ทิศของขบวนสวน: −1 วิ่งเข้ากรุงเทพ (ใช้เมื่อเราวิ่งขาออก) · +1 วิ่งออกจากกรุงเทพ (ใช้เมื่อเราวิ่งขากลับ)
+export function makeTraffic(lineId, geo, TT, dir = -1) {
   const trains = [];
   if (lineId === "arl") {
-    // แอร์พอร์ตเรล ลิงก์ (City Line) สุวรรณภูมิ → พญาไท: หาเวลาแต่ละช่วงจากความเร็วสูงสุด 160 กม./ชม. เร่ง/เบรก 0.8 ม./วิ²
-    const idx = geo.stations.map((s, i) => i).filter((i) => geo.stations[i].s >= (geo.stations.find((x) => x.n === "พญาไท") || geo.stations[0]).s).reverse();
+    // แอร์พอร์ตเรล ลิงก์ (City Line) สุวรรณภูมิ ↔ พญาไท: หาเวลาแต่ละช่วงจากความเร็วสูงสุด 160 กม./ชม. เร่ง/เบรก 0.8 ม./วิ²
+    const idx = geo.stations.map((s, i) => i).filter((i) => geo.stations[i].s >= (geo.stations.find((x) => x.n === "พญาไท") || geo.stations[0]).s);
+    if (dir < 0) idx.reverse();
+    const dest = geo.stations[idx[idx.length - 1]].n;
     const vmax = 160 / 3.6, a = 0.8;
     const runT = (D) => (D > vmax * vmax / a ? D / vmax + vmax / a : 2 * Math.sqrt(D / a)) * 1.06 + 8;
     let n = 1;
@@ -99,13 +111,13 @@ export function makeTraffic(lineId, geo, TT) {
         if (k > 0) tt += runT(Math.abs(geo.stations[idx[k - 1]].s - geo.stations[i].s)) + (k < idx.length - 1 ? (geo.stations[i].n === "มักกะสัน" ? 60 : 40) : 0);
         stops.push([i, Math.round(tt)]);
       });
-      trains.push(plan({ no: "ARL " + String(n++).padStart(3, "0"), name: "City Line", kind: "arl", dest: "พญาไท", stops }, geo, -1));
+      trains.push(plan({ no: "ARL " + String(n++).padStart(3, "0"), name: "City Line", kind: "arl", dest, stops }, geo, dir));
       const h = t / 3600, peak = (h >= 6.5 && h < 9.5) || (h >= 16.5 && h < 19.5);
       t += peak ? 600 : 780;
     }
   } else if (TT) {
     const kindOf = (t) => (t.type === "special" && /ดีเซลราง/.test(t.name) ? "drc" : t.type === "feeder_dm" || /^90/.test(t.no) ? "feeder" : KIND[t.type] ? t.type : "ordinary");
-    TT.south.forEach((t) => { trains.push(plan({ no: t.no, name: t.name, kind: kindOf(t), dest: t.dest, stops: t.stops }, geo, -1)); });
+    (dir < 0 ? TT.south : TT.south.map(mirrorTrip)).forEach((t) => { trains.push(plan({ no: t.no, name: t.name, kind: kindOf(t), dest: t.dest, stops: t.stops }, geo, dir)); });
   }
   return {
     trains,
