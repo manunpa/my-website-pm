@@ -10,3 +10,10 @@ input[type=date], input[type=datetime-local], input[type=time], input[type=month
 
 /* กันตัวอักษรขยายเองตอนหมุนจอ (iPhone/iPad) */
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+/* โหมดแอป (เปิดจากไอคอน): แตะ 2 ทีไม่ซูม — ปุ่มที่กดเร็ว ๆ ติดกันยังรับครบทุกครั้ง (ไม่หน่วงคลิก)
+   ไม่กระทบแผนที่/ฉาก 3 มิติที่ตั้ง touch-action ของตัวเองไว้ · เบราว์เซอร์ปกติยังซูมได้ตามเดิม */
+@media all and (display-mode: standalone), all and (display-mode: fullscreen) {
+  html { touch-action: manipulation; }
+}
+html.pwa-app { touch-action: manipulation; }   /* iOS รุ่นเก่าที่ไม่รู้จัก display-mode (pwa.js ใส่คลาสนี้ให้) */

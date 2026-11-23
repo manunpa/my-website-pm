@@ -18,6 +18,21 @@
     });
   }
 
+  // ---- โหมดแอป (เปิดจากไอคอนหน้าจอโฮม): ล็อกการซูมทั้งหน้าให้เหมือนแอปจริง ----
+  // แตะ 2 ที: ปิดด้วย CSS touch-action (pwa.css) · ถ่าง 2 นิ้ว / แตะช่องกรอกแล้ว iPhone ซูมเอง: ปิดตรงนี้
+  // แผนที่ Leaflet ยังซูมแผนที่ด้วย 2 นิ้วได้ตามปกติ (แผนที่จัดการนิ้วเอง ไม่ใช่การซูมทั้งหน้า)
+  var mq = function (q) { return window.matchMedia && window.matchMedia(q).matches; };
+  var isApp = mq('(display-mode: standalone)') || mq('(display-mode: fullscreen)') || navigator.standalone === true;
+  if (isApp) {
+    document.documentElement.classList.add('pwa-app');
+    var vp = document.querySelector('meta[name="viewport"]');
+    if (vp && !/maximum-scale/.test(vp.content)) vp.setAttribute('content', vp.content + ', maximum-scale=1, user-scalable=no');
+    // iOS ไม่สน user-scalable=no → กันท่าถ่าง 2 นิ้วซูมทั้งหน้าด้วยเหตุการณ์ gesture ของ Safari
+    ['gesturestart', 'gesturechange'].forEach(function (ev) {
+      document.addEventListener(ev, function (e) { e.preventDefault(); }, { passive: false });
+    });
+  }
+
   // ---- theme-color ตามพื้นหลังจริงของหน้า (รองรับโหมดมืด/สว่างที่สลับเอง) ----
   function syncThemeColor() {
     var meta = document.querySelector('meta[name="theme-color"]');
