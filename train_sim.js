@@ -817,7 +817,7 @@ async function start() {
   pressed("trains", "k", S.type);
   buildPanel(); initMap(); updAtoBtn();
   try {
-    const mod = await import("./train_sim_3d.js?v=20261130-3");
+    const mod = await import("./train_sim_3d.js?v=20261130-4");
     const bld = await loadBuildings();
     const branch = branchFor();
     // สายสนามบินอยู่ในเขตกรุงเทพฯ ทั้งสาย → ฉากเมืองตลอด (ช่วงที่ OSM มีตึกน้อยจะเติมตึกให้) · สายเหนือตัดสินจากจำนวนตึก
