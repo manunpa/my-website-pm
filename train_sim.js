@@ -31,6 +31,23 @@ const LAT = new Float64Array(N), LON = new Float64Array(N), Z = new Float32Array
 const TOTAL = (N - 1) * STEP;
 // หัวลำโพง: ข้อมูล OSM ติดป้าย "อุโมงค์" ตรงช่วงหลังคาสถานีปลายราง (ไม่ใช่อุโมงค์จริง) → เคยทำให้ท้ายขบวนยาวจมดิน/อยู่ในท่ออุโมงค์ตอนเริ่มเกม
 if (LINE.st[0] && LINE.st[0].n === "กรุงเทพ") for (let i = 0; i * STEP < 300 && (LINE.f[i] & 1); i++) LINE.f[i] &= ~1;
+// สายสนามบิน ทางลาดอุรุพงษ์ → พญาไท (แนวสมมติ): ทางลาดตรงกับทางยกระดับขนานกันแต่ห่างกัน ~11.5 ม.
+// ข้อมูลเดิมหักเบี่ยงทั้งหมดภายใน 50 ม. ก่อนเข้าพญาไท (โค้งกลับ R ~210 ม. ดูอันตราย)
+// → กระจายการเบี่ยงไปตลอดทางลาด กม. 2.75–3.55 ด้วยโค้งตัว S เรียบ (smootherstep) รัศมีเล็กสุด ~8 กม. · สถานี/ระดับรางไม่เปลี่ยน
+if (LINE.id === "arl") easeJog(2750, 3550);
+function easeJog(sA, sB) {
+  const ia = Math.round(sA / STEP), ib = Math.round(sB / STEP), n = ib - ia;
+  // เส้นตรงก่อนช่วง (ต่อออกไปข้างหน้า) และเส้นตรงหลังช่วง (ต่อย้อนกลับ) — ระยะต่อจุดเท่ากับข้อมูลจริง
+  const uLat = (LAT[ia] - LAT[ia - 4]) / 4, uLon = (LON[ia] - LON[ia - 4]) / 4;
+  const vLat = (LAT[ib + 8] - LAT[ib]) / 8, vLon = (LON[ib + 8] - LON[ib]) / 8;
+  const aLat = LAT[ia], aLon = LON[ia], bLat = LAT[ib], bLon = LON[ib];
+  for (let k = 1; k < n; k++) {
+    const t = k / n, w = t * t * t * (t * (t * 6 - 15) + 10);   // smootherstep: ความโค้งเริ่ม/จบที่ 0 ต่อกับทางตรงเนียน
+    LAT[ia + k] = (aLat + uLat * k) * (1 - w) + (bLat - vLat * (n - k)) * w;
+    LON[ia + k] = (aLon + uLon * k) * (1 - w) + (bLon - vLon * (n - k)) * w;
+  }
+  for (let i = ia - 1; i <= ib + 1; i++) LINE.r[i] = 0;   // ช่วงนี้กลายเป็นเกือบตรง (R > 4 กม.) → ฟิสิกส์คิดเป็นทางตรง
+}
 const K = new Float32Array(N); for (let i = 0; i < N; i++) { const r = LINE.r[i]; K[i] = r ? Math.sign(r) / Math.max(150, Math.abs(r)) : 0; }
 const cr = (a, b, c, d, t) => { const t2 = t * t, t3 = t2 * t; return 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (3 * b - a - 3 * c + d) * t3); };
 const geo = {
