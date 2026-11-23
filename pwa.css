@@ -5,5 +5,8 @@
  * ส่วนขอบล่าง (แถบโฮม) แต่ละหน้าจัดการเองด้วย env(safe-area-inset-bottom)
  */
 
+/* iPhone/iPad: ช่องวันที่/เวลามีความกว้างขั้นต่ำของตัวเอง ไม่ยอมหดตาม width:100% จนล้นขอบจอ */
+input[type=date], input[type=datetime-local], input[type=time], input[type=month] { min-width: 0; max-width: 100%; }
+
 /* กันตัวอักษรขยายเองตอนหมุนจอ (iPhone/iPad) */
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }

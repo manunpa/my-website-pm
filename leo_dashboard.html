@@ -60,6 +60,11 @@ a.btn{text-decoration:none;color:var(--text);display:inline-flex;align-items:cen
 .filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;align-items:end;margin-bottom:12px}
 label{display:block;font-size:11px;color:var(--muted);margin-bottom:3px}
 .filters input,.filters select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+/* iPhone/iPad: ช่องวัน-เวลามีความกว้างขั้นต่ำของตัวเอง ทำให้ล้นคอลัมน์ → บังคับให้หดตามคอลัมน์ และสูงเท่าช่องอื่น */
+.filters>*{min-width:0}
+.filters input,.filters select{min-width:0;max-width:100%}
+.filters input[type=datetime-local]{-webkit-appearance:none;appearance:none;display:block;min-height:36px;color:inherit;font:inherit}
+.filters input[type=datetime-local]::-webkit-date-and-time-value{text-align:left}
 .presets{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
 .chip{padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:var(--bg);cursor:pointer;font-size:12px}
 .chip.on{background:var(--accent);border-color:var(--accent);color:#1d2433;font-weight:500}
