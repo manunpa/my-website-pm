@@ -246,6 +246,7 @@ export function createWorld(host, api) {
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
   }
 
+  const DT = 4.2;   // ระยะห่างศูนย์กลางรางคู่ (ม.) — รางที่ 2 อยู่ขวามือของทิศขาขึ้น
   function trackAt(g, pts, oc, zf, cx, cy) {
     const off2 = (p, o, dz) => [p.x - Math.sin(p.th) * o, p.y + Math.cos(p.th) * o, zf(p) + dz];
     [oc + 0.5, oc - 0.5].forEach((o) => {
@@ -288,11 +289,13 @@ export function createWorld(host, api) {
     const tRows = [];
     for (let k = 0; k < P.length; k += 4) tRows.push(P[k]);
     if (tRows[tRows.length - 1] !== P[P.length - 1]) tRows.push(P[P.length - 1]);
+    // ทางคู่: รางที่ 2 อยู่ขวามือ 4.2 ม. → ภูมิประเทศฝั่งขวาเริ่มหลังรางที่ 2 (ความสูงคิดจากระยะห่างรางที่ใกล้สุด)
+    const OFFS_R = [[0, 0], [2.1, 0], [4.2, 0]].concat(OFFS.slice(1).map((o) => [o + DT, o]));
     const terrainSide = (side) => {
       const cols = tRows.map((p) => {
         const row = [];
-        OFFS.forEach((o) => {
-          const [x, y] = off(p, o * side), wx = x + cx, wy = y + cy;
+        (side > 0 ? OFFS.map((o) => [o, o]) : OFFS_R).forEach(([oo, o]) => {
+          const [x, y] = off(p, oo * side), wx = x + cx, wy = y + cy;
           const far = Math.min(1, Math.max(0, (o - 5) / 70));
           let h;
           const el = p.z - p.gz;
@@ -334,7 +337,7 @@ export function createWorld(host, api) {
       w.rotation.x = -Math.PI / 2; w.rotation.z = p.th + Math.PI / 2; w.position.set(p.x, p.z - 11, -p.y); g.add(w);
     }
     // --- หินโรยทาง (ไม่มีบนสะพาน)
-    const ballastRows = P.filter((p) => !isB(p)).map((p) => [off(p, -2.0, -0.45), off(p, -1.35, 0.02), off(p, 1.35, 0.02), off(p, 2.0, -0.45)].map((q, i) => [q[0], q[1], q[2], i * 0.5, p.s / 2]));
+    const ballastRows = P.filter((p) => !isB(p)).map((p) => [off(p, -DT - 2.0, -0.45), off(p, -DT - 1.35, 0.02), off(p, 1.35, 0.02), off(p, 2.0, -0.45)].map((q, i) => [q[0], q[1], q[2], i * 0.5, p.s / 2]));
     if (ballastRows.length > 1) { const m = new THREE.Mesh(ribbon(ballastRows.map((r2) => r2)), M.ballast); m.receiveShadow = true; g.add(m); }
     // --- รางเหล็ก (ขนาดทาง 1 ม.) + หมอนคอนกรีตทุก 0.6 ม.
     [0.5, -0.5].forEach((o) => {
@@ -350,18 +353,21 @@ export function createWorld(host, api) {
       m4.compose(v3.set(t.x - cx, t.z + 0.02, -(t.y - cy)), q, sc.set(0.24, 0.16, 1.85)); sl.setMatrixAt(i, m4);
     }
     sl.receiveShadow = true; g.add(sl);
+    // --- รางที่ 2 (ทางคู่ ขาล่อง) ขวามือ 4.2 ม. — ช่วงทางยกระดับมีรางคู่ของตัวเองอยู่แล้ว
+    { let run = []; const flush = () => { if (run.length > 1) trackAt(g, run, -DT, (p) => p.z, cx, cy); run = []; };
+      P.forEach((p) => { if (isV(p)) flush(); else run.push(p); }); flush(); }
     // --- สะพานเหล็กโครงถัก + ตอม่อ
     if (bridgeIdx.length > 1) {
-      const deck = ribbon(bridgeIdx.map((p) => [off(p, -2.2, -0.05), off(p, 2.2, -0.05)])); g.add(new THREE.Mesh(deck, M.steel));
-      const under = ribbon(bridgeIdx.map((p) => [off(p, -2.2, -1.2), off(p, 2.2, -1.2)])); g.add(new THREE.Mesh(under, M.steel));
-      [2.3, -2.3].forEach((o) => {
+      const deck = ribbon(bridgeIdx.map((p) => [off(p, -DT - 2.2, -0.05), off(p, 2.2, -0.05)])); g.add(new THREE.Mesh(deck, M.steel));
+      const under = ribbon(bridgeIdx.map((p) => [off(p, -DT - 2.2, -1.2), off(p, 2.2, -1.2)])); g.add(new THREE.Mesh(under, M.steel));
+      [2.3, -DT - 2.3].forEach((o) => {
         const chordTop = ribbon(bridgeIdx.map((p) => [off(p, o, 5.6), off(p, o, 6.0)]));
         const chordBot = ribbon(bridgeIdx.map((p) => [off(p, o, -1.2), off(p, o, 0.3)]));
         g.add(new THREE.Mesh(chordTop, M.steelRed), new THREE.Mesh(chordBot, M.steelRed));
       });
       const nD = bridgeIdx.length * 2;
       const diag = new THREE.InstancedMesh(geoBox, M.steelRed, nD * 2); let k = 0;
-      bridgeIdx.forEach((p, i) => [2.3, -2.3].forEach((o) => {
+      bridgeIdx.forEach((p, i) => [2.3, -DT - 2.3].forEach((o) => {
         const [x, y, z] = off(p, o, 2.4);
         eu.set(0, p.th, (i % 2 ? 1 : -1) * 0.78, "YXZ"); q.setFromEuler(eu);
         m4.compose(v3.set(x, z, -y), q, sc.set(0.18, 7.2, 0.18)); diag.setMatrixAt(k++, m4);
@@ -369,7 +375,8 @@ export function createWorld(host, api) {
       diag.count = k; diag.castShadow = true; g.add(diag);
       for (let i = 0; i < bridgeIdx.length; i += 6) {
         const p = bridgeIdx[i], hgt = 16;
-        const pier = new THREE.Mesh(geoBox, M.concrete); pier.scale.set(2.2, hgt, 5); pier.position.set(p.x, p.z - 1.2 - hgt / 2, -p.y); pier.rotation.y = p.th; pier.castShadow = true; g.add(pier);
+        const [px, py] = off(p, -DT / 2);
+        const pier = new THREE.Mesh(geoBox, M.concrete); pier.scale.set(2.2, hgt, 5 + DT); pier.position.set(px, p.z - 1.2 - hgt / 2, -py); pier.rotation.y = p.th; pier.castShadow = true; g.add(pier);
       }
     }
     // --- อุโมงค์: ผนังโค้ง + ไฟ + ปากอุโมงค์
@@ -378,14 +385,15 @@ export function createWorld(host, api) {
       const ARC = []; for (let a = 0; a <= 12; a++) { const t = Math.PI * a / 12; ARC.push([Math.cos(t) * 3.0, 2.4 + Math.sin(t) * 3.2]); }
       const prof = [[3.0, -0.6]].concat(ARC).concat([[-3.0, -0.6]]);
       const wide = (p) => (geo.stations.some((st) => Math.abs(st.s - p.s) < 140) ? 2.6 : 1);
-      const tube = ribbon(tun.map((p) => prof.map(([o, h]) => off(p, o * wide(p), h * (wide(p) > 1 ? 1.25 : 1)))));
+      const half = (p) => (wide(p) > 1 ? 8.4 : 5.3);
+      const tube = ribbon(tun.map((p) => prof.map(([o, h]) => off(p, o / 3 * half(p) - DT / 2, h * (wide(p) > 1 ? 1.25 : 1)))));
       g.add(new THREE.Mesh(tube, M.tunnel));
       for (let i = 0; i < tun.length; i += 5) { const [x, y, z] = off(tun[i], 2.7, 3.4); const l = new THREE.Mesh(geoBox, M.lamp); l.scale.set(0.3, 0.12, 1.2); l.position.set(x, z, -y); l.rotation.y = tun[i].th; g.add(l); }
       [tun[0], tun[tun.length - 1]].forEach((p, e) => {
         const idx = P.indexOf(p), prev = P[idx + (e ? 1 : -1)];
         if (!prev || isT(prev)) return;
         const face = new THREE.Group(); face.position.set(p.x, p.z, -p.y); face.rotation.y = p.th;
-        [[0, 6.6, 0, 9, 1.6, 2], [3.9, 2.6, 0, 1.6, 6.6, 2], [-3.9, 2.6, 0, 1.6, 6.6, 2]].forEach(([a, b, c, w, h, d]) => { const bx = new THREE.Mesh(geoBox, M.concrete); bx.scale.set(d, h, w); bx.position.set(c, b, a); face.add(bx); });
+        [[DT / 2, 6.6, 0, 13.4, 1.6, 2], [-4.1, 2.6, 0, 1.6, 6.6, 2], [DT + 4.1, 2.6, 0, 1.6, 6.6, 2]].forEach(([a, b, c, w, h, d]) => { const bx = new THREE.Mesh(geoBox, M.concrete); bx.scale.set(d, h, w); bx.position.set(c, b, a); face.add(bx); });
         if (p.s > 682000 && p.s < 688000) { const sg = new THREE.Mesh(new THREE.PlaneGeometry(6, 1.1), new THREE.MeshBasicMaterial({ map: signTexture("อุโมงค์ขุนตาน", "Khun Tan Tunnel"), side: THREE.DoubleSide })); sg.position.set(e ? 1.05 : -1.05, 6.6, 0); sg.rotation.y = e ? Math.PI / 2 : -Math.PI / 2; face.add(sg); }
         g.add(face);
       });
@@ -396,25 +404,26 @@ export function createWorld(host, api) {
       const plat = P.filter((p) => Math.abs(p.s - st.s) <= (st.h ? 45 : 110));
       if (plat.length < 2) return;
       [1, -1].forEach((side) => {
-        if (st.h && side < 0) return;
         const elevSt = plat.some(isV);
-        if (elevSt && side < 0) return;
-        const top = ribbon(plat.map((p) => [off(p, side * 2.0, 0.95), off(p, side * 6.0, 0.95)]));
-        const edge = ribbon(plat.map((p) => [off(p, side * 2.0, isV(p) ? -2.3 : -0.4), off(p, side * 2.0, 0.95)]));
-        if (elevSt) { const outer = ribbon(plat.map((p) => [off(p, side * 6.0, -2.3), off(p, side * 6.0, 1.15)])); g.add(new THREE.Mesh(outer, M.concDS)); const under2 = ribbon(plat.map((p) => [off(p, side * 2.0, -2.3), off(p, side * 6.0, -2.3)])); g.add(new THREE.Mesh(under2, M.concDS)); }
-        const line = ribbon(plat.map((p) => [off(p, side * 2.05, 0.96), off(p, side * 2.35, 0.96)]));
+        // ชานชาลาซ้าย = รางขาขึ้น (รางเรา) · ชานชาลาขวา = อยู่นอกรางที่ 2 (ขาล่อง)
+        const L = (k) => (side > 0 ? k : -(k + DT));
+        const pr = (a, b) => (side > 0 ? [a, b] : [b, a]);   // ฝั่งขวากลับลำดับจุด ให้ผิวหันขึ้น/หันเข้าราง
+        const top = ribbon(plat.map((p) => pr(off(p, L(2.0), 0.95), off(p, L(6.0), 0.95))));
+        const edge = ribbon(plat.map((p) => pr(off(p, L(2.0), isV(p) ? -2.3 : -0.4), off(p, L(2.0), 0.95))));
+        if (elevSt) { const outer = ribbon(plat.map((p) => [off(p, L(6.0), -2.3), off(p, L(6.0), 1.15)])); g.add(new THREE.Mesh(outer, M.concDS)); const under2 = ribbon(plat.map((p) => [off(p, L(2.0), -2.3), off(p, L(6.0), -2.3)])); g.add(new THREE.Mesh(under2, M.concDS)); }
+        const line = ribbon(plat.map((p) => pr(off(p, L(2.05), 0.96), off(p, L(2.35), 0.96))));
         [top, edge].forEach((gm) => { const m = new THREE.Mesh(gm, M.platform); m.receiveShadow = true; g.add(m); });
         g.add(new THREE.Mesh(line, M.yellow));
         // หลังคาชานชาลา + เสา
         const roofP = plat.filter((p) => Math.abs(p.s - st.s) < 40);
         if (roofP.length > 1) {
-          const roof = ribbon(roofP.map((p) => [off(p, side * 2.2, 4.6), off(p, side * 6.2, 4.1)])); const rm = new THREE.Mesh(roof, M.roofRed); rm.castShadow = true; g.add(rm);
-          roofP.forEach((p, i) => { if (i % 2) return; const [x, y, z] = off(p, side * 4.2, 0.95); const c2 = new THREE.Mesh(geoBox, M.white); c2.scale.set(0.25, 3.5, 0.25); c2.position.set(x, z + 1.75, -y); g.add(c2); });
+          const roof = ribbon(roofP.map((p) => pr(off(p, L(2.2), 4.6), off(p, L(6.2), 4.1)))); const rm = new THREE.Mesh(roof, M.roofRed); rm.castShadow = true; g.add(rm);
+          roofP.forEach((p, i) => { if (i % 2) return; const [x, y, z] = off(p, L(4.2), 0.95); const c2 = new THREE.Mesh(geoBox, M.white); c2.scale.set(0.25, 3.5, 0.25); c2.position.set(x, z + 1.75, -y); g.add(c2); });
         }
         // ป้ายชื่อสถานีสองฝั่งปลายชานชาลา
         [plat[1], plat[plat.length - 2]].forEach((p) => {
           if (!p) return;
-          const [x, y, z] = off(p, side * 4.6, 0.95);
+          const [x, y, z] = off(p, L(4.6), 0.95);
           const sm = new THREE.MeshStandardMaterial({ map: signTexture(st.n, st.e || "", (st.s / 1000).toFixed(2)), roughness: 0.6 });
           [0, Math.PI].forEach((rot) => { const board = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 1.25), sm); board.position.set(x, z + 3.0, -y); board.rotation.y = p.th + rot; g.add(board); });
           [-1.8, 1.8].forEach((o) => { const leg = new THREE.Mesh(geoBox, M.pole); leg.scale.set(0.1, 2.4, 0.1); leg.position.set(x + Math.cos(p.th) * o, z + 1.2, -(y + Math.sin(p.th) * o)); g.add(leg); });
@@ -423,9 +432,9 @@ export function createWorld(host, api) {
       // หลังคาโค้งใหญ่ของสถานียกระดับ
       const platV = plat.filter(isV);
       if (platV.length > 1) {
-        const arch = ribbon(platV.map((p) => [off(p, -7.6, 6.2), off(p, -4.5, 7.8), off(p, -1, 8.5), off(p, 2.5, 8.4), off(p, 5.5, 7.6), off(p, 7.2, 6.2)]));
+        const arch = ribbon(platV.map((p) => [off(p, -11.4, 6.2), off(p, -7.6, 7.9), off(p, -3, 8.7), off(p, 1.6, 8.5), off(p, 5.2, 7.6), off(p, 7.2, 6.2)]));
         const am = new THREE.Mesh(arch, M.roofMetal); am.castShadow = true; g.add(am);
-        platV.forEach((p, i) => { if (i % 4) return; [-7.0, 6.6].forEach((o) => { const [x, y, z] = off(p, o, -2.3); const c2 = new THREE.Mesh(geoBox, M.white); c2.scale.set(0.35, 8.6, 0.35); c2.position.set(x, z + 4.3, -y); g.add(c2); }); });
+        platV.forEach((p, i) => { if (i % 4) return; [-10.9, 6.6].forEach((o) => { const [x, y, z] = off(p, o, -2.3); const c2 = new THREE.Mesh(geoBox, M.white); c2.scale.set(0.35, 8.6, 0.35); c2.position.set(x, z + 4.3, -y); g.add(c2); }); });
       }
       // อาคารสถานี (หลังคาจั่วทรงไทย) — เฉพาะสถานีระดับดินนอกเมือง
       if (!st.h && !platV.length && !plat.some(isT) && !urban) {
@@ -457,7 +466,13 @@ export function createWorld(host, api) {
         const [x, y, z] = off(p, 3.0, 0); const pl = new THREE.Mesh(geoBox, M.pole); pl.scale.set(0.3, 7.2, 0.3); pl.position.set(x, z + 3.6, -y); g.add(pl);
         const [ax, ay, az] = off(p, 1.2, 6.6); const arm = new THREE.Mesh(geoBox, M.pole); arm.scale.set(0.1, 0.1, 3.6); arm.position.set((x + ax) / 2, az, -(y + ay) / 2); arm.rotation.y = p.th; g.add(arm);
       });
-      const wire = ribbon(P.map((p) => [off(p, -0.02, 5.6), off(p, 0.02, 5.6)])); g.add(new THREE.Mesh(wire, M.wire));
+      poles.forEach((p) => {
+        if (isV(p)) return;
+        const [x, y, z] = off(p, -DT - 3.0, 0); const pl = new THREE.Mesh(geoBox, M.pole); pl.scale.set(0.3, 7.2, 0.3); pl.position.set(x, z + 3.6, -y); g.add(pl);
+        const [ax, ay, az] = off(p, -DT - 1.2, 6.6); const arm = new THREE.Mesh(geoBox, M.pole); arm.scale.set(0.1, 0.1, 3.6); arm.position.set((x + ax) / 2, az, -(y + ay) / 2); arm.rotation.y = p.th; g.add(arm);
+      });
+      [0, -DT].forEach((o0) => { g.add(new THREE.Mesh(ribbon(P.map((p) => [off(p, o0 - 0.02, 5.6), off(p, o0 + 0.02, 5.6)])), M.wire)); });
+      const wire = ribbon(P.map((p) => [off(p, -DT - 0.02, 6.6), off(p, -DT + 0.02, 6.6)])); g.add(new THREE.Mesh(wire, M.wire));
       const mess = ribbon(P.map((p) => [off(p, -0.02, 6.6), off(p, 0.02, 6.6)])); g.add(new THREE.Mesh(mess, M.wire));
     }
     // --- ต้นไม้ / ต้นตาล / บ้านชนบท
@@ -1128,9 +1143,10 @@ export function createWorld(host, api) {
     return out;
   }
   const headSpot = new THREE.SpotLight(0xfff3d6, 0, 400, 0.22, 0.4, 1.2);
-  function buildTrain(tr) {
-    trainRoot.clear(); cars = [];
-    tr.cars.forEach((c, i) => {
+  // สร้างตัวรถทั้งขบวนลงใน parent → [{ g, len, off, doors, doorX }] (doorX = กึ่งกลางประตูตามแนวรถ วัดไปทางหน้าขบวน)
+  function buildCars(list, parent) {
+    const out = [];
+    list.forEach((c) => {
       const gp = new THREE.Group(), len = c.len;
       const flip = !!(c.flip || c.cabRear);
       if (c.type === "loco") makeLoco(gp, len);
@@ -1142,11 +1158,17 @@ export function createWorld(host, api) {
       // คันท้าย: ไฟหน้ากลายเป็นไฟท้ายสีแดง
       if (flip) gp.traverse((o) => { if (o.material === lampW) o.material = lampR; });
       // ประตูเปิดฝั่งซ้ายตามทิศวิ่ง (ฝั่งชานชาลา) — คันที่กลับหัว ฝั่งซ้ายคือ +z ของตัวเอง
-      const doors = addDoors(gp, c.type, len, flip ? 1 : -1, c.type === "coachLux" ? c.variant : c.style);
+      const dsty = c.type === "coachLux" ? c.variant : c.style;
+      const doors = addDoors(gp, c.type, len, flip ? 1 : -1, dsty);
+      const sp = doorSpec(c.type, len, dsty), doorX = sp ? sp.list.map(([x0, dw]) => (x0 + dw / 2) * (flip ? -1 : 1)) : [];
       let outer = gp;
       if (flip) { outer = new THREE.Group(); gp.rotation.y = Math.PI; outer.add(gp); }
-      trainRoot.add(outer); cars.push({ g: outer, len: c.len, off: c.off, doors });
+      parent.add(outer); out.push({ g: outer, len: c.len, off: c.off, doors, doorX });
     });
+    return out;
+  }
+  function buildTrain(tr) {
+    trainRoot.clear(); cars = buildCars(tr.cars, trainRoot);
     // ไฟหน้าส่องทาง (กลางคืน)
     headSpot.target.position.set(60, 0, 0); cars[0].g.add(headSpot, headSpot.target); headSpot.position.set(cars[0].len / 2 + 0.5, 2.0, 0);
     // ห้องคนขับ: คอนโซล (เห็นเฉพาะมุมห้องคนขับ)
@@ -1163,6 +1185,153 @@ export function createWorld(host, api) {
     lampW.color.setHex(night || env.wx !== "clear" ? 0xffffff : 0xe8e4d6);
   }
   const cab = new THREE.Group(); scene.add(cab);
+
+
+  /* ---------------- ขบวนรถสวน (รางที่ 2) ----------------
+     สร้างจากแบบเดียวกับขบวนเรา · เก็บโมเดลไว้ใช้ซ้ำ (pool) ไม่สร้างใหม่ทุกครั้งที่ขบวนผ่าน */
+  const aiRoot = new THREE.Group(); scene.add(aiRoot);
+  const aiLive = new Map(), aiPool = new Map();
+  function aiModel(spec) {
+    const arr = aiPool.get(spec.key); if (arr && arr.length) return arr.pop();
+    const g = new THREE.Group(); return { key: spec.key, g, cars: buildCars(spec.cars, g) };
+  }
+  function aiRelease(m) { aiRoot.remove(m.g); if (!aiPool.has(m.key)) aiPool.set(m.key, []); aiPool.get(m.key).push(m); }
+  const sideP = (s, o) => { const t = trackPoint(Math.max(0, Math.min(geo.total, s))); return { x: t.x - Math.sin(t.th) * o, y: t.y + Math.cos(t.th) * o, z: t.z }; };
+  function placeAI(list, sNow) {
+    const seen = new Set();
+    (list || []).forEach((a) => {
+      if (a.s < sNow - 2500 || a.s > sNow + 4200) return;
+      seen.add(a.id);
+      let m = aiLive.get(a.id); if (!m) { m = aiModel(a.P.spec); aiLive.set(a.id, m); aiRoot.add(m.g); }
+      Object.assign(m, { s: a.s, v: a.v, door: a.door, st: a.st, dir: a.P.dir, term: a.term, orig: a.orig, id: a.id });
+      const de = a.door * a.door * (3 - 2 * a.door);
+      m.cars.forEach((c) => {
+        const sc = a.s - a.P.dir * c.off, h = c.len / 2 - 3.2;
+        const A = sideP(sc + a.P.dir * h, -DT), B = sideP(sc - a.P.dir * h, -DT);
+        const th = Math.atan2(A.y - B.y, A.x - B.x), pitch = Math.atan2(A.z - B.z, Math.hypot(A.x - B.x, A.y - B.y));
+        c.g.position.set((A.x + B.x) / 2, (A.z + B.z) / 2 + 0.18, -(A.y + B.y) / 2);
+        c.g.rotation.order = "YZX"; c.g.rotation.set(0, th, pitch);
+        c.doors.forEach((d) => { d.g.position.x = d.x0 + d.dx * de; });
+      });
+    });
+    aiLive.forEach((m, id) => { if (!seen.has(id)) { aiLive.delete(id); aiRelease(m); } });
+  }
+
+  /* ---------------- ผู้โดยสารบนชานชาลา ----------------
+     ยืนรอตามชานชาลา · รถจอดเปิดประตู → คนในรถเดินลงก่อน แล้วคนรอเดินไปประตูที่ใกล้สุดขึ้นรถ
+     ประตูปิดก่อนขึ้นครบ → ที่เหลือถอยกลับไปรอ · มีคนเดินเข้ามาเติมเรื่อย ๆ · ฝั่งซ้าย = รางเรา, ฝั่งขวา = รางขบวนสวน */
+  const PMAX = 700;
+  const legGeo = new THREE.BoxGeometry(0.13, 0.8, 0.15); legGeo.translate(0, -0.4, 0);
+  const pBody = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.16, 0.21, 0.64, 8), mat(0xffffff, { roughness: 0.85 }), PMAX);
+  const pHead = new THREE.InstancedMesh(new THREE.SphereGeometry(0.115, 10, 8), mat(0xffffff, { roughness: 0.7 }), PMAX);
+  const pLeg = new THREE.InstancedMesh(legGeo, mat(0xffffff, { roughness: 0.9 }), PMAX * 2);
+  [pBody, pHead, pLeg].forEach((m) => { m.frustumCulled = false; m.castShadow = true; m.count = 0; scene.add(m); });
+  const SHIRT = [0xd94a3a, 0x2f6fb5, 0xf0f0ea, 0x3a8a5a, 0xe2b13c, 0x7a4fa0, 0x24292f, 0xe88aa6, 0x5aa9c9, 0x9a6b45, 0xffffff, 0x1f3f74];
+  const PANTS = [0x23262d, 0x2d3d5c, 0x4a4a4a, 0x6b5a45, 0x1a1a1a, 0x3b4f6b];
+  const SKIN = [0xc68c5f, 0xd9a47a, 0xb87a50, 0xe3b48f, 0x9c6a45];
+  const crowds = new Map();
+  let paxRun = { on: 0, off: 0 };
+  const span = (st) => (st.h ? 38 : 95);
+  const Lo = (side, k) => (side > 0 ? k : -(k + DT));
+  function newPerson(cw, r, state, s, o) {
+    return { s, o, ts: s, to: o, state, delay: 0, spd: 1.1 + r() * 0.5, ph: r() * 6.3, h: 0.92 + r() * 0.16,
+      shirt: SHIRT[Math.floor(r() * SHIRT.length)], pants: PANTS[Math.floor(r() * PANTS.length)], skin: SKIN[Math.floor(r() * SKIN.length)], moving: false };
+  }
+  const waitSpot = (cw, r) => [cw.st.s + (r() * 2 - 1) * span(cw.st) * 0.85, Lo(cw.side, 2.9 + r() * 2.5)];
+  function makeCrowd(i, side) {
+    const st = geo.stations[i], r = rnd(i * 977 + (side > 0 ? 1 : 2) * 31 + Math.floor(Math.random() * 1e6));
+    const base = st.m === 2 ? 26 : st.m ? 16 : st.h ? 5 : 9;
+    const cw = { st, i, side, r, base, people: [], serve: null, spawnT: 0 };
+    for (let k = 0; k < base; k++) { const [s, o] = waitSpot(cw, r); cw.people.push(newPerson(cw, r, "wait", s, o)); }
+    return cw;
+  }
+  // ตำแหน่งประตูของขบวน (หน่วย s) ที่อยู่ในช่วงชานชาลา
+  function doorsOf(list, sFront, dir, st) {
+    const out = [], sp = span(st) + 6;
+    list.forEach((c) => { const sc = sFront - dir * c.off; c.doorX.forEach((dx) => { const s = sc + dir * dx; if (Math.abs(s - st.s) < sp) out.push(s); }); });
+    return out;
+  }
+  function crowdTick(cw, dt, trainsHere) {
+    const r = cw.r, ppl = cw.people;
+    // ขบวนที่จอดเปิดประตูอยู่ที่ชานชาลานี้
+    const tr = trainsHere.find((t) => t.door > 0.92 && Math.abs(t.v) < 0.05);
+    if (tr && (!cw.serve || cw.serve.id !== tr.id)) {
+      const doors = doorsOf(tr.cars, tr.s, tr.dir, cw.st);
+      cw.serve = { id: tr.id, doors, player: tr.player };
+      if (tr.player) paxRun = { on: 0, off: 0 };
+      const maxOff = cw.st.m === 2 ? 5 : cw.st.m ? 3 : 2;
+      // คนลงจากรถ (ต้นทาง: ไม่มีคนลง)
+      if (!tr.orig) doors.forEach((ds) => { const n = Math.floor(r() * (tr.term ? maxOff + 3 : maxOff + 1)); for (let k = 0; k < n; k++) { const p = newPerson(cw, r, "alight", ds + (r() - 0.5) * 0.6, Lo(cw.side, 0.7)); p.ts = p.s; p.to = Lo(cw.side, 2.6 + r() * 1.2); p.delay = k * 1.3 + r() * 0.9; ppl.push(p); } });
+      cw.serve.term = !!tr.term;
+    }
+    // ระหว่างเปิดประตู: คนที่รออยู่ (รวมคนที่เพิ่งเดินมา) เดินไปประตูที่ใกล้สุด (ปลายทาง: ไม่มีคนขึ้น)
+    if (tr && cw.serve && !cw.serve.term && cw.serve.doors.length) {
+      const doors = cw.serve.doors;
+      ppl.forEach((p) => { if (p.state !== "wait") return; let best = doors[0]; doors.forEach((d) => { if (Math.abs(d - p.s) < Math.abs(best - p.s)) best = d; }); p.state = "toDoor"; p.door = best; p.ts = best + (r() - 0.5) * 1.2; p.to = Lo(cw.side, 2.2 + r() * 0.5); p.delay = 2.5 + r() * 3.5; });
+    }
+    if (!tr && cw.serve) {
+      // ประตูปิดแล้ว: คนที่ยังไม่ได้ขึ้น ถอยกลับไปรอ
+      cw.serve = null;
+      ppl.forEach((p) => { if (p.state === "toDoor" || p.state === "board") { const [s, o] = waitSpot(cw, r); p.state = "wait"; p.ts = p.s + (r() - 0.5) * 4; p.to = o; p.delay = r(); } });
+    }
+    // คนเดินเข้ามาเติมจากปลายชานชาลา
+    const waiting = ppl.filter((p) => p.state === "wait" || p.state === "arrive").length;
+    cw.spawnT -= dt;
+    if (waiting < cw.base && cw.spawnT <= 0) {
+      cw.spawnT = 3 + r() * 9;
+      const end = cw.st.s + (r() < 0.5 ? -1 : 1) * span(cw.st), p = newPerson(cw, r, "arrive", end, Lo(cw.side, 3 + r() * 2.5)); const [s, o] = waitSpot(cw, r); p.ts = s; p.to = o; ppl.push(p);
+    }
+    for (let k = ppl.length - 1; k >= 0; k--) {
+      const p = ppl[k];
+      if (p.delay > 0) { p.delay -= dt; p.moving = false; continue; }
+      const ds = p.ts - p.s, dO = p.to - p.o, d = Math.hypot(ds, dO);
+      if (d > 0.05) { const st = Math.min(d, p.spd * dt); p.s += ds / d * st; p.o += dO / d * st; p.ph += st * 5.2; p.moving = true; p.dirS = ds / d; p.dirO = dO / d; continue; }
+      p.moving = false;
+      if (p.state === "arrive") p.state = "wait";
+      else if (p.state === "toDoor") { if (cw.serve) { p.state = "board"; p.ts = p.door + (r() - 0.5) * 0.4; p.to = Lo(cw.side, 0.5); p.delay = r() * 0.6; } else p.state = "wait"; }
+      else if (p.state === "board") { ppl.splice(k, 1); if (cw.serve && cw.serve.player) paxRun.on++; }
+      else if (p.state === "alight") { p.state = "leave"; const e = p.s < cw.st.s ? -1 : 1; p.ts = cw.st.s + e * (span(cw.st) + 4); p.to = Lo(cw.side, 4 + r() * 1.5); if (cw.serve && cw.serve.player) paxRun.off++; }
+      else if (p.state === "leave") ppl.splice(k, 1);
+    }
+  }
+  const m4p = new THREE.Matrix4(), qp = new THREE.Quaternion(), ep = new THREE.Euler(), vp = new THREE.Vector3(), sp1 = new THREE.Vector3(1, 1, 1), cp = new THREE.Color();
+  function people(dt, st) {
+    // สร้าง/ลบกลุ่มคนตามสถานีที่อยู่ใกล้
+    const near = new Set();
+    geo.stations.forEach((s0, i) => {
+      if (s0.s < st.s - 700 || s0.s > st.s + 1200) return;
+      [1, -1].forEach((side) => { const k = i * 2 + (side > 0 ? 0 : 1); near.add(k); if (!crowds.has(k)) crowds.set(k, makeCrowd(i, side)); });
+    });
+    crowds.forEach((cw, k) => { if (!near.has(k)) crowds.delete(k); });
+    // ขบวนที่อาจจอดอยู่: ขบวนเรา (ชานชาลาซ้าย) + ขบวนสวน (ชานชาลาขวา)
+    const mine = { id: "me", player: true, cars, s: st.s, dir: 1, v: st.v, door: st.door || 0, term: !!st.term, orig: false };
+    const ais = []; aiLive.forEach((m) => ais.push({ id: m.id, cars: m.cars, s: m.s, dir: m.dir, v: m.v, door: m.door, st: m.st, term: m.term, orig: m.orig }));
+    let n = 0;
+    crowds.forEach((cw) => {
+      const here = cw.side > 0 ? (Math.abs(st.s - cw.st.s) < 400 ? [mine] : []) : ais.filter((a) => a.st === cw.i);
+      crowdTick(cw, dt, here);
+      cw.people.forEach((p) => {
+        if (n >= PMAX) return;
+        const t = trackPoint(Math.max(0, Math.min(geo.total, p.s)));
+        const x = t.x - Math.sin(t.th) * p.o, y = t.y + Math.cos(t.th) * p.o, z = t.z + 0.95;
+        let yaw;
+        if (p.moving) { const wx = p.dirS * Math.cos(t.th) - p.dirO * Math.sin(t.th), wy = p.dirS * Math.sin(t.th) + p.dirO * Math.cos(t.th); yaw = Math.atan2(wy, wx); }
+        else yaw = t.th + (cw.side > 0 ? -Math.PI / 2 : Math.PI / 2) + Math.sin(p.ph) * 0.4;
+        const sw = p.moving ? Math.sin(p.ph) * 0.55 : 0, bob = p.moving ? Math.abs(Math.cos(p.ph)) * 0.035 : 0, h = p.h;
+        ep.set(0, yaw, 0, "YZX"); qp.setFromEuler(ep);
+        m4p.compose(vp.set(x, z + (0.8 + 0.32) * h + bob, -y), qp, sp1.set(h, h, h)); pBody.setMatrixAt(n, m4p); pBody.setColorAt(n, cp.setHex(p.shirt));
+        m4p.compose(vp.set(x, z + 1.57 * h + bob, -y), qp, sp1.set(h, h, h)); pHead.setMatrixAt(n, m4p); pHead.setColorAt(n, cp.setHex(p.skin));
+        [1, -1].forEach((lr, j) => {
+          ep.set(0, yaw, sw * lr, "YZX"); qp.setFromEuler(ep);
+          const lz = 0.09 * lr * h;
+          m4p.compose(vp.set(x + lz * Math.sin(yaw), z + 0.82 * h + bob, -y + lz * Math.cos(yaw)), qp, sp1.set(h, h, h)); pLeg.setMatrixAt(n * 2 + j, m4p); pLeg.setColorAt(n * 2 + j, cp.setHex(p.pants));
+        });
+        n++;
+      });
+    });
+    pBody.count = pHead.count = n; pLeg.count = n * 2;
+    [pBody, pHead, pLeg].forEach((m) => { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; });
+  }
 
   /* ---------------- ฝน ---------------- */
   const RAIN_N = 6000, rainPos = new Float32Array(RAIN_N * 6), rainSeed = new Float32Array(RAIN_N * 3);
@@ -1241,6 +1410,8 @@ export function createWorld(host, api) {
       c.doors.forEach((d) => { d.g.position.x = d.x0 + d.dx * de; });
       if (st.derailed) { c.g.rotation.x += st.derailed.side * Math.min(1.35, st.derailed.t * 0.9) * (c === cars[0] ? 1 : 0.6); c.g.position.y -= Math.min(1.2, st.derailed.t); }
     });
+    placeAI(st.ai, st.s);
+    people(Math.min(dt, 0.25) * (st.warp || 1), st);
     // ท้องฟ้า/ดวงอาทิตย์ตามกล้อง
     const k = ENV[env.tod]; const sd = new THREE.Vector3(k.sun[0], k.sun[1], k.sun[2]).normalize();
     skyMat.uniforms.sunDir.value.copy(sd);
@@ -1298,5 +1469,5 @@ export function createWorld(host, api) {
     return newChunks;
   }
   function warm(s) { let n = 0; while (refreshChunks(s) > 0 && n < 40) n++; }
-  return { camDist: () => (view.pos && cars[0] ? view.pos.distanceTo(cars[0].g.position) : -1), update, resize, setCam, setEnv, warm, get mode() { return view.mode; }, recenterAt: (s) => { const p = geo.at(s); recenter(p.lat, p.lon); view.pos = null; view.th = undefined; view.trackSpot = null; chunks.forEach((g) => { root.remove(g); g.traverse((o) => { if (o.geometry && o.geometry !== geoBox && !Object.values(treeGeo).includes(o.geometry)) o.geometry.dispose(); }); }); chunks.clear(); } };
+  return { pax: () => paxRun, aiCount: () => aiLive.size, crowdCount: () => { let n = 0; crowds.forEach((c) => { n += c.people.length; }); return n; }, camDist: () => (view.pos && cars[0] ? view.pos.distanceTo(cars[0].g.position) : -1), update, resize, setCam, setEnv, warm, get mode() { return view.mode; }, recenterAt: (s) => { const p = geo.at(s); recenter(p.lat, p.lon); view.pos = null; view.th = undefined; view.trackSpot = null; chunks.forEach((g) => { root.remove(g); g.traverse((o) => { if (o.geometry && o.geometry !== geoBox && !Object.values(treeGeo).includes(o.geometry)) o.geometry.dispose(); }); }); chunks.clear(); } };
 }

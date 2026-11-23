@@ -219,6 +219,12 @@
     <p class="note" id="dwellNote" style="margin-top:4px"></p>
   </section>
   <section>
+    <h2>นาฬิกาในเกม (ขบวนสวนวิ่งตามตารางเดินรถ)</h2>
+    <div class="seg" id="clockSel"><button data-c="now" aria-pressed="true">ตามเวลาจริง</button><button data-c="06:00">06:00</button><button data-c="09:00">09:00</button><button data-c="12:00">12:00</button><button data-c="17:00">17:00</button><button data-c="20:00">20:00</button></div>
+    <div style="height:6px"></div>
+    <label class="note" style="display:flex;align-items:center;gap:6px">ตั้งเวลาเอง <input type="time" id="clockCustom" style="font:inherit;color:var(--text);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:8px;padding:4px 6px"></label>
+    <p class="note" id="trafficNote" style="margin-top:4px"></p>
+    <div style="height:10px"></div>
     <h2>สภาพแวดล้อม</h2>
     <div class="seg" id="tod"><button data-t="dawn">เช้า</button><button data-t="day" aria-pressed="true">กลางวัน</button><button data-t="dusk">เย็น</button><button data-t="night">กลางคืน</button></div>
     <div style="height:6px"></div>
@@ -246,7 +252,7 @@
       <kbd>Tab</kbd><span>เปิด/ปิดแผงตั้งค่า</span>
       <kbd>ลากเมาส์</kbd><span>หันมอง / หมุนกล้อง · ล้อเมาส์ซูม</span>
     </div>
-    <p class="note" style="margin-top:8px">ข้อมูลทาง: OpenStreetMap (สายเหนือ) + ความสูงจากดาวเทียม SRTM · สเปกรถเป็นค่าประมาณของรถแต่ละประเภท ไม่ใช่รุ่นใดรุ่นหนึ่ง · รถไฟฟ้า/ความเร็วสูงสมมติว่ามีสายส่งไฟและวิ่งบนรางเดิม (ขนาด 1 เมตร)</p>
+    <p class="note" style="margin-top:8px">ข้อมูลทาง: OpenStreetMap (สายเหนือ) + ความสูงจากดาวเทียม SRTM · ตารางเดินรถ: กำหนดเวลาเดินรถสายเหนือ การรถไฟแห่งประเทศไทย · สเปกรถเป็นค่าประมาณของรถแต่ละประเภท ไม่ใช่รุ่นใดรุ่นหนึ่ง · รถไฟฟ้า/ความเร็วสูงสมมติว่ามีสายส่งไฟและวิ่งบนรางเดิม (ขนาด 1 เมตร)</p>
   </section>
 </aside>
 
@@ -254,6 +260,6 @@
 <div id="big"><div id="bigText"></div></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script type="module" src="./train_sim.js?v=20261128-5"></script>
+<script type="module" src="./train_sim.js?v=20261129-2"></script>
 </body>
 </html>

@@ -15,6 +15,8 @@ const LINES = {
   north: { name: "สายเหนือ กรุงเทพ–เชียงใหม่", data: "./train_line_north.js?v=20261128-1", bld: "./bkk_bld_north.js?v=20261127-1", train: "loco" },
   arl: { name: "สายสนามบิน กรุงเทพ–อุรุพงษ์–สุวรรณภูมิ", data: "./train_line_arl.js?v=20261128-1", bld: "./bkk_bld_arl.js?v=20261127-1", train: "emu" }
 };
+const { makeTraffic } = await import("./train_traffic.js?v=20261129-2");
+const TTN = LINE_ID === "north" ? (await import("./train_tt_north.js?v=20261129-2")).TT : null;
 const { LINE } = await import(LINES[LINE_ID].data);
 
 const $ = (id) => document.getElementById(id);
@@ -130,8 +132,16 @@ const S = {
   type: LINES[LINE_ID].train, tr: null, s: 0, v: 0, a: 0, lever: 0, emer: false, trac: 0, brk: 0, fT: 0, fB: 0, fR: 0, fG: 0, fC: 0,
   slip: 0, slide: 0, au: 0, auT: 0, derailed: null, t: 0, energy: 0, regenE: 0, fuel: 0,
   from: 0, to: 0, stops: [], stopIdx: 0, dwell: 0, atStation: null, results: [], warp: 1, ato: false, done: false,
-  stopMode: "type", wx: "clear", tod: "day", sound: true, maxV: 0
+  stopMode: "type", wx: "clear", tod: "day", sound: true, maxV: 0, clock0: 0
 };
+/* ---------------- นาฬิกาในเกม + ขบวนสวนตามตารางเดินรถ ----------------
+   เวลาในเกม = เวลาเริ่ม + เวลาที่ขับมา (รวมเร่งเวลา) · ขบวนสวนวิ่งบนรางที่ 2 เท่านั้น ไม่มีรถบนรางที่เราวิ่ง */
+const traffic = makeTraffic(LINE_ID, geo, TTN);
+let clockSet = "now", aiNow = [];
+const nowSec = () => { const d = new Date(); return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds(); };
+const clockNow = () => S.clock0 + S.t;
+const fmtClock = (c) => { c = ((Math.floor(c) % 86400) + 86400) % 86400; return String(Math.floor(c / 3600)).padStart(2, "0") + ":" + String(Math.floor(c / 60) % 60).padStart(2, "0") + ":" + String(c % 60).padStart(2, "0"); };
+function setClockStart() { S.clock0 = clockSet === "now" ? nowSec() : (() => { const [h, m] = clockSet.split(":").map(Number); return h * 3600 + m * 60; })(); }
 const trainKey = () => S.type + TRAINS[S.type].n + (TRAINS[S.type].electric ? "e" : "") + (S.type === "hsr" ? hsrStyle : "");
 
 /* ---------------- ฟิสิกส์ ---------------- */
@@ -264,7 +274,7 @@ function checkStops(dt) {
       if (S.dwell <= 0) { S.dwell = 0; S.dwellDone = true; sfx.bell(); if (S.ato) setDoors(false, true); else flash("ครบเวลาจอด — ปิดประตู (D) แล้วออกได้", "info", 3500); }
     }
     // ประตูปิดสนิทหลังรับส่งผู้โดยสาร → ไปสถานีถัดไป
-    if (S.doorUsed && !S.doorOpen && S.doorT === 0) { S.dwell = 0; S.dwellDone = false; S.doorUsed = false; S.stopIdx++; flash("ประตูปิดสนิท — ออกได้", "ok", 2000); }
+    if (S.doorUsed && !S.doorOpen && S.doorT === 0) { S.dwell = 0; S.dwellDone = false; S.doorUsed = false; S.stopIdx++; const px = world && world.pax ? world.pax() : null; flash("ประตูปิดสนิท — ออกได้" + (px ? ` · ผู้โดยสารลง ${px.off} ขึ้น ${px.on} คน` : ""), "ok", 2600); }
     // ออกจากสถานีโดยไม่เปิดประตู
     else if (S.atStation && Math.abs(stopMark(S.atStation) - S.s) > 30) {
       flash(`ออกจาก${S.atStation.n}โดยไม่ได้เปิดประตู — ผู้โดยสารไม่ได้ขึ้นลง!`, "", 3500);
@@ -436,6 +446,8 @@ function drawReadouts() {
     ["กำลังที่ล้อ", ((S.fT || 0) * Math.abs(S.v) / 1000).toFixed(0) + " kW", 1],
     ["ประตู", S.doorT === 0 ? "ปิดสนิท" : S.doorT === 1 ? "เปิด" : S.doorOpen ? "กำลังเปิด…" : "กำลังปิด…"],
     ["เวลา", fmtTime(S.t) + (S.warp > 1 ? ` (×${S.warp})` : "")],
+    ["นาฬิกา", fmtClock(clockNow())],
+    ["ขบวนสวน", oncoming()],
     [tr.electric ? "พลังงานไฟฟ้า" : "น้ำมัน", tr.electric ? `${S.energy.toFixed(0)} kWh${tr.regen ? ` (คืน ${S.regenE.toFixed(0)})` : ""}` : `${S.fuel.toFixed(0)} ลิตร`, 1]
   ];
   $("readouts").innerHTML = rows.map(([k, v, x]) => `<span${x ? ' class="x"' : ""}>${k}</span><b${x ? ' class="x"' : ""}>${v}</b>`).join("") + leverHTML();
@@ -531,7 +543,26 @@ function initMap() {
   });
   trainMk = L.circleMarker([LAT[0], LON[0]], { radius: 7, color: "#fff", weight: 2, fillColor: "#ff4d4f", fillOpacity: 1 }).addTo(map);
 }
-function updMap() { if (!map) return; const p = geo.at(S.s); trainMk.setLatLng([p.lat, p.lon]); if (!$("mapWrap").classList.contains("big") || !updMap.done) { map.panTo([p.lat, p.lon], { animate: false }); updMap.done = true; } }
+const aiMk = new Map();
+function updAiMap() {
+  if (!map) return;
+  const seen = new Set();
+  aiNow.forEach((a) => {
+    seen.add(a.id); const p = geo.at(a.s);
+    let m = aiMk.get(a.id);
+    if (!m) { m = L.circleMarker([p.lat, p.lon], { radius: 5, color: "#fff", weight: 1.5, fillColor: "#36a3ff", fillOpacity: 1 }).bindTooltip("", { direction: "top" }).addTo(map); aiMk.set(a.id, m); }
+    m.setLatLng([p.lat, p.lon]);
+    m.setTooltipContent(`ขบวน ${a.P.no} ${a.P.label} · ${a.P.from} → ${a.P.to}${a.v > 0.5 ? ` · ${Math.round(a.v * KMH)} กม./ชม.` : a.st >= 0 ? ` · จอด${geo.stations[a.st].n}` : ""}`);
+  });
+  aiMk.forEach((m, id) => { if (!seen.has(id)) { m.remove(); aiMk.delete(id); } });
+}
+// ขบวนสวนที่ใกล้ที่สุดข้างหน้า
+function oncoming() {
+  let best = null; aiNow.forEach((a) => { if (a.s > S.s - 50 && (!best || a.s < best.s)) best = a; });
+  if (!best) return "—";
+  return `${best.P.no} ${best.P.label} · ${((best.s - S.s) / 1000).toFixed(1)} กม.`;
+}
+function updMap() { if (!map) return; updAiMap(); const p = geo.at(S.s); trainMk.setLatLng([p.lat, p.lon]); if (!$("mapWrap").classList.contains("big") || !updMap.done) { map.panTo([p.lat, p.lon], { animate: false }); updMap.done = true; } }
 let profBase = null;
 function drawProfile() {
   const c = $("profile"), r = c.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1), W = Math.round(r.width * dpr), H = Math.round(r.height * dpr);
@@ -594,6 +625,10 @@ function buildPanel() {
   updDwellUI();
   $("warp").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.warp = +b.dataset.w; pressed("warp", "w", S.warp); });
   $("btnAuto").addEventListener("click", toggleAto);
+  const updClockUI = () => { pressed("clockSel", "c", clockSet); $("trafficNote").textContent = LINE_ID === "arl" ? `แอร์พอร์ตเรล ลิงก์ สุวรรณภูมิ → พญาไท ${traffic.trains.length} เที่ยว/วัน (05:30–24:00 ทุก 10–13 นาที) วิ่งรางฝั่งขวา` : `ขบวนขาล่องตามตารางการรถไฟฯ ${traffic.trains.length} ขบวน/วัน วิ่งรางที่ 2 ฝั่งขวา · ดูตำแหน่งได้ในแผนที่ (จุดสีฟ้า)`; };
+  $("clockSel").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; clockSet = b.dataset.c; $("clockCustom").value = ""; S.clock0 = (clockSet === "now" ? nowSec() : (+clockSet.slice(0, 2)) * 3600 + (+clockSet.slice(3)) * 60) - S.t; updClockUI(); });
+  $("clockCustom").addEventListener("change", () => { const v = $("clockCustom").value; if (!/^\d\d:\d\d/.test(v)) return; clockSet = v.slice(0, 5); S.clock0 = (+v.slice(0, 2)) * 3600 + (+v.slice(3, 5)) * 60 - S.t; updClockUI(); });
+  updClockUI();
   $("tod").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.tod = b.dataset.t; pressed("tod", "t", S.tod); world && world.setEnv({ tod: S.tod }); });
   $("wx").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.wx = b.dataset.x; pressed("wx", "x", S.wx); world && world.setEnv({ wx: S.wx }); if (S.wx === "rain") flash("ฝนตก: รางเปียก แรงยึดเกาะลดลง ~40% — ระวังล้อฟรีตอนออกตัวและล้อไถลตอนเบรก", "info", 5000); });
   $("btnSound").addEventListener("click", () => { S.sound = !S.sound; sfx.init(); $("btnSound").setAttribute("aria-pressed", String(S.sound)); $("btnSound").textContent = "เสียง " + (S.sound ? "เปิด" : "ปิด"); });
@@ -655,7 +690,7 @@ function resetRun(sStart) {
   S.s = clamp(sStart, TRAINS[S.type].length, TOTAL);
 }
 function restart() {
-  S.tr = TRAINS[S.type];
+  S.tr = TRAINS[S.type]; setClockStart();
   const a = geo.stations[S.from];
   resetRun(a.s === 0 ? S.tr.length + 5 : stopMark(a));
   S.stops = stopsFor(); S.stopIdx = 0; S.atStation = a;
@@ -735,7 +770,8 @@ function frame(now) {
     else if (S.slide) { flash("ล้อไถล! เบรกแรงเกินแรงยึดเกาะ ระยะเบรกจะยาวขึ้น", "info", 1200); warnT = 1.5; }
   }
   sfx.update(dtR);
-  if (world) world.update(dtR, { s: S.s, v: S.v, trainKey: trainKey(), train: TRAINS[S.type], rollFor, derailed: S.derailed, door: S.doorT });
+  aiNow = traffic.at(clockNow());
+  if (world) world.update(dtR, { s: S.s, v: S.v, trainKey: trainKey(), train: TRAINS[S.type], rollFor, derailed: S.derailed, door: S.doorT, ai: aiNow, warp: S.warp, term: S.atStation === geo.stations[S.to] });
   drawSpeedo();
   hudT -= dtR; slowT -= dtR;
   if (hudT <= 0) { hudT = 0.12; drawReadouts(); drawNext(); }
@@ -767,7 +803,7 @@ async function start() {
   pressed("trains", "k", S.type);
   buildPanel(); initMap(); updAtoBtn();
   try {
-    const mod = await import("./train_sim_3d.js?v=20261128-4");
+    const mod = await import("./train_sim_3d.js?v=20261129-2");
     const bld = await loadBuildings();
     const branch = branchFor();
     world = mod.createWorld($("view"), { geo, bld, branch, urban: (a, b) => countBld(bld, a, b) > 25, electric: () => !!TRAINS[S.type].electric });
@@ -776,7 +812,7 @@ async function start() {
   } catch (e) { console.error(e); flash("โหลดกราฟิก 3 มิติไม่สำเร็จ — ยังขับได้จากหน้าปัดและแผนที่", "", 6000); }
   restart();
   $("loading").hidden = true;
-  if (new URLSearchParams(location.search).get("debug") === "1") window.__train = { S, geo, TRAINS, jumpTo, restart, world: () => world, sim(sec) { for (let t = 0; t < sec; t += 0.05) { if (S.ato) runAto(); stepPhysics(0.05); checkStops(0.05); } } };
+  if (new URLSearchParams(location.search).get("debug") === "1") window.__train = { S, geo, TRAINS, jumpTo, restart, traffic, aiNow: () => aiNow, world: () => world, sim(sec) { for (let t = 0; t < sec; t += 0.05) { if (S.ato) runAto(); stepPhysics(0.05); checkStops(0.05); } } };
   requestAnimationFrame(frame);
 }
 requireLogin(() => start());
