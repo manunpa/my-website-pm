@@ -274,7 +274,7 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
      - ชุดพื้นฐาน: กำหนดด้วย href ของการ์ดด้านล่าง (การ์ดที่ถูกลบออกจากหน้าจะถูกข้ามเอง)
      - ชุดของฉัน: เลือกการ์ดเอง เก็บในเครื่องนี้แยกตามบัญชี เหมือนรายการโปรด
      - คอม: เปิดทุกลิงก์พร้อมกัน (ครั้งแรกเบราว์เซอร์อาจบล็อก ต้องกดอนุญาตป๊อปอัป)
-     - มือถือ/จอสัมผัส/โหมดแอป: เปิดทีละอัน กด "ถัดไป" ไปเรื่อย ๆ (ไม่โดนบล็อก)
+     - ทุกเครื่องลองเปิดทั้งชุดก่อน ถ้าโดนบล็อก (มักเป็นมือถือ) จะขึ้นปุ่ม "ถัดไป" ให้เปิดที่เหลือทีละอัน
      ===================================================================== */
   K.sets = "hub-sets:" + uid;
   K.step = "hub-step:" + uid;
@@ -301,7 +301,8 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
   var stepRun = null;   // { name, hrefs, i, opened, blocked }
   try { stepRun = JSON.parse(sessionStorage.getItem(K.step)); } catch (e) {}
   var picking = null;   // { id, name, hrefs }
-  var stepMode = window.matchMedia("(display-mode: standalone), (pointer: coarse)").matches;
+  // ใช้แค่เลือกคำอธิบายตอนโดนบล็อก (ทุกเครื่องลองเปิดทั้งชุดก่อนเสมอ)
+  var phone = window.matchMedia("(hover: none) and (pointer: coarse)").matches;
 
   function esc(s) {
     return String(s).replace(/[&<>"']/g, function (ch) {
@@ -341,7 +342,7 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
     var hrefs = liveHrefs(set);
     if (!hrefs.length) return "";
     var acts = '<button type="button" class="setopen" data-act="open" data-id="' + esc(set.id) + '">' +
-      (stepMode ? "เปิดทีละอัน" : "เปิดทั้งชุด") + " ↗</button>";
+      "เปิดทั้งชุด ↗</button>";
     acts += mine
       ? '<button type="button" class="setghost" data-act="edit" data-id="' + esc(set.id) + '">แก้</button>' +
         '<button type="button" class="setghost" data-act="del" data-id="' + esc(set.id) + '">ลบ</button>'
@@ -356,8 +357,10 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
     var r = stepRun, done = r.i >= r.hrefs.length;
     var note = r.blocked
       ? '<p class="stepnote">เบราว์เซอร์บล็อกหน้าต่างใหม่ไว้ เปิดได้ ' + r.opened + " จาก " + r.hrefs.length +
-        " ลิงก์ — กดไอคอนป๊อปอัปที่ถูกบล็อก (ขวาสุดของช่องที่อยู่เว็บ) เลือก <b>อนุญาตเสมอ</b> ครั้งหน้าจะเปิดครบทีเดียว" +
-        " หรือกด <b>ถัดไป</b> ด้านล่างเพื่อเปิดส่วนที่เหลือทีละอัน</p>"
+        (phone
+          ? " ลิงก์ — มือถือส่วนใหญ่ไม่ให้เปิดหลายแท็บพร้อมกัน กด <b>ถัดไป</b> ด้านล่างเพื่อเปิดส่วนที่เหลือทีละอัน</p>"
+          : " ลิงก์ — กดไอคอนป๊อปอัปที่ถูกบล็อก (ขวาสุดของช่องที่อยู่เว็บ) เลือก <b>อนุญาตเสมอ</b> ครั้งหน้าจะเปิดครบทีเดียว" +
+            " หรือกด <b>ถัดไป</b> ด้านล่างเพื่อเปิดส่วนที่เหลือทีละอัน</p>")
       : "";
     var main = done
       ? '<span class="stepdone">✓ เปิดครบ ' + r.hrefs.length + " ลิงก์แล้ว</span>"
@@ -389,13 +392,6 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
   function openSet(set) {
     var hrefs = liveHrefs(set);
     if (!hrefs.length) return;
-    if (stepMode) {
-      // มือถือ: เปิดอันแรกเลย (เป็นการกดของผู้ใช้ ไม่โดนบล็อก) แล้วให้กด "ถัดไป" ต่อ
-      var w0 = window.open(hrefs[0], "_blank");
-      if (w0) { try { w0.opener = null; } catch (e) {} }
-      startStep(set, hrefs, w0 ? 1 : 0, false);
-      return;
-    }
     var opened = 0;
     for (var i = 0; i < hrefs.length; i++) {
       var w = window.open(hrefs[i], "_blank");
