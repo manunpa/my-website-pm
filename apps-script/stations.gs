@@ -1,20 +1,24 @@
 /**
- * API ข้อมูลปั๊มน้ำมันทุกแบรนด์ สำหรับหน้า access-maps.html (Google ชีต: stations_all_brands)
- * ส่งข้อมูลให้เฉพาะคนที่ล็อกอินเว็บแล้วเท่านั้น (ตรวจ Firebase token)
+ * API ข้อมูลปั๊มน้ำมันทุกแบรนด์ (Google ชีต: stations_all_brands) — ใช้ร่วมกัน 2 เว็บ:
+ *   - my-website-pm  (หน้า access-maps.html)  Firebase โปรเจกต์ my-login-project-26857
+ *   - my-web-p3      (หน้า Maps)              Firebase โปรเจกต์ my-web-p3
+ * ส่งข้อมูลให้เฉพาะคนที่ล็อกอินเว็บใดเว็บหนึ่งแล้วเท่านั้น (ตรวจ Firebase token)
  *
  * - อ่าน "ทุกแท็บ" แต่ละแท็บ = หนึ่งแบรนด์ (ชื่อแท็บ = ชื่อแบรนด์บนแผนที่)
  * - ข้ามแท็บใน SKIP_SHEETS, แท็บที่ชื่อขึ้นต้นด้วย _ และแท็บที่ซ่อน
  * - เพิ่มแบรนด์ใหม่: เพิ่มแท็บ แถวแรกเป็นหัวคอลัมน์ ต้องมีอย่างน้อย name, lat, lng — ไม่ต้อง Deploy ใหม่
  *
- * วิธีติดตั้ง: วางโค้ดนี้ทับทั้งไฟล์ → บันทึก → การทำให้ใช้งานได้ → "การทำให้ใช้งานได้รายการใหม่"
- * (ได้ URL ใหม่ไว้ใช้กับเว็บ — URL เดิมยังทำงานด้วยโค้ดเก่าเหมือนเดิม ไม่กระทบระบบอื่น)
+ * วิธีติดตั้ง: วางโค้ดนี้ทับทั้งไฟล์ → บันทึก → การทำให้ใช้งานได้ → "จัดการการทำให้ใช้งานได้"
+ * → แก้ไข (ดินสอ) รายการเดิม → เวอร์ชัน "เวอร์ชันใหม่" → ทำให้ใช้งานได้ (URL เดิม — pm ไม่ต้องแก้อะไร)
  */
 
 const SKIP_SHEETS = ['All'];
 
-// ค่าเดียวกับ firebaseConfig ใน firebase-guard.js (Web API key ของ Firebase ไม่ใช่ความลับ — แยกเป็น 2 ท่อนเพื่อไม่ให้ถูกซ่อนเป็น ••• ตอนคัดลอก)
-const FIREBASE_API_KEY = ['AIzaSyD7HPOh', 'loICyxEyDTfR8yRiH2rT--q4fVo'].join('');
-const FIREBASE_PROJECT_ID = 'my-login-project-26857';
+// Firebase โปรเจกต์ที่ยอมรับ: projectId → Web API key (ค่าจาก firebaseConfig ของแต่ละเว็บ ไม่ใช่ความลับ — แยกเป็น 2 ท่อนเพื่อไม่ให้ถูกซ่อนเป็น ••• ตอนคัดลอก)
+const FIREBASE_PROJECTS = {
+  'my-login-project-26857': ['AIzaSyD7HPOh', 'loICyxEyDTfR8yRiH2rT--q4fVo'].join(''), // my-website-pm (firebase-guard.js)
+  'my-web-p3':              ['AIzaSyA5OM2o', 'm_4CnwTuFAixQGwxhtyUUmDjv7Y'].join('')  // my-web-p3 (src/firebase.js)
+};
 
 // ===== เว็บเรียกผ่าน POST พร้อม token เท่านั้น =====
 function doPost(e) {
@@ -65,8 +69,9 @@ function verifyFirebaseToken_(idToken) {
 
   const claims = decodeJwtPayload_(idToken);
   const now = Math.floor(Date.now() / 1000);
-  if (!claims || claims.aud !== FIREBASE_PROJECT_ID ||
-      claims.iss !== 'https://securetoken.google.com/' + FIREBASE_PROJECT_ID ||
+  const apiKey = claims && Object.prototype.hasOwnProperty.call(FIREBASE_PROJECTS, claims.aud)
+    ? FIREBASE_PROJECTS[claims.aud] : null;
+  if (!apiKey || claims.iss !== 'https://securetoken.google.com/' + claims.aud ||
       !(claims.exp > now)) return null;
 
   const cache = CacheService.getScriptCache();
@@ -75,9 +80,9 @@ function verifyFirebaseToken_(idToken) {
   const hit = cache.get(key);
   if (hit) return JSON.parse(hit);
 
-  // ให้ Firebase ยืนยันลายเซ็นและสถานะบัญชีจริง
+  // ให้ Firebase (โปรเจกต์ที่ออก token นี้) ยืนยันลายเซ็นและสถานะบัญชีจริง
   const res = UrlFetchApp.fetch(
-    'https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' + FIREBASE_API_KEY, {
+    'https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' + apiKey, {
       method: 'post',
       contentType: 'application/json',
       payload: JSON.stringify({ idToken: idToken }),
@@ -93,7 +98,7 @@ function verifyFirebaseToken_(idToken) {
   const u = (JSON.parse(res.getContentText()).users || [])[0];
   if (!u || u.disabled || u.localId !== claims.sub) return null;
 
-  const user = { uid: u.localId, email: String(u.email || '').toLowerCase() };
+  const user = { project: claims.aud, uid: u.localId, email: String(u.email || '').toLowerCase() };
   const ttl = Math.min(300, claims.exp - now);
   if (ttl > 0) cache.put(key, JSON.stringify(user), ttl);
   return user;
