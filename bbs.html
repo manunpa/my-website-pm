@@ -51,6 +51,24 @@ section p{margin:0 0 8px}
 .finish{position:sticky;bottom:0;z-index:2;box-shadow:0 -6px 16px rgba(0,0,0,.12)}
 .finish h2{margin-bottom:6px}
 .card{background:var(--bg)}
+#setup>summary{cursor:pointer;display:flex;justify-content:space-between;gap:8px}
+#setup[open]>summary{margin-bottom:10px}
+.row,.entry{display:block;width:100%;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--line);cursor:pointer}
+.row{padding:12px 2px}.entry{padding:9px 2px}
+.car{display:flex;gap:4px 14px;flex-wrap:wrap;align-items:baseline;margin-bottom:4px}
+.dest{display:block;flex:1 1 220px;font-size:14px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 8px;overflow-wrap:anywhere}
+.dest>span{color:var(--mute)}
+.log{display:flex;gap:4px 14px;flex-wrap:wrap;padding:2px 0}
+.stamp{font-variant-numeric:tabular-nums;white-space:nowrap}
+.place{flex:1 1 200px;overflow-wrap:anywhere}
+.log small{color:var(--mute);font-size:13px}
+.log em{font-style:normal;color:var(--no)}
+.unchecked{display:block;color:var(--no);font-weight:600}
+.vehicle h3.title{font-size:18px;color:var(--ink);margin:12px 0 8px}
+body.detail #setup,body.detail .tools{display:none}
+.btn.wide{width:100%;padding:10px}
+.editor{border:2px solid var(--ink);border-radius:10px;padding:10px;margin-top:10px;background:var(--panel)}
+.info>summary{color:var(--mute);margin-bottom:6px}
 .empty{text-align:center;color:var(--mute);border:1px dashed var(--line);border-radius:10px;padding:16px}
 .save-state{flex:1 1 220px;border:2px solid;border-radius:8px;padding:6px 10px;font-weight:600}
 .save-state.done{color:var(--ok)}
@@ -58,10 +76,6 @@ section p{margin:0 0 8px}
 .save-state.bad{color:var(--no)}
 .card>summary::before{content:"▸";color:var(--mute)}
 .card[open]>summary::before{content:"▾"}
-.card>summary{cursor:pointer;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
-.card>summary span{flex:1}
-.card>summary em{font-style:normal;font-size:13px;color:var(--mute)}
-.card>summary em.bad{color:var(--no)}
 .body{margin-top:12px}
 .round{border-left:3px solid var(--line);padding-left:10px;margin-bottom:12px}
 .note{width:100%;margin-top:6px}
@@ -88,8 +102,8 @@ dialog em{font-style:normal;color:var(--no)}
     </div>
   </header>
 
-  <section class="panel">
-    <h2><b>1</b> เลือกหน่วยงาน วันที่ และกะ</h2>
+  <details class="panel" id="setup">
+    <summary><b id="setup-title">เลือกหน่วยงาน วันที่ และกะ</b><span class="mute">เปลี่ยน</span></summary>
     <div class="line">
       <label class="field grow">หน่วยงาน (ฟอร์ม)
         <select id="form" aria-label="ฟอร์ม" hidden></select>
@@ -104,7 +118,7 @@ dialog em{font-style:normal;color:var(--no)}
       <label class="field grow">ตรวจสอบโดย<input id="checker" placeholder="ชื่อผู้ตรวจสอบ"></label>
       <label class="field grow">Monitor<input id="monitor" placeholder="ชื่อ Monitor"></label>
     </div>
-  </section>
+  </details>
 
   <div class="state" id="state" role="status" hidden>
     <span class="spin" aria-hidden="true"></span>
@@ -113,26 +127,18 @@ dialog em{font-style:normal;color:var(--no)}
   </div>
 
   <section class="panel">
-    <h2><b>2</b> ใส่แผนงาน <small>(ไม่บังคับ)</small></h2>
-    <p class="mute">เลือกไฟล์แผนจากหน่วยงาน ระบบเติมชื่อคนขับและงานให้ เฉพาะวันที่และกะที่เลือกไว้ในข้อ 1</p>
-    <button class="btn" id="plan-button" type="button" disabled>📄 อัปโหลดแผนงาน</button>
-    <input type="file" id="plan" accept=".xlsx" multiple hidden>
-  </section>
-
-  <section class="panel">
-    <h2><b>3</b> บันทึกการตรวจ</h2>
-    <p class="mute">แตะที่รถ → กด “+ เพิ่มรอบตรวจ” → ใส่สถานที่และติ๊กหัวข้อ ระบบบันทึกให้เอง</p>
-    <div class="line">
-      <input id="search" class="grow" type="search" placeholder="ค้นหาเบอร์รถ / ทะเบียน / ชื่อ" aria-label="ค้นหา" disabled>
-      <button class="btn" id="add" type="button" disabled>+ เพิ่มรถ / งาน</button>
+    <div class="line tools">
+      <input id="search" class="grow" type="search" placeholder="ค้นหารถ / ชื่อ" aria-label="ค้นหา" disabled>
+      <button class="btn" id="plan-button" type="button" title="ดึงเฉพาะวันที่และกะที่เลือก" disabled>📄 แผนงาน</button>
+      <input type="file" id="plan" accept=".xlsx" multiple hidden>
+      <button class="btn" id="add" type="button" disabled>+ รถ</button>
     </div>
-    <p class="mute" id="count"></p>
-    <p><label><input type="checkbox" id="show-all"> แสดงรถที่ไม่มีงานด้วย</label></p>
+    <p class="mute tools" id="count"></p>
     <div id="list"></div>
+    <p class="tools"><label><input type="checkbox" id="show-all"> แสดงรถที่ไม่มีงาน (<span id="hidden-count">0</span>)</label></p>
   </section>
 
   <section class="panel finish">
-    <h2><b>4</b> จบกะ ส่งออกรายงาน</h2>
     <div class="line" style="margin:0">
       <button class="btn primary" id="export" type="button" disabled>⬇ ส่งออกรายงาน Excel</button>
       <span class="save-state" id="status" role="status" hidden></span>
@@ -177,6 +183,6 @@ dialog em{font-style:normal;color:var(--no)}
   paint();
 })();
 </script>
-<script type="module" src="./bbs.js?v=11"></script>
+<script type="module" src="./bbs.js?v=15"></script>
 </body>
 </html>

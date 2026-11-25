@@ -192,6 +192,7 @@ function mergeVehicles() {
 }
 
 async function load() {
+    current = null;
     const key = keyOf();
     let local = null;
     try { local = JSON.parse(localStorage.getItem(localKey(key))); } catch { /* เริ่มใหม่ */ }
@@ -309,70 +310,149 @@ function tripView(v, t, i, redraw) {
         button('ลบ', () => { v.trips.splice(i, 1); save(); redraw(); }));
 }
 
-const openCards = new Set();
+let current = null; // เบอร์รถที่เปิดดูอยู่ (null = หน้ารวม)
+const openRound = new Map(); // เบอร์รถ -> รอบที่กำลังเปิดแก้ (เปิดทีละรอบ)
 
-function vehicleCard(v) {
-    const card = el('details', { className: 'card', open: openCards.has(v.scc) });
-    card.addEventListener('toggle', () => { card.open ? openCards.add(v.scc) : openCards.delete(v.scc); });
-    const summary = el('summary');
-    const body = el('div', { className: 'body' });
-    const head = () => {
-        const bad = v.rounds.some((r) => Object.values(r.marks).includes('O'));
-        summary.replaceChildren(
-            el('b', { textContent: v.scc }),
-            el('span', { textContent: v.driver || 'ไม่มีคนขับ' }),
-            el('em', { className: bad ? 'bad' : '', textContent: v.rounds.length ? 'ตรวจ ' + v.rounds.length + ' รอบ' + (bad ? ' · พบ ✗' : '') : 'ยังไม่ตรวจ' }));
-    };
+// เวลาจริงของรอบตรวจ ใช้เรียงลำดับ (กะกลางคืน: ก่อนเที่ยง = วันถัดไป)
+function roundDate(r) {
+    if (!r?.time) return null;
+    const [y, m, d] = report.date.split('-').map(Number);
+    const [hh, mm, ss = 0] = r.time.split(':').map(Number);
+    return new Date(y, m - 1, d + (report.shift === 'night' && hh < 12 ? 1 : 0), hh, mm, ss);
+}
+
+const byTime = (rounds) => [...rounds].sort((x, y) => (roundDate(x)?.getTime() || 0) - (roundDate(y)?.getTime() || 0));
+const badCount = (r) => Object.values(r.marks || {}).filter((m) => m === 'O').length;
+const shortTime = (r) => (r.time || '--:--').slice(0, 5);
+const typeName = (r) => TYPES[r.type]?.label || '';
+
+function openVehicle(scc) {
+    if (current === null) history.pushState({ bbs: true }, ''); // ปุ่มย้อนกลับของมือถือ = กลับหน้ารวม
+    current = scc;
+    render();
+    window.scrollTo(0, 0);
+}
+
+function closeVehicle() {
+    if (history.state?.bbs) history.back();
+    else { current = null; render(); }
+}
+
+window.addEventListener('popstate', () => { current = null; if (report) render(); });
+
+// "26/11/2026 00:21:22" ตรงกับที่ออกในรายงาน (กะกลางคืนหลังเที่ยงคืนเป็นวันถัดไป)
+function stamp(r) {
+    const at = roundDate(r);
+    if (!at) return '--/--/---- --:--:--';
+    const two = (n) => String(n).padStart(2, '0');
+    return two(at.getDate()) + '/' + two(at.getMonth() + 1) + '/' + at.getFullYear() + ' ' +
+        [at.getHours(), at.getMinutes(), at.getSeconds()].map(two).join(':');
+}
+
+// 1 รอบตรวจ = 1 บรรทัด: วันเวลา สถานที่
+const roundLine = (r) => el('span', { className: 'log' },
+    el('span', { className: 'stamp', textContent: stamp(r) }),
+    el('span', { className: 'place' }, r.place || 'ยังไม่ใส่สถานที่',
+        el('small', {}, ' ' + typeName(r), badCount(r) ? el('em', { textContent: ' · ไม่ผ่าน ' + badCount(r) }) : null,
+            r.note ? ' · ' + r.note : '')));
+
+// ปลายทางงานของคันนี้ (ไม่มีชื่อลูกค้าใช้เลข Shipment)
+function destinations(v) {
+    const list = v.trips.map((t) => t.cust || t.ship).filter(Boolean);
+    if (!list.length) return null;
+    return el('span', { className: 'dest' }, el('span', { textContent: 'ส่ง ' }),
+        list.map((name, i) => (list.length > 1 ? (i + 1) + '. ' : '') + name).join('  '));
+}
+
+// ===== หน้ารวม: ทุกคันพร้อมทุกรอบที่ตรวจแล้ว =====
+function vehicleRow(v) {
+    return el('button', { type: 'button', className: 'row', onclick: () => openVehicle(v.scc) },
+        el('span', { className: 'car' },
+            el('span', {}, el('b', { textContent: v.scc }), ' ' + (v.driver || 'ไม่มีคนขับ')),
+            destinations(v)),
+        ...(v.rounds.length ? byTime(v.rounds).map(roundLine)
+            : [el('span', { className: 'unchecked', textContent: 'ยังไม่ตรวจ' })]));
+}
+
+// ===== หน้ารายคัน =====
+function vehiclePage(v) {
+    const page = el('div', { className: 'vehicle' });
+    let infoOpen = !v.driver || v.trips.some((t) => !t.ship && !t.cust);
     const redraw = () => {
-        head();
+        const editing = v.rounds[openRound.get(v.scc)];
         const driver = input(v, 'driver', 'ชื่อ พขร.', { className: 'grow' });
-        driver.addEventListener('input', head);
-        body.replaceChildren(
+        const info = el('details', { className: 'info', open: infoOpen },
+            el('summary', { textContent: 'ข้อมูลคนขับและงาน (' + v.trips.length + ' งาน)' }),
             el('div', { className: 'line' },
                 driver,
                 input(v, 'risk', 'กลุ่มเสี่ยง เช่น L ปกติ'),
                 el('label', {}, 'GPS ', select(v, 'gps', 'สถานะ GPS', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']])),
                 el('label', {}, 'CCTV ', select(v, 'cctv', 'สถานะ CCTV', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']]))),
-            el('h3', { textContent: 'งานขนส่ง' }),
             ...v.trips.map((t, i) => tripView(v, t, i, redraw)),
-            button('+ เพิ่มงาน', () => { v.trips.push({ ship: '', custId: '', cust: '' }); save(); redraw(); }),
-            el('h3', { textContent: 'รอบตรวจ' }),
-            ...v.rounds.map((r, i) => roundView(v, r, i, redraw)),
-            button('+ เพิ่มรอบตรวจ (เวลาตอนนี้)', () => {
+            button('+ เพิ่มงาน', () => { v.trips.push({ ship: '', custId: '', cust: '' }); save(); redraw(); }));
+        info.addEventListener('toggle', () => { infoOpen = info.open; });
+
+        const entry = (r) => {
+            const i = v.rounds.indexOf(r);
+            if (r === editing) {
+                return el('div', { className: 'editor' },
+                    roundView(v, r, i, () => redraw()),
+                    button('✔ เสร็จ', () => { openRound.delete(v.scc); redraw(); }, 'btn primary wide'));
+            }
+            return el('button', { type: 'button', className: 'entry', onclick: () => { openRound.set(v.scc, i); redraw(); } },
+                roundLine(r));
+        };
+
+        page.replaceChildren(
+            button('← กลับหน้ารวม', closeVehicle),
+            el('h3', { className: 'title', textContent: v.scc + ' ' + (v.driver || '') }),
+            el('p', {}, destinations(v)),
+            button('+ ตรวจรอบใหม่', () => {
                 const time = new Date().toTimeString().slice(0, 8);
                 v.rounds.push({ time, place: '', type: 'driving', marks: presetMarks('driving'), note: '' });
+                openRound.set(v.scc, v.rounds.length - 1);
                 save();
                 redraw();
-            }, 'btn primary'));
+            }, 'btn primary wide'),
+            ...byTime(v.rounds).map(entry),
+            info);
     };
     redraw();
-    card.append(summary, body);
-    return card;
+    return page;
 }
 
-// คันที่ต้องแสดง: มีงาน มีรอบตรวจ เพิ่มเข้ามาเอง หรือกำลังเปิดอยู่
-const hasWork = (v) => v.trips.length > 0 || v.rounds.length > 0 || !!v.pinned || openCards.has(v.scc);
+// คันที่ต้องแสดง: มีงาน มีรอบตรวจ หรือเพิ่มเข้ามาเอง
+const hasWork = (v) => v.trips.length > 0 || v.rounds.length > 0 || !!v.pinned;
 
 function render() {
     $('checker').value = report.checker || '';
     $('monitor').value = report.monitor || '';
-    const q = $('search').value.trim().toLowerCase();
-    const shown = report.vehicles.filter((v) => q
-        ? [v.scc, v.plate, v.driver].join(' ').toLowerCase().includes(q)
-        : $('show-all').checked || hasWork(v));
-    $('list').replaceChildren(...shown.map(vehicleCard));
-    if (template && !shown.length) {
-        $('list').append(el('p', { className: 'empty', textContent: q
-            ? 'ไม่พบรถที่ค้นหา'
-            : 'ยังไม่มีรถที่มีงาน — อัปโหลดแผนงานในข้อ 2 หรือกด “+ เพิ่มรถ / งาน”' }));
-    }
+    const open = current && report.vehicles.find((v) => v.scc === current);
+    document.body.classList.toggle('detail', !!open);
+    $('setup-title').textContent = [
+        $('form').selectedOptions[0]?.textContent,
+        report.date.split('-').reverse().join('/'),
+        report.shift === 'night' ? 'กลางคืน' : 'กลางวัน'
+    ].filter(Boolean).join(' · ');
     for (const id of ['export', 'plan-button', 'search', 'add']) $(id).disabled = !template;
-    const working = report.vehicles.filter(hasWork).length;
-    $('count').textContent = template ? 'มีงาน ' + working + ' คัน · ตรวจแล้ว ' +
-        report.vehicles.filter((v) => v.rounds.length).length + ' คัน · ไม่มีงาน (ซ่อนไว้) ' +
-        (report.vehicles.length - working) + ' คัน' : 'ยังไม่มีรายชื่อรถ';
     $('template-name').textContent = template ? template.name : '';
     $('template-name').hidden = !!API_URL || !template;
+    if (open) { $('list').replaceChildren(vehiclePage(open)); return; }
+
+    const q = $('search').value.trim().toLowerCase();
+    // ยังไม่ตรวจอยู่บนสุด ตามด้วยคันที่ตรวจนานแล้ว
+    const lastAt = (v) => roundDate(byTime(v.rounds).at(-1))?.getTime() || 0;
+    const shown = report.vehicles.filter((v) => (q
+        ? [v.scc, v.plate, v.driver].join(' ').toLowerCase().includes(q)
+        : $('show-all').checked || hasWork(v)))
+        .sort((x, y) => Number(!hasWork(x)) - Number(!hasWork(y)) || lastAt(x) - lastAt(y));
+    $('list').replaceChildren(...(shown.length
+        ? shown.map(vehicleRow)
+        : template ? [el('p', { className: 'empty', textContent: q ? 'ไม่พบรถที่ค้นหา' : 'ยังไม่มีรถที่มีงาน กด “แผนงาน” หรือ “+ รถ”' })] : []));
+    const working = report.vehicles.filter(hasWork);
+    $('count').textContent = template
+        ? 'ยังไม่ตรวจ ' + working.filter((v) => !v.rounds.length).length + ' จาก ' + working.length + ' คัน' : '';
+    $('hidden-count').textContent = String(report.vehicles.length - working.length);
 }
 
 async function useTemplate(buffer, name) {
@@ -490,13 +570,10 @@ function bind() {
         }
         v.pinned = true;
         if (!v.trips.length) v.trips.push({ ship: '', custId: '', cust: '' });
-        openCards.add(v.scc);
         $('search').value = '';
         $('add-dialog').close();
         save();
-        render();
-        [...$('list').querySelectorAll('.card')].find((c) => c.querySelector('summary b').textContent === v.scc)
-            ?.scrollIntoView({ block: 'start' });
+        openVehicle(v.scc);
     });
     $('export').addEventListener('click', async () => {
         $('export').disabled = true;
