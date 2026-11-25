@@ -183,6 +183,8 @@ function excelTime(date, time, shift) {
 const SYMBOL_FONT = 'Segoe UI Symbol'; // มีใน Windows ทุกเครื่อง ไม่ต้องพึ่ง Wingdings 2
 const MARKS = { P: '✓', O: '✗' };
 const TIME_FORMAT = 'dd/mm/yyyy\\ hh:mm:ss';
+const BLACK = 'FF000000';
+const RED = 'FFFF0000'; // เฉพาะรอบที่พบความผิด
 
 async function styler(book) {
     const styles = await book.read('xl/styles.xml');
@@ -226,6 +228,16 @@ async function styler(book) {
 
     const xfOf = (cell) => items('cellXfs', 'xf')[Number(cell?.getAttribute('s') || 0)];
 
+    // ฟอนต์เดิมของช่อง เปลี่ยนแค่สี
+    const colored = (fontId, rgb) => once('color ' + fontId + ' ' + rgb, () => {
+        const font = items('fonts', 'font')[fontId].cloneNode(true);
+        for (const child of Array.from(font.children)) if (child.localName === 'color') font.removeChild(child);
+        const color = styles.createElementNS(NS, 'color');
+        color.setAttribute('rgb', rgb);
+        font.appendChild(color);
+        return add('fonts', font);
+    });
+
     function restyle(cell, set) {
         const s = Number(cell.getAttribute('s') || 0);
         const key = 'xf ' + s + ' ' + JSON.stringify(set);
@@ -242,6 +254,7 @@ async function styler(book) {
     }
 
     return {
+        color: (cell, rgb) => restyle(cell, { fontId: colored(Number(xfOf(cell).getAttribute('fontId') || 0), rgb) }),
         time: (cell) => restyle(cell, { numFmtId: timeFormat() }),
         symbol: (cell) => restyle(cell, { fontId: symbolFont(Number(xfOf(cell).getAttribute('fontId') || 0)) }),
         sameFont: (cell, like) => {
@@ -406,6 +419,19 @@ function fillReport(book, doc, report, style) {
         });
     }
 
+    // ข้อมูลในแถวรถเป็นสีดำทั้งหมด (ไม่ติดสีไฮไลต์เดิมของฟอร์ม) รอบที่มีความผิด: เวลาและ ✗ เป็นสีแดง
+    for (const [scc, rows] of byScc) {
+        const rounds = data.get(scc)?.rounds || [];
+        rows.forEach((line, i) => {
+            const bad = Object.values(rounds[i]?.marks || {}).includes('O');
+            for (const c of els(line, 'c')) {
+                if (colNum(colOf(c)) > colNum('AP') || els(c, 'f').length || !book.value(c)) continue;
+                const mark = colNum(colOf(c)) >= colNum('K') && book.value(c) === MARKS.O;
+                style.color(c, bad && (colOf(c) === 'I' || mark) ? RED : BLACK);
+            }
+        });
+    }
+
     // หัวรายงาน
     const row = (n) => els(doc, 'row').find((r) => rowNum(r) === n);
     const [y, m, d] = report.date.split('-').map(Number);
@@ -437,7 +463,7 @@ function fillReport(book, doc, report, style) {
 }
 
 // ชีตสรุป: วันที่ กะ และรายการที่ติด O หรือมีหมายเหตุ
-function fillSummary(book, doc, report) {
+function fillSummary(book, doc, report, style) {
     markGaps(doc);
     const sheetData = els(doc, 'sheetData')[0];
     const row = (n) => els(doc, 'row').find((r) => rowNum(r) === n);
@@ -473,6 +499,8 @@ function fillSummary(book, doc, report) {
         setCell(doc, target, 'F', item ? item.v.risk : '');
         setCell(doc, target, 'G', item ? item.r.note : '');
         setCell(doc, target, 'H', item ? report.monitor : '');
+        const bad = item && Object.values(item.r.marks || {}).includes('O');
+        for (const c of els(target, 'c')) if (book.value(c)) style.color(c, bad && colOf(c) === 'D' ? RED : BLACK);
     });
     renumber(doc);
 }

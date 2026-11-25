@@ -1,6 +1,6 @@
 import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122-cut';
-import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=7';
-import { readPlans, vehicleNo } from './bbs-plan.js?v=5';
+import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=8';
+import { readPlans, vehicleNo } from './bbs-plan.js?v=6';
 import { readImage, parseShot, inShift } from './bbs-ocr.js?v=1';
 import { samePlace } from './bbs-match.js?v=1';
 import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
