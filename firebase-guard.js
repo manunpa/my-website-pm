@@ -196,6 +196,31 @@ function startInactivityTimer() {
   reset();
 }
 
+// ===== บอกว่าเครื่องนี้กำลังใช้หน้าไหน (นับในห้อง room.html — apps-script/presence.gs) =====
+// ว่างไว้ = ปิดการนับ ส่งเฉพาะ รหัสสุ่มของเครื่อง ชื่อหน้า ชนิดเครื่อง และเฉพาะตอนหน้าจอแสดงอยู่
+export const PRESENCE_URL = "https://script.google.com/macros/s/AKfycbyI3ANPrxYuw6acXDml5d4Ks5yLD2MlW3RSX_9_Z4ogkW0ZYGgHwR7Hjl2UlMx8_uuu-A/exec";
+const PRESENCE_MS = 60 * 1000;
+
+function startPresence() {
+  const page = (location.pathname.split("/").pop() || "index").replace(/\.html$/, "");
+  if (!PRESENCE_URL || page === "room") return;
+  let device;
+  try {
+    device = localStorage.getItem("hub-device") || Math.random().toString(36).slice(2, 12);
+    localStorage.setItem("hub-device", device);
+  } catch { device = Math.random().toString(36).slice(2, 12); }
+  const ua = navigator.userAgent;
+  const kind = /iPad|Tablet/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? "แท็บเล็ต"
+    : /Mobi|Android|iPhone/i.test(ua) ? "มือถือ" : "คอม";
+  const ping = () => {
+    if (document.visibilityState !== "visible" || !auth.currentUser) return;
+    fetchProtectedText(PRESENCE_URL, { action: "ping", device, page, kind }).catch(() => {});
+  };
+  ping();
+  setInterval(ping, PRESENCE_MS);
+  document.addEventListener("visibilitychange", ping);
+}
+
 /**
  * ใช้ในทุกหน้าที่ต้องล็อกอินก่อน
  * - ยังไม่ล็อกอิน: พาไปหน้าเข้าสู่ระบบ
@@ -228,6 +253,7 @@ export function requireLogin(onReady, { logoutButtonId = "logout-btn" } = {}) {
     startInactivityTimer();
     if (!started) {
       started = true;
+      startPresence();
       if (onReady) onReady(user);
     }
   });
