@@ -1,24 +1,25 @@
 import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122-cut';
-import { readTemplate, buildReport } from './bbs-xlsx.js?v=2';
-import { readLayout } from './bbs-layout.js?v=2';
-import { renderSheet, rowCount, roundAt } from './bbs-sheet.js?v=2';
+import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=1';
 
-// URL /exec ของ Apps Script (apps-script/bbs.gs) — ว่างไว้ = เก็บในเบราว์เซอร์นี้อย่างเดียว
+// URL /exec ของ Apps Script (apps-script/bbs.gs) — ว่างไว้ = เก็บในเครื่องนี้อย่างเดียว
 const API_URL = '';
 
-// ช่องที่ปุ่ม "ติ๊ก ✓" ใส่ให้
-const PRESETS = {
-    driving: ['AC', 'AD', 'AE', 'AF', 'AG', 'AH', 'AI', 'AJ', 'AK'],
-    unloading: ['R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'AA', 'AB'],
-    loading: ['K', 'L', 'M', 'N', 'O', 'P', 'Q']
+const $ = (id) => document.getElementById(id);
+const range = (a, b) => {
+    const num = (s) => [...s].reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0);
+    return Array.from({ length: num(b) - num(a) + 1 }, (_, i) => colName(num(a) + i));
+};
+const TYPES = {
+    driving: { label: 'ขับรถ', cols: range('AC', 'AO'), preset: range('AC', 'AK') },
+    loading: { label: 'รับน้ำมัน', cols: range('K', 'Q'), preset: range('K', 'Q') },
+    unloading: { label: 'ลงน้ำมัน', cols: range('R', 'AB'), preset: range('R', 'AB') },
+    none: { label: 'ลงเวลาอย่างเดียว', cols: [], preset: [] }
 };
 
-const $ = (id) => document.getElementById(id);
-let template = null; // { buffer, name, vehicles, checks, customers, layout }
+let template = null; // { buffer, name, vehicles, checks, customers }
 let report = null;
-let selected = null; // { scc, row }
 
-// ===== เก็บไฟล์ต้นแบบในเบราว์เซอร์ (IndexedDB) =====
+// ===== เก็บไฟล์ต้นแบบในเครื่อง (IndexedDB) — ไม่อัปโหลดไปไหน =====
 function idb(mode, run) {
     return new Promise((resolve, reject) => {
         const open = indexedDB.open('bbs', 1);
@@ -33,48 +34,6 @@ function idb(mode, run) {
     });
 }
 
-// ===== ต้นแบบบน Google Drive (ใช้ร่วมกันทุกเครื่อง) =====
-const toBase64 = (buffer) => {
-    const bytes = new Uint8Array(buffer);
-    let text = '';
-    for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    return btoa(text);
-};
-const fromBase64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0)).buffer;
-
-async function useTemplate(saved) {
-    const [info, layout] = await Promise.all([readTemplate(saved.buffer), readLayout(saved.buffer)]);
-    template = { ...saved, ...info, layout };
-}
-
-async function loadTemplate() {
-    let saved = null;
-    try { saved = await idb('readonly', (s) => s.get('template')); } catch { /* ใช้ของบน Drive */ }
-    if (API_URL) {
-        try {
-            const res = JSON.parse(await fetchProtectedText(API_URL, { action: 'loadTemplate', have: saved?.updatedAt || 0 }));
-            if (res.data) {
-                saved = { buffer: fromBase64(res.data), name: res.name, updatedAt: res.updatedAt };
-                await idb('readwrite', (s) => s.put(saved, 'template'));
-            }
-        } catch (err) {
-            status('โหลดฟอร์มจาก Google Drive ไม่ได้: ' + err.message, true);
-        }
-    }
-    if (saved) await useTemplate(saved);
-}
-
-async function storeTemplate(file) {
-    const buffer = await file.arrayBuffer();
-    const saved = { buffer, name: file.name, updatedAt: Date.now() };
-    await useTemplate(saved); // ตรวจว่าเป็นฟอร์ม BBS ก่อนเก็บ
-    await idb('readwrite', (s) => s.put(saved, 'template'));
-    if (API_URL) {
-        await fetchProtectedText(API_URL, { action: 'saveTemplate', name: file.name, updatedAt: saved.updatedAt, data: toBase64(buffer) });
-        status('บันทึกฟอร์มไว้บน Google Drive แล้ว ทุกเครื่องใช้ได้เลย');
-    } else status('จำฟอร์มไว้ในเบราว์เซอร์นี้แล้ว ครั้งต่อไปไม่ต้องเลือกใหม่');
-}
-
 // ===== ข้อมูลรายงานต่อ 1 วัน/กะ =====
 const keyOf = () => $('date').value + '_' + $('shift').value;
 const localKey = (key) => 'bbs-report:' + key;
@@ -84,6 +43,14 @@ function emptyVehicle(v) {
     return {
         scc: v.scc, plate: v.plate, driver: v.driver, risk: v.risk,
         gps: active ? 'ปกติ' : '', cctv: active ? 'ปกติ' : '', trips: [], rounds: []
+    };
+}
+
+function newReport() {
+    return {
+        date: $('date').value, shift: $('shift').value,
+        checker: $('checker').value, monitor: $('monitor').value,
+        vehicles: template ? template.vehicles.map(emptyVehicle) : []
     };
 }
 
@@ -114,23 +81,11 @@ function save() {
     }, 2500);
 }
 
-// รถในฟอร์มที่ยังไม่มีในรายงาน → เพิ่มเข้าไป ข้อมูลที่กรอกแล้วคงเดิม
-function mergeVehicles() {
-    if (!template) return;
-    const have = new Set(report.vehicles.map((v) => v.scc));
-    report.vehicles.push(...template.vehicles.filter((v) => !have.has(v.scc)).map(emptyVehicle));
-}
-
 async function load() {
     const key = keyOf();
     let local = null;
     try { local = JSON.parse(localStorage.getItem(localKey(key))); } catch { /* เริ่มใหม่ */ }
-    report = local || {
-        date: $('date').value, shift: $('shift').value,
-        checker: $('checker').value, monitor: $('monitor').value, vehicles: []
-    };
-    selected = null;
-    mergeVehicles();
+    report = local || newReport();
     render();
     if (!API_URL) return;
     try {
@@ -140,7 +95,6 @@ async function load() {
         if (key !== keyOf()) return;
         if (remote && (remote.updatedAt || 0) > ((local && local.updatedAt) || 0)) {
             report = remote;
-            mergeVehicles();
             render();
         }
         status('ข้อมูลตรงกับ Google Sheet');
@@ -149,51 +103,141 @@ async function load() {
     }
 }
 
+// ===== สร้างหน้าจอ =====
+function el(tag, props = {}, ...children) {
+    const node = document.createElement(tag);
+    Object.assign(node, props);
+    node.append(...children.filter((c) => c !== null && c !== undefined));
+    return node;
+}
+
+function input(obj, prop, placeholder, extra = {}) {
+    const node = el('input', { value: obj[prop] || '', placeholder, ...extra });
+    node.setAttribute('aria-label', placeholder);
+    node.addEventListener('input', () => { obj[prop] = node.value; save(); });
+    return node;
+}
+
+function select(obj, prop, label, options) {
+    const node = el('select', {}, ...options.map(([value, text]) => el('option', { value, textContent: text })));
+    node.setAttribute('aria-label', label);
+    if (obj[prop] && !options.some(([v]) => v === obj[prop])) node.append(el('option', { value: obj[prop], textContent: obj[prop] }));
+    node.value = obj[prop] || '';
+    node.addEventListener('change', () => { obj[prop] = node.value; save(); });
+    return node;
+}
+
+const button = (text, onClick, cls = 'btn') => el('button', { type: 'button', className: cls, textContent: text, onclick: onClick });
+
+const presetMarks = (type) => Object.fromEntries(TYPES[type].preset.map((c) => [c, 'P']));
+
+function roundView(v, r, i, redraw) {
+    const checks = el('div', { className: 'checks' });
+    for (const col of TYPES[r.type].cols) {
+        const name = (template && template.checks[col]) || col;
+        const chip = el('button', { type: 'button', title: name });
+        const paint = () => {
+            const mark = r.marks[col] || '';
+            chip.className = 'chk ' + (mark === 'P' ? 'ok' : mark === 'O' ? 'no' : '');
+            chip.textContent = (mark === 'P' ? '✓ ' : mark === 'O' ? '✗ ' : '– ') + name.replace(/\s+/g, ' ').trim();
+        };
+        chip.onclick = () => { // ✓ → ✗ → ว่าง
+            const mark = r.marks[col];
+            if (mark === 'P') r.marks[col] = 'O';
+            else if (mark === 'O') delete r.marks[col];
+            else r.marks[col] = 'P';
+            paint();
+            save();
+        };
+        paint();
+        checks.append(chip);
+    }
+
+    const type = el('select', {}, ...Object.entries(TYPES).map(([value, t]) => el('option', { value, textContent: t.label })));
+    type.value = r.type;
+    type.setAttribute('aria-label', 'ประเภทการตรวจ');
+    type.onchange = () => { r.type = type.value; r.marks = presetMarks(r.type); save(); redraw(); };
+
+    const bad = Object.values(r.marks).filter((m) => m === 'O').length;
+    return el('div', { className: 'round' },
+        el('div', { className: 'line' },
+            input(r, 'time', 'เวลา', { type: 'time' }),
+            input(r, 'place', 'สถานที่', { className: 'grow' }),
+            type,
+            button('ลบ', () => { v.rounds.splice(i, 1); save(); redraw(); })),
+        TYPES[r.type].cols.length
+            ? el('details', {}, el('summary', { textContent: 'หัวข้อตรวจ ' + Object.keys(r.marks).length + ' ข้อ' + (bad ? ' · ไม่ผ่าน ' + bad : '') }), checks)
+            : null,
+        input(r, 'note', 'หมายเหตุ / พฤติกรรมเสี่ยง / ชมเชย', { className: 'note' }));
+}
+
+function tripView(v, t, i, redraw) {
+    const cust = input(t, 'cust', 'ชื่อลูกค้า (Ship-to)', { className: 'grow' });
+    const id = input(t, 'custId', 'รหัสลูกค้า');
+    id.addEventListener('change', () => {
+        const name = template && template.customers[id.value.trim()];
+        if (name) { t.cust = cust.value = name; save(); }
+    });
+    return el('div', { className: 'line' },
+        input(t, 'ship', 'Shipment'), id, cust,
+        button('ลบ', () => { v.trips.splice(i, 1); save(); redraw(); }));
+}
+
+const openCards = new Set();
+
+function vehicleCard(v) {
+    const card = el('details', { className: 'card', open: openCards.has(v.scc) });
+    card.addEventListener('toggle', () => { card.open ? openCards.add(v.scc) : openCards.delete(v.scc); });
+    const summary = el('summary');
+    const body = el('div', { className: 'body' });
+    const head = () => {
+        const bad = v.rounds.some((r) => Object.values(r.marks).includes('O'));
+        summary.replaceChildren(
+            el('b', { textContent: v.scc }),
+            el('span', { textContent: v.driver || 'ไม่มีคนขับ' }),
+            el('em', { className: bad ? 'bad' : '', textContent: v.rounds.length ? 'ตรวจ ' + v.rounds.length + ' รอบ' + (bad ? ' · พบ ✗' : '') : 'ยังไม่ตรวจ' }));
+    };
+    const redraw = () => {
+        head();
+        const driver = input(v, 'driver', 'ชื่อ พขร.', { className: 'grow' });
+        driver.addEventListener('input', head);
+        body.replaceChildren(
+            el('div', { className: 'line' },
+                driver,
+                input(v, 'risk', 'กลุ่มเสี่ยง เช่น L ปกติ'),
+                el('label', {}, 'GPS ', select(v, 'gps', 'สถานะ GPS', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']])),
+                el('label', {}, 'CCTV ', select(v, 'cctv', 'สถานะ CCTV', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']]))),
+            el('h3', { textContent: 'งานขนส่ง' }),
+            ...v.trips.map((t, i) => tripView(v, t, i, redraw)),
+            button('+ เพิ่มงาน', () => { v.trips.push({ ship: '', custId: '', cust: '' }); save(); redraw(); }),
+            el('h3', { textContent: 'รอบตรวจ' }),
+            ...v.rounds.map((r, i) => roundView(v, r, i, redraw)),
+            button('+ เพิ่มรอบตรวจ (เวลาตอนนี้)', () => {
+                const time = new Date().toTimeString().slice(0, 5);
+                v.rounds.push({ time, place: '', type: 'driving', marks: presetMarks('driving'), note: '' });
+                save();
+                redraw();
+            }, 'btn primary'));
+    };
+    redraw();
+    card.append(summary, body);
+    return card;
+}
+
 function render() {
     $('checker').value = report.checker || '';
     $('monitor').value = report.monitor || '';
-    $('setup').hidden = !!template;
-    $('work').hidden = !template;
-    $('change-template').hidden = !template;
-    if (!template) return;
     const q = $('search').value.trim().toLowerCase();
-    const host = $('sheet');
-    const { scrollLeft, scrollTop } = host;
-    renderSheet(host, {
-        layout: template.layout,
-        report,
-        vehicles: report.vehicles.filter((v) => !q || [v.scc, v.plate, v.driver].join(' ').toLowerCase().includes(q)),
-        showLoading: $('show-loading').checked,
-        checks: template.checks,
-        customers: template.customers,
-        onChange: save,
-        onSelect: (v, row) => select(v.scc, row)
-    });
-    host.scrollLeft = scrollLeft;
-    host.scrollTop = scrollTop;
-    if (selected) select(selected.scc, selected.row);
+    $('list').replaceChildren(...report.vehicles
+        .filter((v) => !q || [v.scc, v.plate, v.driver].join(' ').toLowerCase().includes(q))
+        .map(vehicleCard));
+    $('tools').hidden = !template;
+    $('export').disabled = !template;
+    $('template-name').textContent = template ? template.name : 'ยังไม่ได้เลือกไฟล์ต้นแบบ';
 }
 
-function select(scc, row) {
-    selected = { scc, row };
-    for (const tr of $('sheet').querySelectorAll('tr.picked')) tr.classList.remove('picked');
-    const tr = [...$('sheet').querySelectorAll('tr[data-row]')].find((x) => x.dataset.row === scc + ':' + row);
-    tr?.classList.add('picked');
-    $('picked-name').textContent = scc + ' แถว ' + (row + 1);
-    for (const b of document.querySelectorAll('[data-needs-row]')) b.disabled = false;
-}
-
-const selectedVehicle = () => selected && report.vehicles.find((v) => v.scc === selected.scc);
-
-function applyPreset(name) {
-    const v = selectedVehicle();
-    if (!v) return;
-    const round = roundAt(v, selected.row);
-    for (const col of PRESETS[name]) round.marks[col] ||= 'P';
-    if (!round.time) round.time = new Date().toTimeString().slice(0, 5);
-    if (name === 'loading') $('show-loading').checked = true;
-    save();
-    render();
+async function useTemplate(buffer, name) {
+    template = { buffer, name, ...(await readTemplate(buffer)) };
 }
 
 function bind() {
@@ -201,55 +245,43 @@ function bind() {
         const file = $('template').files[0];
         if (!file) return;
         try {
-            await storeTemplate(file);
-            mergeVehicles();
+            const buffer = await file.arrayBuffer();
+            await useTemplate(buffer, file.name);
+            await idb('readwrite', (s) => s.put({ buffer, name: file.name }, 'template'));
+            // รถในฟอร์มที่ยังไม่มีในรายงาน → เพิ่มเข้าไป ข้อมูลที่กรอกแล้วคงเดิม
+            const have = new Set(report.vehicles.map((v) => v.scc));
+            report.vehicles.push(...template.vehicles.filter((v) => !have.has(v.scc)).map(emptyVehicle));
             render();
-            if (report.vehicles.length) save();
+            save();
         } catch (err) {
-            status('บันทึกฟอร์มไม่ได้: ' + err.message, true);
-            render();
+            status('เปิดไฟล์ต้นแบบไม่ได้: ' + err.message, true);
         }
         $('template').value = '';
     });
     for (const id of ['date', 'shift']) $(id).addEventListener('change', () => { if ($('date').value) load(); });
-    for (const id of ['checker', 'monitor']) {
-        $(id).addEventListener('input', () => { report[id] = $(id).value; save(); });
-        $(id).addEventListener('change', render);
-    }
+    for (const id of ['checker', 'monitor']) $(id).addEventListener('input', () => { report[id] = $(id).value; save(); });
     $('search').addEventListener('input', render);
-    $('show-loading').addEventListener('change', render);
-    $('zoom').addEventListener('change', () => {
-        $('sheet').style.setProperty('--zoom', $('zoom').value);
-        try { localStorage.setItem('bbs-zoom', $('zoom').value); } catch { /* ไม่จำก็ได้ */ }
-    });
-    for (const b of document.querySelectorAll('[data-preset]')) b.addEventListener('click', () => applyPreset(b.dataset.preset));
-    $('add-row').addEventListener('click', () => {
-        const v = selectedVehicle();
-        if (!v) return;
-        v.rows = rowCount(template.layout, v) + 1;
-        save();
-        render();
-    });
     $('add').addEventListener('click', () => {
         const scc = (prompt('เบอร์รถ (SCC)') || '').trim();
         if (!scc) return;
         if (report.vehicles.some((v) => v.scc === scc)) { status('มีรถเบอร์นี้อยู่แล้ว', true); return; }
         const plate = (prompt('ทะเบียนรถ') || '').trim();
         report.vehicles.push(emptyVehicle({ scc, plate, driver: '', risk: '' }));
+        openCards.add(scc);
         $('search').value = '';
         save();
         render();
-        $('sheet').querySelector(`tr[data-row="${CSS.escape(scc)}:0"]`)?.scrollIntoView({ block: 'center' });
     });
     $('export').addEventListener('click', async () => {
         $('export').disabled = true;
         try {
             const blob = await buildReport(template.buffer, report);
             const [y, m, d] = report.date.split('-');
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = 'รายงานติดตามพฤติกรรมพขร. BBS ' + d + '-' + m + '-' + (Number(y) + 543) +
-                (report.shift === 'night' ? ' Night' : ' Day') + '.xlsx';
+            const link = el('a', {
+                href: URL.createObjectURL(blob),
+                download: 'รายงานติดตามพฤติกรรมพขร. BBS ' + d + '-' + m + '-' + (Number(y) + 543) +
+                    (report.shift === 'night' ? ' Night' : ' Day') + '.xlsx'
+            });
             link.click();
             setTimeout(() => URL.revokeObjectURL(link.href), 10000);
             status('ส่งออกรายงานแล้ว');
@@ -272,15 +304,12 @@ requireLogin(async () => {
         const names = JSON.parse(localStorage.getItem('bbs-names')) || {};
         $('checker').value = names.checker || '';
         $('monitor').value = names.monitor || '';
-        $('zoom').value = localStorage.getItem('bbs-zoom') || '0.7';
-    } catch { /* ใช้ค่าตั้งต้น */ }
-    $('sheet').style.setProperty('--zoom', $('zoom').value);
-    status('กำลังเปิดฟอร์ม…');
+    } catch { /* ไม่มีชื่อเดิม */ }
     try {
-        await loadTemplate();
-        status('');
+        const saved = await idb('readonly', (s) => s.get('template'));
+        if (saved) await useTemplate(saved.buffer, saved.name);
     } catch (err) {
-        status('เปิดฟอร์มที่จำไว้ไม่ได้: ' + err.message, true);
+        status('อ่านไฟล์ต้นแบบที่จำไว้ไม่ได้: ' + err.message, true);
     }
     bind();
     await load();

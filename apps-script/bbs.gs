@@ -4,7 +4,6 @@
  * แท็บ reports : 1 แถวต่อ 1 วัน/กะ (ข้อมูลทั้งรายงาน ใช้โหลดกลับขึ้นเว็บ)
  * แท็บ rounds  : 1 แถวต่อ 1 รอบตรวจ (อ่าน/กรอง/ทำสถิติได้ในชีต)
  * ทั้งสองแท็บสร้างให้เองครั้งแรกที่บันทึก
- * ฟอร์มต้นแบบที่อัปจากหน้าเว็บ เก็บเป็นไฟล์ส่วนตัวใน Google Drive ของคุณ
  *
  * วิธีติดตั้ง: สร้าง Google ชีตใหม่ → ส่วนขยาย → Apps Script → วางโค้ดนี้ทับ → บันทึก
  * → เลือกฟังก์ชัน authorize แล้วกด "เรียกใช้" → การทำให้ใช้งานได้ → เว็บแอป
@@ -25,47 +24,18 @@ function doPost(e) {
     return json_({ status: 'error', error: 'unauthorized', reason: FAIL_REASON_, message: 'เซสชันหมดอายุหรือไม่มีสิทธิ์ กรุณาล็อกอินใหม่' });
   }
   try {
-    if (body.action === 'loadTemplate') return json_(loadTemplate_(Number(body.have) || 0));
-    if (body.action === 'saveTemplate') return locked_(function () { saveTemplate_(body); });
     if (!/^\d{4}-\d{2}-\d{2}_(day|night)$/.test(body.key)) throw new Error('key ไม่ถูกต้อง');
     if (body.action === 'load') return json_({ status: 'success', doc: load_(body.key) });
-    if (body.action === 'save') return locked_(function () { save_(body.key, String(body.doc), user.email); });
+    if (body.action === 'save') {
+      const lock = LockService.getScriptLock();
+      lock.waitLock(20000);
+      try { save_(body.key, String(body.doc), user.email); } finally { lock.releaseLock(); }
+      return json_({ status: 'success' });
+    }
     throw new Error('ไม่รู้จักคำสั่ง');
   } catch (err) {
     return json_({ status: 'error', error: 'failed', message: String(err.message || err) });
   }
-}
-
-function locked_(run) {
-  const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
-  try { run(); } finally { lock.releaseLock(); }
-  return json_({ status: 'success' });
-}
-
-// ===== ฟอร์มต้นแบบ: เก็บเป็นไฟล์ส่วนตัวใน Google Drive ของเจ้าของสคริปต์ =====
-function saveTemplate_(body) {
-  const data = String(body.data || '');
-  if (!data || data.length > 4000000) throw new Error('ไฟล์ฟอร์มว่างหรือใหญ่เกินไป');
-  const props = PropertiesService.getScriptProperties();
-  const old = props.getProperty('templateId');
-  const blob = Utilities.newBlob(Utilities.base64Decode(data),
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', String(body.name || 'bbs-template.xlsx'));
-  const file = DriveApp.createFile(blob);
-  props.setProperties({ templateId: file.getId(), templateUpdated: String(Number(body.updatedAt) || Date.now()) });
-  // ฟอร์มเก่าย้ายลงถังขยะ (กู้คืนได้ 30 วัน)
-  if (old) { try { DriveApp.getFileById(old).setTrashed(true); } catch (err) {} }
-}
-
-// have = เวลาของฟอร์มที่เครื่องนั้นมีอยู่แล้ว ถ้าไม่เก่ากว่าก็ไม่ต้องส่งไฟล์
-function loadTemplate_(have) {
-  const props = PropertiesService.getScriptProperties();
-  const id = props.getProperty('templateId');
-  const updatedAt = Number(props.getProperty('templateUpdated')) || 0;
-  if (!id || updatedAt <= have) return { status: 'success' };
-  const file = DriveApp.getFileById(id);
-  return { status: 'success', name: file.getName(), updatedAt: updatedAt,
-    data: Utilities.base64Encode(file.getBlob().getBytes()) };
 }
 
 function doGet() {
@@ -115,16 +85,15 @@ function save_(key, doc, email) {
 
 // แทนที่แถวของวัน/กะนี้ทั้งชุด
 function writeRounds_(key, report) {
-  const headers = ['key', 'SCC', 'ทะเบียน', 'พขร.', 'เวลา', 'สถานที่', 'ผ่าน', 'ไม่ผ่าน', 'หมายเหตุ'];
+  const headers = ['key', 'SCC', 'ทะเบียน', 'พขร.', 'เวลา', 'สถานที่', 'ประเภท', 'ผ่าน', 'ไม่ผ่าน', 'หมายเหตุ'];
   const sheet = tab_('rounds', headers);
   const last = sheet.getLastRow();
   const old = last > 1 ? sheet.getRange(2, 1, last - 1, headers.length).getDisplayValues() : [];
   const rows = old.filter(function (r) { return r[0] !== key; });
   report.vehicles.forEach(function (v) {
     v.rounds.forEach(function (r) {
-      if (!r.time && !r.place && !r.note && !Object.keys(r.marks || {}).length) return;
       const marks = Object.keys(r.marks || {});
-      rows.push([key, v.scc, v.plate, v.driver, r.time, r.place,
+      rows.push([key, v.scc, v.plate, v.driver, r.time, r.place, r.type,
         marks.filter(function (c) { return r.marks[c] === 'P'; }).join(' '),
         marks.filter(function (c) { return r.marks[c] === 'O'; }).join(' '),
         r.note || ''].map(safe_));
@@ -202,6 +171,4 @@ function json_(obj) {
 // (ให้สคริปต์ติดต่อ Firebase ได้ — ถ้าไม่ทำ เว็บจะโหลดข้อมูลไม่ได้แม้ล็อกอินแล้ว)
 function authorize() {
   UrlFetchApp.fetch('https://www.google.com');
-  DriveApp.getRootFolder();
-  SpreadsheetApp.getActiveSpreadsheet().getName();
 }
