@@ -3,6 +3,7 @@ import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=5';
 import { readPlans, vehicleNo } from './bbs-plan.js?v=3';
 import { readImage, parseShot, inShift } from './bbs-ocr.js?v=1';
 import { samePlace } from './bbs-match.js?v=1';
+import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=1';
 import { destList, diffPlan, mergeChanges, describe } from './bbs-diff.js?v=1';
 
 // URL /exec ของ Apps Script (apps-script/bbs.gs) — ว่างไว้ = เก็บในเครื่องนี้อย่างเดียว
@@ -148,6 +149,31 @@ const pending = new Map(); // key -> ข้อมูลที่รอส่ง
 let idleTimer;
 let maxTimer = null;
 
+// ===== หลายเครื่องกรอกรายงานเดียวกัน: อ่านของบนชีตมารวมก่อนเสมอ (bbs-merge.js) ไม่เขียนทับ =====
+let seen = null; // ภาพจำของ report ใช้ดูว่าเครื่องนี้แก้อะไรไป
+
+async function fetchRemote(key) {
+    const res = await call({ action: 'load', key });
+    return res.doc ? JSON.parse(res.doc) : null;
+}
+
+// กำลังพิมพ์หรือเปิดหน้าต่างอยู่ ยังไม่วาดใหม่ (ของคนอื่นจะเข้ามารอบถัดไป)
+const busyEditing = () => openRound.size > 0 || !!document.querySelector('dialog[open]') ||
+    !!document.activeElement?.matches('input:not([type=checkbox]):not([type=search]), select, textarea');
+
+function keep() {
+    try { localStorage.setItem(localKey(report.key), JSON.stringify(report)); } catch { /* ยังมีบนชีต */ }
+}
+
+function adopt(merged) {
+    if (merged.key !== keyOf() || busyEditing() || sameReport(merged, report)) return;
+    report = merged;
+    mergeVehicles();
+    seen = snapshot(report);
+    keep();
+    render();
+}
+
 async function flush() {
     clearTimeout(idleTimer);
     clearTimeout(maxTimer);
@@ -156,7 +182,10 @@ async function flush() {
     for (const [key, doc] of [...pending]) {
         pending.delete(key);
         try {
-            await call({ action: 'save', key, doc });
+            const remote = await fetchRemote(key);
+            const merged = merge(JSON.parse(doc), remote);
+            if (!sameReport(merged, remote)) await call({ action: 'save', key, doc: JSON.stringify(merged) });
+            adopt(merged);
             status(pending.size ? 'รอส่งขึ้น Google Sheet…'
                 : 'บันทึกลง Google Sheet แล้ว ' + new Date().toTimeString().slice(0, 5) + ' น.');
         } catch (err) {
@@ -166,6 +195,23 @@ async function flush() {
         }
     }
 }
+
+// ดึงของที่คนอื่นกรอกเป็นระยะ และส่งกลับถ้าของเรามีอะไรที่บนชีตหายไป
+const PULL_MS = 30000;
+async function pull() {
+    if (!API_URL || !template || !report || document.visibilityState !== 'visible' || pending.size) return;
+    const { key } = report;
+    try {
+        const remote = await fetchRemote(key);
+        if (!remote || key !== report.key || pending.size) return;
+        const merged = merge(report, remote);
+        adopt(merged);
+        if (!sameReport(merged, remote)) queue(key, JSON.stringify(merged));
+    } catch (err) {
+        console.warn('pull', err);
+    }
+}
+setInterval(pull, PULL_MS);
 
 function queue(key, doc) {
     pending.set(key, doc);
@@ -177,6 +223,7 @@ function queue(key, doc) {
 
 function save() {
     report.updatedAt = Date.now();
+    seen = markEdits(report, seen);
     const key = report.key;
     try {
         localStorage.setItem(localKey(key), JSON.stringify(report));
@@ -197,25 +244,30 @@ function mergeVehicles() {
 
 async function load() {
     current = null;
+    openRound.clear();
     const key = keyOf();
     let local = null;
     try { local = JSON.parse(localStorage.getItem(localKey(key))); } catch { /* เริ่มใหม่ */ }
-    report = local || newReport();
+    report = normalize(local || newReport());
     mergeVehicles();
+    seen = snapshot(report);
     render();
     if (!API_URL || !template) return;
     try {
         status('กำลังโหลดจาก Google Sheet…');
-        const res = await call({ action: 'load', key });
-        const remote = res.doc ? JSON.parse(res.doc) : null;
+        const remote = await fetchRemote(key);
         if (key !== keyOf()) return;
-        if (remote && (remote.updatedAt || 0) > ((local && local.updatedAt) || 0)) {
-            report = remote;
+        if (remote) {
+            // เท่ากันทุกอย่าง (ของเก่าไม่มีเวลาแก้) ให้ฝั่งที่บันทึกทีหลังชนะ
+            const localNewer = local && (local.updatedAt || 0) > (remote.updatedAt || 0);
+            report = localNewer ? merge(remote, report) : merge(report, remote);
             mergeVehicles();
+            seen = snapshot(report);
+            keep();
             render();
         }
         // กรอกค้างไว้แล้วยังไม่ได้ส่ง (ปิดหน้าไปก่อน) → ส่งตอนนี้
-        if (local && (local.updatedAt || 0) > ((remote && remote.updatedAt) || 0)) queue(key, JSON.stringify(local));
+        if (local && !sameReport(report, remote)) queue(key, JSON.stringify(report));
         else status('ข้อมูลตรงกับ Google Sheet');
     } catch (err) {
         status('โหลดจาก Google Sheet ไม่ได้: ' + err.message, true);
@@ -490,7 +542,7 @@ function render() {
         report.date.split('-').reverse().join('/'),
         report.shift === 'night' ? 'กลางคืน' : 'กลางวัน'
     ].filter(Boolean).join(' · ');
-    for (const id of ['export', 'plan-button', 'shot-button', 'search', 'add']) $(id).disabled = !template;
+    for (const id of ['export', 'summary-button', 'plan-button', 'shot-button', 'search', 'add']) $(id).disabled = !template;
     $('template-name').textContent = template ? template.name : '';
     $('template-name').hidden = !!API_URL || !template;
     if (open) { $('list').replaceChildren(vehiclePage(open)); return; }
@@ -691,6 +743,120 @@ function bindShots() {
     $('shot-cancel').addEventListener('click', () => $('shot-dialog').close());
 }
 
+// ===== ข้อความสรุปสำหรับวางใน LINE (หัวข้อที่ไม่มีข้อมูลไม่แสดง) =====
+function summaryText() {
+    const [y, m, d] = report.date.split('-');
+    const working = report.vehicles.filter(hasWork);
+    const tag = (v) => v.scc + (v.plate ? ' (' + v.plate + ')' : '');
+    const issues = [];
+    const notes = [];
+    const waiting = [];
+    const changes = [];
+    let done = 0;
+    let total = 0;
+    let cancelled = 0;
+    for (const v of working) {
+        const rounds = byTime(v.rounds);
+        for (const r of rounds) {
+            const failed = Object.entries(r.marks || {}).filter(([, mark]) => mark === 'O')
+                .map(([col]) => String(template.checks[col] || col).replace(/\s+/g, ' ').trim().slice(0, 60));
+            if (!failed.length && !r.note) continue;
+            const line = '- ' + tag(v) + ' ' + shortTime(r) + ' ' + (r.place || '') + ': ' + (r.note || failed.join(', '));
+            (failed.length ? issues : notes).push(line);
+        }
+        const open = [];
+        for (const name of destNames(v)) {
+            const { state } = destState(v, name);
+            if (state === 'cancel') { cancelled++; continue; }
+            total++;
+            if (state === 'done') done++;
+            else open.push(name);
+        }
+        if (open.length) {
+            const last = rounds.at(-1);
+            waiting.push('- ' + v.scc + ': ' + open.join(', ') +
+                (last ? '\n  ล่าสุด ' + shortTime(last) + ' ' + (last.place || '-') : ''));
+        }
+        for (const c of v.changes || []) changes.push('- ' + v.scc + ': ' + describe(c));
+    }
+    const checked = working.filter((v) => v.rounds.length).length;
+    const section = (title, lines) => (lines.length ? ['', '[' + title + ']', ...lines] : []);
+    return [
+        'สรุป BBS ' + (API_URL ? shortName(template.name).replace(/^BBS\s*/i, '') : ''),
+        d + '/' + m + '/' + (Number(y) + 543) + (report.shift === 'night' ? ' กะกลางคืน' : ' กะกลางวัน') +
+            ' (ณ ' + new Date().toTimeString().slice(0, 5) + ' น.)',
+        '',
+        'ตรวจแล้ว ' + checked + '/' + working.length + ' คัน',
+        total || cancelled ? 'ส่งแล้ว ' + done + '/' + total + ' งาน' + (cancelled ? ', ยกเลิก ' + cancelled : '') : null,
+        ...section('พบข้อไม่ผ่าน', issues),
+        ...section('ยังไม่ตรวจ', working.filter((v) => !v.rounds.length).length
+            ? ['- ' + working.filter((v) => !v.rounds.length).map((v) => v.scc).join(', ')] : []),
+        ...section('งานค้างส่ง', waiting),
+        ...section('แผนเปลี่ยน', changes),
+        ...section('หมายเหตุ', notes)
+    ].filter((line) => line !== null).join('\n');
+}
+
+// ข้อความที่แก้และข้อความเพิ่มเติม จำแยกตามฟอร์ม/วัน/กะ ในเครื่องนี้
+let summaryKey = '';
+let draft = {}; // { text?, at?, extra? }
+
+function keepDraft() {
+    try { localStorage.setItem('bbs-summary:' + summaryKey, JSON.stringify(draft)); } catch { /* ใช้ได้จนปิดหน้า */ }
+}
+
+function showSummary() {
+    $('summary-text').value = draft.text ?? summaryText();
+    $('summary-note').textContent = draft.text === undefined
+        ? 'สร้างจากข้อมูลล่าสุด'
+        : 'ข้อความที่แก้ไว้เมื่อ ' + draft.at + ' น. กด “สร้างใหม่” เพื่อดึงข้อมูลล่าสุด';
+    $('summary-copy').textContent = 'คัดลอก';
+}
+
+function bindSummary() {
+    $('summary-button').addEventListener('click', () => {
+        summaryKey = report.key;
+        try { draft = JSON.parse(localStorage.getItem('bbs-summary:' + summaryKey)) || {}; } catch { draft = {}; }
+        $('summary-extra').value = draft.extra || '';
+        showSummary();
+        $('summary-dialog').showModal();
+        $('summary-copy').focus();
+        $('summary-text').scrollTop = 0;
+    });
+    $('summary-text').addEventListener('input', () => {
+        draft.text = $('summary-text').value;
+        draft.at = new Date().toTimeString().slice(0, 5);
+        keepDraft();
+        $('summary-copy').textContent = 'คัดลอก';
+    });
+    $('summary-extra').addEventListener('input', () => {
+        draft.extra = $('summary-extra').value;
+        keepDraft();
+        $('summary-copy').textContent = 'คัดลอก';
+    });
+    $('summary-new').addEventListener('click', () => {
+        if (draft.text !== undefined && !confirm('ทิ้งข้อความที่แก้ไว้ แล้วสร้างจากข้อมูลล่าสุด?')) return;
+        delete draft.text;
+        delete draft.at;
+        keepDraft();
+        showSummary();
+    });
+    $('summary-copy').addEventListener('click', async () => {
+        const extra = $('summary-extra').value.trim();
+        const text = $('summary-text').value.trimEnd() + (extra ? '\n\n[ข้อความเพิ่มเติม]\n' + extra : '');
+        try {
+            await navigator.clipboard.writeText(text);
+            $('summary-copy').textContent = 'คัดลอกแล้ว วางใน LINE ได้เลย';
+        } catch {
+            // เบราว์เซอร์ไม่ให้เขียนคลิปบอร์ด: รวมข้อความในช่องแล้วให้คัดลอกเอง
+            $('summary-text').value = text;
+            $('summary-text').select();
+            $('summary-copy').textContent = 'กด Ctrl+C เพื่อคัดลอก';
+        }
+    });
+    $('summary-close').addEventListener('click', () => $('summary-dialog').close());
+}
+
 // ชื่อไฟล์ส่งออกตามชื่อฟอร์ม โดยตัดคำว่า "วันที่/เดือน..." ท้ายชื่อออก
 function baseName() {
     const name = API_URL ? template.name.replace(/\.xlsx$/i, '').split('วันที่')[0].trim() : '';
@@ -699,6 +865,7 @@ function baseName() {
 
 function bind() {
     bindShots();
+    bindSummary();
     $('template').addEventListener('change', async () => {
         const file = $('template').files[0];
         if (!file) return;
@@ -717,7 +884,7 @@ function bind() {
     for (const id of ['date', 'shift']) $(id).addEventListener('change', () => { if ($('date').value) load(); });
     $('form').addEventListener('change', async () => {
         $('list').replaceChildren();
-        for (const id of ['export', 'plan-button', 'shot-button', 'search', 'add']) $(id).disabled = true;
+        for (const id of ['export', 'summary-button', 'plan-button', 'shot-button', 'search', 'add']) $(id).disabled = true;
         try {
             await openForm($('form').value);
             localStorage.setItem('bbs-form', $('form').value);
@@ -727,7 +894,10 @@ function bind() {
         }
         await load();
     });
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && pending.size) flush(); });
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') { if (pending.size) flush(); }
+        else pull();
+    });
     for (const id of ['checker', 'monitor']) $(id).addEventListener('input', () => { report[id] = $(id).value; save(); });
     $('search').addEventListener('input', render);
     $('show-all').addEventListener('change', render);
