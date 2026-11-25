@@ -2,6 +2,8 @@ import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122
 import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=5';
 import { readPlans, vehicleNo } from './bbs-plan.js?v=3';
 import { readImage, parseShot, inShift } from './bbs-ocr.js?v=1';
+import { samePlace } from './bbs-match.js?v=1';
+import { destList, diffPlan, mergeChanges, describe } from './bbs-diff.js?v=1';
 
 // URL /exec ของ Apps Script (apps-script/bbs.gs) — ว่างไว้ = เก็บในเครื่องนี้อย่างเดียว
 const API_URL = 'https://script.google.com/macros/s/AKfycbxGlbuYTL5_K8DZ7EIPT9P0NO5gef1od1f4WXzRvBPLbCvAPwST87Tl3hqtjMljY3Yx8w/exec';
@@ -359,14 +361,59 @@ const roundLine = (r) => el('span', { className: 'log' },
     el('span', { className: 'kind' }, typeName(r),
         badCount(r) ? el('em', { textContent: 'ไม่ผ่าน ' + badCount(r) }) : null));
 
-// ปลายทางงาน บรรทัดละแห่ง (ในแผนคั่นหลายแห่งด้วย //) ไม่มีชื่อลูกค้าใช้เลข Shipment
-function destinations(v) {
-    const list = v.trips.flatMap((t) => String(t.cust || t.ship || '').split(/\/{2,}/))
-        .map((x) => x.trim()).filter(Boolean);
-    if (!list.length) return null;
-    return el('span', { className: 'dest' }, el('span', { className: 'label', textContent: 'ส่งที่' }),
-        el('span', { className: 'names' }, ...list.map((name, i) =>
-            el('span', { textContent: (list.length > 1 ? (i + 1) + '. ' : '') + name }))));
+// ปลายทางในแผน บรรทัดละแห่ง
+const destNames = (v) => destList(v.trips).map((d) => d.name);
+
+// สถานะงานของปลายทาง: ที่เลือกเองมาก่อน ไม่ได้เลือก = เทียบชื่อกับสถานที่ที่ตรวจแล้ว
+function destState(v, name) {
+    const manual = v.dest?.[name];
+    if (manual === 'cancel' || manual === 'open') return { state: manual };
+    const names = destNames(v);
+    const round = byTime(v.rounds).find((r) => r.type !== 'loading' && samePlace(r.place, name, names));
+    if (manual === 'done') return { state: 'done', round };
+    return round ? { state: 'done', round } : { state: 'open' };
+}
+
+const STATE_TEXT = { open: 'รอส่ง', done: 'ส่งแล้ว', cancel: 'ยกเลิก', removed: 'ตัดออก' };
+
+// เลือกสถานะเอง (หน้ารายคัน)
+function destSelect(v, name, redraw) {
+    const node = el('select', {}, ...[['', 'อัตโนมัติ'], ['done', 'ส่งแล้ว'], ['open', 'รอส่ง'], ['cancel', 'ยกเลิก']]
+        .map(([value, text]) => el('option', { value, textContent: text })));
+    node.value = v.dest?.[name] || '';
+    node.setAttribute('aria-label', 'สถานะงาน ' + name);
+    node.onchange = () => {
+        v.dest ||= {};
+        if (node.value) v.dest[name] = node.value; else delete v.dest[name];
+        save();
+        redraw();
+    };
+    return node;
+}
+
+const changeNote = (c) => el('span', { className: 'change', textContent: describe(c) + ' (อัปเดต ' + c.at + ')' });
+
+function destinations(v, redraw) {
+    const names = destNames(v);
+    const changes = v.changes || [];
+    const removed = changes.filter((c) => c.type === 'removed');
+    const driver = changes.filter((c) => c.type === 'driver');
+    if (!names.length && !removed.length && !driver.length) return null;
+
+    const line = (no, name, info, notes, control) => el('span', { className: 'item ' + info.state },
+        el('span', { className: 'no', textContent: no }),
+        el('span', { className: 'name' }, name, ...notes.map(changeNote)),
+        control || el('span', { className: 'st' },
+            (info.round ? shortTime(info.round) + ' ' : '') + STATE_TEXT[info.state]),
+        control ? el('span', { className: 'st' },
+            (info.round ? shortTime(info.round) + ' ' : '') + STATE_TEXT[info.state]) : null);
+
+    return el('span', { className: 'dest' },
+        ...driver.map(changeNote),
+        ...names.map((name, i) => line(String(i + 1), name, destState(v, name),
+            changes.filter((c) => c.name === name && c.type !== 'driver' && c.type !== 'removed'),
+            redraw ? destSelect(v, name, redraw) : null)),
+        ...removed.map((c) => line('–', c.name, { state: 'removed' }, [c], null)));
 }
 
 // ===== หน้ารวม: รถละกล่อง หัว (รถ/คนขับ) → ปลายทาง → รอบที่ตรวจ =====
@@ -375,6 +422,7 @@ function vehicleRow(v) {
         el('span', { className: 'car' },
             el('b', { textContent: v.scc }),
             el('span', { className: 'who', textContent: v.driver || 'ไม่มีคนขับ' }),
+            v.changes?.length ? el('span', { className: 'changed', textContent: 'แผนเปลี่ยน' }) : null,
             el('span', { className: 'tally', textContent: v.rounds.length ? 'ตรวจ ' + v.rounds.length + ' รอบ' : 'ยังไม่ตรวจ' })),
         destinations(v),
         v.rounds.length ? el('span', { className: 'logs' }, ...byTime(v.rounds).map(roundLine)) : null);
@@ -412,7 +460,7 @@ function vehiclePage(v) {
         page.replaceChildren(
             button('← กลับหน้ารวม', closeVehicle),
             el('h3', { className: 'title', textContent: v.scc + ' ' + (v.driver || '') }),
-            destinations(v),
+            destinations(v, redraw),
             button('+ ตรวจรอบใหม่', () => {
                 const time = new Date().toTimeString().slice(0, 8);
                 v.rounds.push({ time, place: '', type: 'driving', marks: presetMarks('driving'), note: '' });
@@ -466,7 +514,7 @@ async function useTemplate(buffer, name) {
 }
 
 // ===== อัปโหลดแผนงาน: ดึงเฉพาะวันที่ + กะ ที่เลือกอยู่ ให้ตรวจสรุปก่อนเติม =====
-let planPreview = []; // [{ v, item }]
+let planPreview = []; // [{ v, item, changes, fresh }]
 
 async function importPlans(files) {
     const { date, shift } = report;
@@ -474,20 +522,31 @@ async function importPlans(files) {
     status('กำลังอ่านแผนงาน…');
     const { vehicles, notes } = await readPlans(files, date, shift);
     const mine = new Map(report.vehicles.map((v) => [vehicleNo(v.scc), v]));
-    planPreview = [...vehicles].filter(([no]) => mine.has(no)).map(([no, item]) => ({ v: mine.get(no), item }));
+    const matched = [...vehicles].filter(([no]) => mine.has(no)).map(([no, item]) => {
+        const v = mine.get(no);
+        const fresh = !v.trips.length; // ยังไม่เคยมีงาน = งานใหม่ ไม่นับเป็นการเปลี่ยน
+        return { v, item, fresh, changes: fresh ? [] : diffPlan(v, item) };
+    });
+    const update = report.vehicles.some((v) => v.trips.length); // เคยมีแผนแล้ว = โหมดอัปเดต
+    planPreview = matched.filter((p) => p.fresh ? p.item.driver || p.item.trips.length : p.changes.length);
+    const unchanged = matched.length - planPreview.length;
     const missing = [...vehicles.keys()].filter((no) => !mine.has(no));
     status('');
-    $('plan-title').textContent = 'แผนงาน ' + when + ': ตรงกับฟอร์มนี้ ' + planPreview.length + ' คัน';
-    $('plan-list').replaceChildren(...planPreview.map(({ v, item }) => el('li', {},
+    $('plan-title').textContent = 'แผนงาน ' + when + ': ' + (update
+        ? 'เปลี่ยน ' + planPreview.length + ' คัน · เหมือนเดิม ' + unchanged + ' คัน'
+        : 'ตรงกับฟอร์มนี้ ' + planPreview.length + ' คัน');
+    $('plan-list').replaceChildren(...planPreview.map(({ v, item, fresh, changes }) => el('li', {},
         el('b', { textContent: v.scc }),
-        ' ' + (item.driver || 'ไม่ระบุคนขับ') + ' · ' + item.trips.length + ' งาน',
-        v.trips.length && item.trips.length ? el('em', { textContent: ' (แทนงานเดิม ' + v.trips.length + ')' }) : null,
-        el('div', { className: 'mute', textContent: item.trips.map((t) => [t.ship, t.cust].filter(Boolean).join(' ')).join(' | ') }))));
+        ' ' + (item.driver || v.driver || 'ไม่ระบุคนขับ'),
+        fresh
+            ? el('div', { className: 'mute', textContent: (update ? 'งานใหม่: ' : '') + destList(item.trips).map((d) => d.name).join(' | ') })
+            : el('ul', {}, ...changes.map((c) => el('li', { textContent: describe(c) }))))));
     $('plan-notes').replaceChildren(...[
         ...notes,
         ...(missing.length ? ['รถในแผนที่ไม่มีในฟอร์มนี้ (ไม่เติม): ' + missing.join(', ')] : [])
     ].map((text) => el('li', { textContent: text })));
     $('plan-ok').disabled = !planPreview.length;
+    $('plan-ok').textContent = update ? 'อัปเดตเฉพาะที่เปลี่ยน' : 'เติมลงฟอร์ม';
     $('plan-dialog').dataset.key = report.key || keyOf();
     $('plan-dialog').showModal();
     $('plan-dialog').scrollTop = 0; // เริ่มอ่านจากหัวสรุป
@@ -496,11 +555,17 @@ async function importPlans(files) {
 function applyPlans() {
     // เปลี่ยนวันที่/ฟอร์มระหว่างเปิดสรุป → ไม่เติมผิดรายงาน
     if ($('plan-dialog').dataset.key !== (report.key || keyOf())) return;
-    for (const { v, item } of planPreview) {
+    const at = new Date().toTimeString().slice(0, 5);
+    for (const { v, item, fresh, changes } of planPreview) {
         if (item.driver) v.driver = item.driver;
         if (item.risk) v.risk = item.risk;
         else v.risk ||= item.riskIfEmpty;
-        if (item.trips.length) v.trips = item.trips.map((t) => ({ ...t }));
+        const jobsChanged = fresh || changes.some((c) => c.type !== 'driver');
+        if (item.trips.length && jobsChanged) {
+            const ids = new Map(v.trips.map((t) => [t.cust, t.custId]));
+            v.trips = item.trips.map((t) => ({ ...t, custId: t.custId || ids.get(t.cust) || '' }));
+        }
+        if (!fresh) v.changes = mergeChanges(v.changes, changes, v.trips, at);
         if (v.driver) { v.gps ||= 'ปกติ'; v.cctv ||= 'ปกติ'; }
     }
     save();

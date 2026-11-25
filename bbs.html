@@ -63,9 +63,6 @@ section p{margin:0 0 8px}
 .who{flex:1}
 .tally{font-size:13px;color:var(--mute)}
 .row.none .tally{color:var(--no);font-weight:600}
-.dest{display:flex;gap:12px;padding:7px 12px;font-size:14px}
-.dest .label{color:var(--mute);flex:none;width:40px}
-.names{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere}
 .logs{display:block;border-top:1px solid var(--line)}
 .log{display:grid;grid-template-columns:160px minmax(0,1fr) 110px;gap:12px;padding:6px 12px;font-size:14px;align-items:start}
 .logs .log:nth-child(even){background:var(--bg)}
@@ -93,6 +90,18 @@ section p{margin:0 0 8px}
 :root[data-theme=dark] .theme .sun{display:block}
 :root[data-theme=dark] .theme .moon{display:none}
 .ico{width:17px;height:17px;vertical-align:-3px;margin-right:6px}
+.dest{display:block;padding:3px 12px;font-size:14px}
+.dest .item{display:flex;gap:10px;align-items:flex-start;padding:5px 0;border-top:1px solid var(--line)}
+.dest .item:first-child{border-top:0}
+.dest .no{width:18px;flex:none;color:var(--mute)}
+.dest .name{flex:1;min-width:0;overflow-wrap:anywhere}
+.dest .st{width:104px;flex:none;text-align:right;font-variant-numeric:tabular-nums;color:var(--mute);white-space:nowrap}
+.item.done .st{color:var(--ok);font-weight:600}
+.item.cancel .st{color:var(--no);font-weight:600}
+.item.removed .st,.item.removed .name,.item.cancel .name{color:var(--mute)}
+.change{display:block;font-size:12.5px;color:#a56f00}
+.changed{font-size:12.5px;font-weight:600;color:#a56f00}
+.vehicle .item select{flex:none;padding:3px 6px;font-size:13px}
 .vehicle h3.title{font-size:18px;color:var(--ink);margin:12px 0 8px}
 body.detail #setup,body.detail .tools{display:none}
 .btn.wide{width:100%;padding:10px}
@@ -234,6 +243,6 @@ dialog em{font-style:normal;color:var(--no)}
   });
 })();
 </script>
-<script type="module" src="./bbs.js?v=18"></script>
+<script type="module" src="./bbs.js?v=20"></script>
 </body>
 </html>
