@@ -1,6 +1,6 @@
 import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122-cut';
-import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=4';
-import { readPlans, vehicleNo } from './bbs-plan.js?v=2';
+import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=5';
+import { readPlans, vehicleNo } from './bbs-plan.js?v=3';
 
 // URL /exec ของ Apps Script (apps-script/bbs.gs) — ว่างไว้ = เก็บในเครื่องนี้อย่างเดียว
 const API_URL = 'https://script.google.com/macros/s/AKfycbxGlbuYTL5_K8DZ7EIPT9P0NO5gef1od1f4WXzRvBPLbCvAPwST87Tl3hqtjMljY3Yx8w/exec';
@@ -283,7 +283,7 @@ function roundView(v, r, i, redraw) {
         button('ล้าง', () => { r.marks = {}; save(); redraw(); }));
     return el('div', { className: 'round' },
         el('div', { className: 'line' },
-            input(r, 'time', 'เวลา', { type: 'time' }),
+            input(r, 'time', 'เวลา', { type: 'time', step: '1' }),
             input(r, 'place', 'สถานที่', { className: 'grow' }),
             type,
             button('ลบ', () => { v.rounds.splice(i, 1); save(); redraw(); })),
@@ -335,7 +335,7 @@ function vehicleCard(v) {
             el('h3', { textContent: 'รอบตรวจ' }),
             ...v.rounds.map((r, i) => roundView(v, r, i, redraw)),
             button('+ เพิ่มรอบตรวจ (เวลาตอนนี้)', () => {
-                const time = new Date().toTimeString().slice(0, 5);
+                const time = new Date().toTimeString().slice(0, 8);
                 v.rounds.push({ time, place: '', type: 'driving', marks: {}, note: '' });
                 save();
                 redraw();

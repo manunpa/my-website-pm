@@ -170,51 +170,106 @@ export async function readTemplate(buffer) {
 function excelTime(date, time, shift) {
     if (!time) return '';
     const [y, m, d] = date.split('-').map(Number);
-    const [hh, mm] = time.split(':').map(Number);
+    const [hh, mm, ss = 0] = time.split(':').map(Number);
     let serial = (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 86400000;
     if (shift === 'night' && hh < 12) serial += 1;
-    return serial + (hh * 60 + mm) / 1440;
+    return serial + (hh * 3600 + mm * 60 + ss) / 86400;
 }
 
-// ฟอร์มเปล่าไม่ได้ตั้งรูปแบบวันที่ไว้ในช่องเวลา → เพิ่ม style ที่หน้าตาเดิมแต่แสดงเป็นวันที่และเวลา
-async function dateStyler(book) {
+// style ใหม่ที่ได้จากของเดิมของช่อง (เส้น สีพื้น การจัดวางเหมือนเดิม) เปลี่ยนเฉพาะฟอนต์หรือรูปแบบตัวเลข
+const SYMBOL_FONT = 'Segoe UI Symbol'; // มีใน Windows ทุกเครื่อง ไม่ต้องพึ่ง Wingdings 2
+const MARKS = { P: '✓', O: '✗' };
+const TIME_FORMAT = 'dd/mm/yyyy\\ hh:mm:ss';
+
+async function styler(book) {
     const styles = await book.read('xl/styles.xml');
-    const xfs = els(styles, 'cellXfs')[0];
+    const part = (name) => els(styles, name)[0];
+    const items = (name, child) => Array.from(part(name).children).filter((n) => n.localName === child);
+    const add = (name, node) => {
+        part(name).appendChild(node);
+        part(name).setAttribute('count', String(part(name).children.length));
+        return part(name).children.length - 1;
+    };
     const made = new Map();
-    let numFmts = els(styles, 'numFmts')[0];
-    let formatId = 0;
+    const once = (key, build) => {
+        if (!made.has(key)) made.set(key, build());
+        return made.get(key);
+    };
+    let changed = false;
+
+    const timeFormat = () => once('numFmt', () => {
+        if (!part('numFmts')) {
+            const list = styles.createElementNS(NS, 'numFmts');
+            styles.documentElement.insertBefore(list, styles.documentElement.firstChild);
+        }
+        const id = Math.max(163, ...els(part('numFmts'), 'numFmt').map((n) => Number(n.getAttribute('numFmtId')))) + 1;
+        const format = styles.createElementNS(NS, 'numFmt');
+        format.setAttribute('numFmtId', String(id));
+        format.setAttribute('formatCode', TIME_FORMAT);
+        add('numFmts', format);
+        return id;
+    });
+
+    const symbolFont = (fontId) => once('font ' + fontId, () => {
+        const font = items('fonts', 'font')[fontId].cloneNode(true);
+        for (const child of Array.from(font.children)) {
+            if (['name', 'charset', 'family', 'scheme'].includes(child.localName)) font.removeChild(child);
+        }
+        const name = styles.createElementNS(NS, 'name');
+        name.setAttribute('val', SYMBOL_FONT);
+        font.appendChild(name);
+        return add('fonts', font);
+    });
+
+    const xfOf = (cell) => items('cellXfs', 'xf')[Number(cell?.getAttribute('s') || 0)];
+
+    function restyle(cell, set) {
+        const s = Number(cell.getAttribute('s') || 0);
+        const key = 'xf ' + s + ' ' + JSON.stringify(set);
+        const id = once(key, () => {
+            const copy = items('cellXfs', 'xf')[s].cloneNode(true);
+            for (const [name, value] of Object.entries(set)) {
+                copy.setAttribute(name, String(value));
+                copy.setAttribute('apply' + (name === 'fontId' ? 'Font' : 'NumberFormat'), '1');
+            }
+            return add('cellXfs', copy);
+        });
+        cell.setAttribute('s', String(id));
+        changed = true;
+    }
+
     return {
-        apply(cell) {
-            const s = Number(cell.getAttribute('s') || 0);
-            const xf = els(xfs, 'xf')[s];
-            if (!xf || Number(xf.getAttribute('numFmtId') || 0) !== 0) return;
-            if (!formatId) {
-                if (!numFmts) {
-                    numFmts = styles.createElementNS(NS, 'numFmts');
-                    styles.documentElement.insertBefore(numFmts, styles.documentElement.firstChild);
-                }
-                const used = els(numFmts, 'numFmt').map((n) => Number(n.getAttribute('numFmtId')));
-                formatId = Math.max(163, ...used) + 1;
-                const format = styles.createElementNS(NS, 'numFmt');
-                format.setAttribute('numFmtId', String(formatId));
-                format.setAttribute('formatCode', 'dd/mm/yyyy\ hh:mm');
-                numFmts.appendChild(format);
-                numFmts.setAttribute('count', String(numFmts.children.length));
-            }
-            if (!made.has(s)) {
-                const copy = xf.cloneNode(true);
-                copy.setAttribute('numFmtId', String(formatId));
-                copy.setAttribute('applyNumberFormat', '1');
-                xfs.appendChild(copy);
-                made.set(s, els(xfs, 'xf').length - 1);
-                xfs.setAttribute('count', String(els(xfs, 'xf').length));
-            }
-            cell.setAttribute('s', String(made.get(s)));
+        time: (cell) => restyle(cell, { numFmtId: timeFormat() }),
+        symbol: (cell) => restyle(cell, { fontId: symbolFont(Number(xfOf(cell).getAttribute('fontId') || 0)) }),
+        sameFont: (cell, like) => {
+            if (like) restyle(cell, { fontId: Number(xfOf(like).getAttribute('fontId') || 0) });
         },
         save() {
-            if (formatId) book.zip.file('xl/styles.xml', toXml(styles));
+            if (changed) book.zip.file('xl/styles.xml', toXml(styles));
         }
     };
+}
+
+// ขยายคอลัมน์ให้พอแสดงข้อความ (ไม่งั้น Excel ขึ้น ####) กว้างอยู่แล้วไม่แตะ
+function widen(doc, index, width) {
+    for (const col of els(doc, 'col')) {
+        const min = Number(col.getAttribute('min'));
+        const max = Number(col.getAttribute('max'));
+        if (index < min || index > max || Number(col.getAttribute('width')) >= width) continue;
+        const piece = (from, to) => {
+            const copy = col.cloneNode(true);
+            copy.setAttribute('min', String(from));
+            copy.setAttribute('max', String(to));
+            return copy;
+        };
+        if (min < index) col.parentNode.insertBefore(piece(min, index - 1), col);
+        if (max > index) col.parentNode.insertBefore(piece(index + 1, max), col.nextSibling);
+        col.setAttribute('min', String(index));
+        col.setAttribute('max', String(index));
+        col.setAttribute('width', String(width));
+        col.setAttribute('customWidth', '1');
+        return;
+    }
 }
 
 function renumber(doc) {
@@ -258,7 +313,7 @@ function cloneRow(row) {
     return copy;
 }
 
-function fillReport(book, doc, report, dates) {
+function fillReport(book, doc, report, style) {
     markGaps(doc);
     const sheetData = els(doc, 'sheetData')[0];
     let blocks = findBlocks(book, doc);
@@ -312,6 +367,8 @@ function fillReport(book, doc, report, dates) {
         if (v.driver || v.rounds.length || v.trips.length) used++;
         setCell(doc, rows[0], 'C', v.gps || '');
         setCell(doc, rows[0], 'D', v.cctv || '');
+        // ช่องสถานะ GPS/CCTV ใช้ฟอนต์เดียวกับช่องข้อความอื่นในแถว
+        for (const col of ['C', 'D']) style.sameFont(cellAt(rows[0], col), cellAt(rows[0], 'J'));
         setCell(doc, rows[0], 'E', v.driver || '');
         if (rows[1]) setCell(doc, rows[1], 'E', v.risk || '');
         v.trips.forEach((t, i) => {
@@ -321,9 +378,12 @@ function fillReport(book, doc, report, dates) {
         });
         v.rounds.forEach((r, i) => {
             setCell(doc, rows[i], 'I', excelTime(report.date, r.time, report.shift));
-            if (r.time) dates.apply(cellAt(rows[i], 'I'));
+            if (r.time) style.time(cellAt(rows[i], 'I'));
             setCell(doc, rows[i], 'J', r.place || '');
-            for (const [col, mark] of Object.entries(r.marks || {})) setCell(doc, rows[i], col, mark);
+            for (const [col, mark] of Object.entries(r.marks || {})) {
+                setCell(doc, rows[i], col, MARKS[mark] || mark);
+                if (MARKS[mark]) style.symbol(cellAt(rows[i], col));
+            }
             setCell(doc, rows[i], 'AP', r.note || '');
         });
     }
@@ -337,6 +397,16 @@ function fillReport(book, doc, report, dates) {
     setCell(doc, row(2), 'J', 'พ.ศ. ' + (y + 543));
     setCell(doc, row(2), 'L', 'ตรวจสอบโดย ' + (report.checker || ''));
     setCell(doc, row(2), 'R', 'MONITOR : ' + (report.monitor || ''));
+
+    // คำอธิบายสัญลักษณ์หัวฟอร์ม (คอลัมน์ A) ให้ตรงกับเครื่องหมายที่เขียนลงตาราง
+    for (const n of [3, 4]) {
+        const cell = row(n) && cellAt(row(n), 'A');
+        const mark = cell && MARKS[book.value(cell).trim()];
+        if (!mark) continue;
+        setCell(doc, row(n), 'A', mark);
+        style.symbol(cellAt(row(n), 'A'));
+    }
+    widen(doc, colNum('I'), 22);
 
     // ยอดรวมจำนวนคันที่ส่วนท้าย
     for (const c of els(doc, 'c')) {
@@ -396,14 +466,14 @@ function fillSummary(book, doc, report) {
  */
 export async function buildReport(buffer, report) {
     const book = await openBook(buffer);
-    const dates = await dateStyler(book);
+    const style = await styler(book);
     for (const [part, fill] of [['ผ่าน_cctv', fillReport], ['ชมเชย', fillSummary]]) {
         const path = book.sheetPath(part);
         const doc = await book.read(path);
-        fill(book, doc, report, dates);
+        fill(book, doc, report, style);
         book.zip.file(path, toXml(doc));
     }
-    dates.save();
+    style.save();
     // ลำดับคำนวณสูตรเดิมอ้างตำแหน่งแถวเก่า: ลบออก Excel สร้างใหม่เอง
     if (book.zip.file('xl/calcChain.xml')) {
         book.zip.remove('xl/calcChain.xml');
