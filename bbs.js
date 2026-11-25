@@ -11,9 +11,11 @@ const range = (a, b) => {
     return Array.from({ length: num(b) - num(a) + 1 }, (_, i) => colName(num(a) + i));
 };
 const TYPES = {
-    driving: { label: 'ขับรถ', cols: range('AC', 'AO'), preset: range('AC', 'AK') },
+    // preset = ช่องที่ติ๊ก ✓ ให้ตั้งแต่แรกเมื่อเลือกสถานะนั้น
+    driving: { label: 'ขับรถ', cols: range('AC', 'AO'), preset: [...range('AC', 'AK'), 'AN', 'AO'] },
     loading: { label: 'รับน้ำมัน', cols: range('K', 'Q'), preset: range('K', 'Q') },
-    unloading: { label: 'ลงน้ำมัน', cols: range('R', 'AB'), preset: range('R', 'AB') },
+    unloading: { label: 'ลงน้ำมัน', cols: range('R', 'AB'), preset: range('R', 'W') },
+    packing: { label: 'เก็บอุปกรณ์', cols: range('R', 'AB'), preset: range('X', 'AA') },
     none: { label: 'ลงเวลาอย่างเดียว', cols: [], preset: [] }
 };
 
@@ -241,6 +243,8 @@ function select(obj, prop, label, options) {
 
 const button = (text, onClick, cls = 'btn') => el('button', { type: 'button', className: cls, textContent: text, onclick: onClick });
 
+const presetMarks = (type) => Object.fromEntries(TYPES[type].preset.map((c) => [c, 'P']));
+
 function roundView(v, r, i, redraw) {
     if (!TYPES[r.type]) r.type = 'driving'; // ข้อมูลที่กรอกจากหน้าแบบตารางไม่มีประเภท
     r.marks ||= {};
@@ -274,12 +278,12 @@ function roundView(v, r, i, redraw) {
     const type = el('select', {}, ...Object.entries(TYPES).map(([value, t]) => el('option', { value, textContent: t.label })));
     type.value = r.type;
     type.setAttribute('aria-label', 'ประเภทการตรวจ');
-    type.onchange = () => { r.type = type.value; r.marks = {}; save(); redraw(); };
+    type.onchange = () => { r.type = type.value; r.marks = presetMarks(r.type); save(); redraw(); };
 
     tally();
-    // ปุ่มลัด: ติ๊กเฉพาะช่องที่ยังว่าง (ข้อที่เป็น ✗ คงไว้) หรือล้างทั้งหมด
+    // ปุ่มลัด: เติมค่าเริ่มต้นเฉพาะช่องที่ยังว่าง (ข้อที่เป็น ✗ คงไว้) หรือล้างทั้งหมด
     const quick = el('div', { className: 'line' },
-        button('✓ ติ๊กทั้งหมด', () => { for (const col of TYPES[r.type].preset) r.marks[col] ||= 'P'; save(); redraw(); }),
+        button('✓ ค่าเริ่มต้น', () => { for (const col of TYPES[r.type].preset) r.marks[col] ||= 'P'; save(); redraw(); }),
         button('ล้าง', () => { r.marks = {}; save(); redraw(); }));
     return el('div', { className: 'round' },
         el('div', { className: 'line' },
@@ -336,7 +340,7 @@ function vehicleCard(v) {
             ...v.rounds.map((r, i) => roundView(v, r, i, redraw)),
             button('+ เพิ่มรอบตรวจ (เวลาตอนนี้)', () => {
                 const time = new Date().toTimeString().slice(0, 8);
-                v.rounds.push({ time, place: '', type: 'driving', marks: {}, note: '' });
+                v.rounds.push({ time, place: '', type: 'driving', marks: presetMarks('driving'), note: '' });
                 save();
                 redraw();
             }, 'btn primary'));
