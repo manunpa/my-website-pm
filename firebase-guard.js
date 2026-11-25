@@ -212,9 +212,14 @@ function startPresence() {
   const ua = navigator.userAgent;
   const kind = /iPad|Tablet/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? "แท็บเล็ต"
     : /Mobi|Android|iPhone/i.test(ua) ? "มือถือ" : "คอม";
+  const os = kind !== "คอม" && /Macintosh|iPhone|iPad|iPod/.test(ua) ? "iOS" : /Android/.test(ua) ? "Android"
+    : /Windows/.test(ua) ? "Windows" : /Macintosh/.test(ua) ? "macOS" : /Linux/.test(ua) ? "Linux" : "Other";
+  const browser = /Line\//.test(ua) ? "LINE" : /Edg/.test(ua) ? "Edge" : /SamsungBrowser/.test(ua) ? "Samsung"
+    : /OPR/.test(ua) ? "Opera" : /Firefox|FxiOS/.test(ua) ? "Firefox" : /Chrome|CriOS/.test(ua) ? "Chrome"
+    : /Safari/.test(ua) ? "Safari" : "Other";
   const ping = () => {
     if (document.visibilityState !== "visible" || !auth.currentUser) return;
-    fetchProtectedText(PRESENCE_URL, { action: "ping", device, page, kind }).catch(() => {});
+    fetchProtectedText(PRESENCE_URL, { action: "ping", device, page, kind, os, browser }).catch(() => {});
   };
   ping();
   setInterval(ping, PRESENCE_MS);

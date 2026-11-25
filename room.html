@@ -24,6 +24,8 @@ td{padding:10px 0;border-top:1px solid var(--line);vertical-align:top}
 tr:first-child td{border-top:0}
 td.n{width:48px;text-align:right;font-weight:600;font-size:18px;font-variant-numeric:tabular-nums}
 small{display:block;color:var(--mute)}
+#peopleBox table{margin-top:6px}
+#peopleBox td:first-child{overflow-wrap:anywhere}
 #state{color:var(--mute);font-size:13px}
 #state.bad{color:var(--no);font-size:15px}
 </style>
@@ -33,6 +35,8 @@ small{display:block;color:var(--mute)}
   <header><h1>Active Users</h1><a href="./Access-Hub.html">หน้าหลัก</a></header>
   <div class="panel total">อุปกรณ์ที่ใช้งานอยู่ตอนนี้<b id="total">–</b></div>
   <div class="panel"><table><tbody id="pages"></tbody></table></div>
+  <div class="panel" id="today" hidden></div>
+  <div class="panel" id="peopleBox" hidden><b>ใครออนไลน์อยู่</b><table><tbody id="people"></tbody></table></div>
   <p id="state" role="status">กำลังโหลด…</p>
 </div>
 <script type="module">
@@ -69,6 +73,13 @@ async function refresh() {
       ? list.map(([page, info]) => row(NAMES[page] || page, info.count,
           Object.entries(info.kinds).map(([kind, n]) => kind + ' ' + n).join(' · ')))
       : [row('ยังไม่มีใครใช้งาน', '', '')]));
+    const t = data.today;
+    $('today').hidden = !t;
+    if (t) $('today').textContent = `วันนี้ ${t.devices} เครื่อง · ${t.people} คน · พีค ${t.peak} เครื่อง เวลา ${t.at} น.`;
+    const people = (data.people || []).sort((a, b) => a.email.localeCompare(b.email));
+    $('peopleBox').hidden = !people.length;
+    $('people').replaceChildren(...people.map((p) => row(p.email, '', [NAMES[p.page] || p.page, p.kind, p.os, p.browser,
+      'ตั้งแต่ ' + new Date(p.since).toTimeString().slice(0, 5) + ' น.'].join(' · '))));
     say('อัปเดต ' + new Date().toTimeString().slice(0, 8) + ' น. · รีเฟรชเองทุก 30 วินาที · นับเครื่องที่เปิดหน้าจออยู่ใน 2–3 นาทีล่าสุด');
   } catch (err) {
     say(err.message, true);
