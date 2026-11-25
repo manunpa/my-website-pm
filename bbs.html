@@ -52,7 +52,7 @@ section p{margin:0 0 8px}
 .finish .actions{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
 .finish .btn{flex:none;padding:9px 16px}
 #summary-note{margin:0 0 6px}
-#summary-extra,#summary-text{width:100%;font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;resize:vertical}
+#alert-input,#alert-output,#summary-extra,#summary-text{width:100%;font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;resize:vertical}
 .card{background:var(--bg)}
 #setup>summary{cursor:pointer;display:flex;justify-content:space-between;gap:8px}
 #setup[open]>summary{margin-bottom:10px}
@@ -183,6 +183,7 @@ dialog em{font-style:normal;color:var(--no)}
       <input type="file" id="plan" accept=".xlsx" multiple hidden>
       <button class="btn" id="shot-button" type="button" title="อ่านเวลาและสถานที่จากรูป" disabled><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></svg>รูป</button>
       <button class="btn" id="add" type="button" disabled>+ รถ</button>
+      <button class="btn" id="alert-button" type="button" title="จัดข้อความแจ้งเหตุสำหรับส่ง LINE" disabled><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17.5v.01"/></svg>แจ้งเหตุ</button>
     </div>
     <p class="mute tools" id="count"></p>
     <div id="list"></div>
@@ -200,6 +201,17 @@ dialog em{font-style:normal;color:var(--no)}
     </span>
   </section>
 
+  <dialog id="alert-dialog" aria-labelledby="alert-title">
+    <h3 id="alert-title">ข้อความแจ้งเหตุ</h3>
+    <label class="field">โยนเนื้อหาลงที่นี่ (พิมพ์ วางข้อความ หรือ Ctrl+V วางรูป)<textarea id="alert-input" rows="5" placeholder="เช่น 6715 02.12 หาว ตาปรือ โทรคุยจนถึงจุดพัก"></textarea></label>
+    <div class="line" style="margin:8px 0"><select id="alert-type" aria-label="แบบข้อความ"><option value="">เลือกแบบให้อัตโนมัติ</option></select><span class="mute" id="alert-guess"></span></div>
+    <label class="field">ข้อความตามแพทเทิน (แก้ได้)<textarea id="alert-output" rows="14"></textarea></label>
+    <div class="line" style="margin:8px 0 0">
+      <button class="btn primary" id="alert-copy" type="button">คัดลอก</button>
+      <button class="btn" id="alert-clear" type="button">ล้าง</button>
+      <button class="btn" id="alert-close" type="button">ปิด</button>
+    </div>
+  </dialog>
   <dialog id="summary-dialog" aria-labelledby="summary-title">
     <h3 id="summary-title">สรุปสำหรับส่ง LINE (แก้ข้อความได้)</h3>
     <p class="mute" id="summary-note"></p>
@@ -261,6 +273,6 @@ dialog em{font-style:normal;color:var(--no)}
   });
 })();
 </script>
-<script type="module" src="./bbs.js?v=24"></script>
+<script type="module" src="./bbs.js?v=25"></script>
 </body>
 </html>

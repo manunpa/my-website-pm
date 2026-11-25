@@ -3,6 +3,7 @@ import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=5';
 import { readPlans, vehicleNo } from './bbs-plan.js?v=3';
 import { readImage, parseShot, inShift } from './bbs-ocr.js?v=1';
 import { samePlace } from './bbs-match.js?v=1';
+import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
 import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=1';
 import { destList, diffPlan, mergeChanges, describe } from './bbs-diff.js?v=1';
 
@@ -542,7 +543,7 @@ function render() {
         report.date.split('-').reverse().join('/'),
         report.shift === 'night' ? 'กลางคืน' : 'กลางวัน'
     ].filter(Boolean).join(' · ');
-    for (const id of ['export', 'summary-button', 'plan-button', 'shot-button', 'search', 'add']) $(id).disabled = !template;
+    for (const id of ['export', 'summary-button', 'alert-button', 'plan-button', 'shot-button', 'search', 'add']) $(id).disabled = !template;
     $('template-name').textContent = template ? template.name : '';
     $('template-name').hidden = !!API_URL || !template;
     if (open) { $('list').replaceChildren(vehiclePage(open)); return; }
@@ -719,7 +720,8 @@ function bindShots() {
         const images = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'));
         if (!images.length) return;
         e.preventDefault();
-        addShots(images);
+        if ($('alert-dialog').open) alertImage(images);
+        else addShots(images);
     });
     // ปุ่มวาง สำหรับมือถือที่ไม่มี Ctrl+V
     $('shot-paste').addEventListener('click', async () => {
@@ -857,6 +859,59 @@ function bindSummary() {
     $('summary-close').addEventListener('click', () => $('summary-dialog').close());
 }
 
+// ===== ข้อความแจ้งเหตุ: โยนเนื้อหา → จัดเข้าแพทเทิน → คัดลอกส่ง LINE =====
+const alertUnit = () => (API_URL ? shortName(template.name).replace(/^BBS\s*/i, '').replace(/\bWO[- ]*/i, '') : '');
+
+function buildAlert() {
+    const raw = $('alert-input').value;
+    $('alert-copy').textContent = 'คัดลอก';
+    if (!raw.trim()) { $('alert-output').value = ''; return; }
+    const type = $('alert-type').value || detectType(raw);
+    $('alert-guess').textContent = $('alert-type').value ? '' : 'แบบ: ' + ALERT_TYPES[type];
+    $('alert-output').value = formatAlert(type, parseAlert(raw,
+        { vehicles: report.vehicles, unit: alertUnit(), date: report.date }));
+}
+
+async function alertImage(images) {
+    for (const image of images) {
+        $('alert-guess').textContent = '⏳ กำลังอ่านรูป…';
+        try {
+            const text = await readImage(image);
+            $('alert-input').value += ($('alert-input').value ? '\n' : '') + text.trim();
+            buildAlert();
+        } catch (err) {
+            $('alert-guess').textContent = 'อ่านรูปไม่ได้: ' + err.message;
+        }
+    }
+}
+
+function bindAlert() {
+    $('alert-type').append(...Object.entries(ALERT_TYPES).map(([value, textContent]) => el('option', { value, textContent })));
+    $('alert-button').addEventListener('click', () => {
+        $('alert-dialog').showModal();
+        $('alert-input').focus();
+    });
+    $('alert-input').addEventListener('input', buildAlert);
+    $('alert-type').addEventListener('change', buildAlert);
+    $('alert-clear').addEventListener('click', () => {
+        $('alert-input').value = '';
+        $('alert-type').value = '';
+        $('alert-guess').textContent = '';
+        buildAlert();
+        $('alert-input').focus();
+    });
+    $('alert-copy').addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText($('alert-output').value);
+            $('alert-copy').textContent = 'คัดลอกแล้ว';
+        } catch {
+            $('alert-output').select();
+            $('alert-copy').textContent = 'กด Ctrl+C เพื่อคัดลอก';
+        }
+    });
+    $('alert-close').addEventListener('click', () => $('alert-dialog').close());
+}
+
 // ชื่อไฟล์ส่งออกตามชื่อฟอร์ม โดยตัดคำว่า "วันที่/เดือน..." ท้ายชื่อออก
 function baseName() {
     const name = API_URL ? template.name.replace(/\.xlsx$/i, '').split('วันที่')[0].trim() : '';
@@ -866,6 +921,7 @@ function baseName() {
 function bind() {
     bindShots();
     bindSummary();
+    bindAlert();
     $('template').addEventListener('change', async () => {
         const file = $('template').files[0];
         if (!file) return;
@@ -884,7 +940,7 @@ function bind() {
     for (const id of ['date', 'shift']) $(id).addEventListener('change', () => { if ($('date').value) load(); });
     $('form').addEventListener('change', async () => {
         $('list').replaceChildren();
-        for (const id of ['export', 'summary-button', 'plan-button', 'shot-button', 'search', 'add']) $(id).disabled = true;
+        for (const id of ['export', 'summary-button', 'alert-button', 'plan-button', 'shot-button', 'search', 'add']) $(id).disabled = true;
         try {
             await openForm($('form').value);
             localStorage.setItem('bbs-form', $('form').value);
