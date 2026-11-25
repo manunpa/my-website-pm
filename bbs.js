@@ -130,12 +130,13 @@ function newReport() {
     };
 }
 
-// สีของแถบ: แดง = พลาด, เหลือง = ยังไม่ถึงชีต, เขียว = เรียบร้อย
+// สีของจุด: แดง = พลาด, เหลือง = ยังไม่ถึงชีต, เขียว = เรียบร้อย
 function status(text, bad = false) {
     const wait = !bad && /รอส่ง|กำลัง|ในเครื่อง/.test(text);
-    $('status').textContent = text ? (bad ? '⚠ ' : wait ? '⏳ ' : '✔ ') + text : '';
     $('status').className = 'save-state ' + (bad ? 'bad' : wait ? 'wait' : 'done');
     $('status').hidden = !text;
+    $('status-title').textContent = bad ? 'มีปัญหา' : wait ? 'กำลังบันทึก' : 'บันทึกแล้ว';
+    $('status-detail').textContent = text;
 }
 
 // ส่งขึ้นชีตเป็นรอบ: หลังหยุดกรอก 5 วินาที หรืออย่างช้าทุก 60 วินาที และตอนสลับ/ปิดหน้า
