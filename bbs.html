@@ -9,13 +9,15 @@
 <script src="./pwa.js" defer></script>
 <!-- ซ่อนหน้าไว้จนกว่า Firebase จะยืนยันตัวตนเสร็จ (firebase-guard.js จะใส่คลาส .ready) -->
 <style>html:not(.ready) body { visibility: hidden; }</style>
+<!-- โทนมืด/สว่างใช้ค่าเดียวกับหน้าหลัก (hub-theme) ตั้งก่อนวาดหน้าเพื่อไม่ให้กระพริบ -->
+<script>try { if (localStorage.getItem('hub-theme') === 'dark') document.documentElement.dataset.theme = 'dark'; } catch (e) {}</script>
 <title>บันทึก BBS</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
 :root{--bg:#f5f5f3;--panel:#fff;--line:#dcdcd7;--ink:#1a1a1a;--mute:#6f6f6a;--ok:#1b7f4c;--no:#c0362c}
-@media (prefers-color-scheme:dark){:root{--bg:#161616;--panel:#1f1f1f;--line:#333;--ink:#ececea;--mute:#9a9a95;--ok:#4cc38a;--no:#ff6b5e;color-scheme:dark}}
+:root[data-theme=dark]{--bg:#161616;--panel:#1f1f1f;--line:#333;--ink:#ececea;--mute:#9a9a95;--ok:#4cc38a;--no:#ff6b5e;color-scheme:dark}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans Thai',system-ui,sans-serif;font-size:15px;line-height:1.5;
   padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
@@ -42,6 +44,7 @@ label{font-size:13px;color:var(--mute)}
 .round{border-left:3px solid var(--line);padding-left:10px;margin-bottom:12px}
 .note{width:100%;margin-top:6px}
 .checks{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+details>.line{margin:6px 0 0}
 .chk{text-align:left;background:transparent;border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:13px;cursor:pointer}
 .chk.ok{border-color:var(--ok);color:var(--ok)}
 .chk.no{border-color:var(--no);color:var(--no);font-weight:600}
@@ -53,6 +56,7 @@ summary{cursor:pointer}
   <header>
     <h1>บันทึกพฤติกรรม พขร. (BBS)</h1>
     <div class="line" style="margin:0">
+      <button class="btn" id="theme" type="button" aria-label="สลับโทนมืด/สว่าง" title="สลับโทนมืด/สว่าง">🌙</button>
       <a class="btn" href="./Access-Hub.html">หน้าหลัก</a>
       <button class="btn" id="logout-btn" type="button">ออกจากระบบ</button>
     </div>
@@ -81,6 +85,20 @@ summary{cursor:pointer}
   </div>
   <div id="list"></div>
 </div>
-<script type="module" src="./bbs.js?v=1"></script>
+<script>
+(() => {
+  const root = document.documentElement;
+  const button = document.getElementById('theme');
+  const paint = () => { button.textContent = root.dataset.theme === 'dark' ? '☀️' : '🌙'; };
+  button.addEventListener('click', () => {
+    const dark = root.dataset.theme !== 'dark';
+    if (dark) root.dataset.theme = 'dark'; else delete root.dataset.theme;
+    try { localStorage.setItem('hub-theme', dark ? 'dark' : 'light'); } catch (e) {}
+    paint();
+  });
+  paint();
+})();
+</script>
+<script type="module" src="./bbs.js?v=3"></script>
 </body>
 </html>

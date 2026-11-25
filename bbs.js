@@ -129,10 +129,15 @@ function select(obj, prop, label, options) {
 
 const button = (text, onClick, cls = 'btn') => el('button', { type: 'button', className: cls, textContent: text, onclick: onClick });
 
-const presetMarks = (type) => Object.fromEntries(TYPES[type].preset.map((c) => [c, 'P']));
-
 function roundView(v, r, i, redraw) {
+    if (!TYPES[r.type]) r.type = 'driving'; // ข้อมูลที่กรอกจากหน้าแบบตารางไม่มีประเภท
+    r.marks ||= {};
     const checks = el('div', { className: 'checks' });
+    const count = el('summary');
+    const tally = () => {
+        const bad = Object.values(r.marks).filter((m) => m === 'O').length;
+        count.textContent = 'หัวข้อตรวจ: ติ๊กแล้ว ' + Object.keys(r.marks).length + '/' + TYPES[r.type].cols.length + (bad ? ' · ไม่ผ่าน ' + bad : '');
+    };
     for (const col of TYPES[r.type].cols) {
         const name = (template && template.checks[col]) || col;
         const chip = el('button', { type: 'button', title: name });
@@ -147,6 +152,7 @@ function roundView(v, r, i, redraw) {
             else if (mark === 'O') delete r.marks[col];
             else r.marks[col] = 'P';
             paint();
+            tally();
             save();
         };
         paint();
@@ -156,9 +162,13 @@ function roundView(v, r, i, redraw) {
     const type = el('select', {}, ...Object.entries(TYPES).map(([value, t]) => el('option', { value, textContent: t.label })));
     type.value = r.type;
     type.setAttribute('aria-label', 'ประเภทการตรวจ');
-    type.onchange = () => { r.type = type.value; r.marks = presetMarks(r.type); save(); redraw(); };
+    type.onchange = () => { r.type = type.value; r.marks = {}; save(); redraw(); };
 
-    const bad = Object.values(r.marks).filter((m) => m === 'O').length;
+    tally();
+    // ปุ่มลัด: ติ๊กเฉพาะช่องที่ยังว่าง (ข้อที่เป็น ✗ คงไว้) หรือล้างทั้งหมด
+    const quick = el('div', { className: 'line' },
+        button('✓ ติ๊กทั้งหมด', () => { for (const col of TYPES[r.type].preset) r.marks[col] ||= 'P'; save(); redraw(); }),
+        button('ล้าง', () => { r.marks = {}; save(); redraw(); }));
     return el('div', { className: 'round' },
         el('div', { className: 'line' },
             input(r, 'time', 'เวลา', { type: 'time' }),
@@ -166,7 +176,7 @@ function roundView(v, r, i, redraw) {
             type,
             button('ลบ', () => { v.rounds.splice(i, 1); save(); redraw(); })),
         TYPES[r.type].cols.length
-            ? el('details', {}, el('summary', { textContent: 'หัวข้อตรวจ ' + Object.keys(r.marks).length + ' ข้อ' + (bad ? ' · ไม่ผ่าน ' + bad : '') }), checks)
+            ? el('details', { open: !r.closed, ontoggle: (e) => { r.closed = !e.target.open; } }, count, quick, checks)
             : null,
         input(r, 'note', 'หมายเหตุ / พฤติกรรมเสี่ยง / ชมเชย', { className: 'note' }));
 }
@@ -214,7 +224,7 @@ function vehicleCard(v) {
             ...v.rounds.map((r, i) => roundView(v, r, i, redraw)),
             button('+ เพิ่มรอบตรวจ (เวลาตอนนี้)', () => {
                 const time = new Date().toTimeString().slice(0, 5);
-                v.rounds.push({ time, place: '', type: 'driving', marks: presetMarks('driving'), note: '' });
+                v.rounds.push({ time, place: '', type: 'driving', marks: {}, note: '' });
                 save();
                 redraw();
             }, 'btn primary'));
