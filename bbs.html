@@ -51,6 +51,11 @@ section p{margin:0 0 8px}
 .finish{position:sticky;bottom:0;z-index:2;box-shadow:0 -6px 16px rgba(0,0,0,.12)}
 .finish h2{margin-bottom:6px}
 .card{background:var(--bg)}
+.empty{text-align:center;color:var(--mute);border:1px dashed var(--line);border-radius:10px;padding:16px}
+.save-state{flex:1 1 220px;border:2px solid;border-radius:8px;padding:6px 10px;font-weight:600}
+.save-state.done{color:var(--ok)}
+.save-state.wait{color:#b07400}
+.save-state.bad{color:var(--no)}
 .card>summary::before{content:"▸";color:var(--mute)}
 .card[open]>summary::before{content:"▾"}
 .card>summary{cursor:pointer;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
@@ -119,9 +124,10 @@ dialog em{font-style:normal;color:var(--no)}
     <p class="mute">แตะที่รถ → กด “+ เพิ่มรอบตรวจ” → ใส่สถานที่และติ๊กหัวข้อ ระบบบันทึกให้เอง</p>
     <div class="line">
       <input id="search" class="grow" type="search" placeholder="ค้นหาเบอร์รถ / ทะเบียน / ชื่อ" aria-label="ค้นหา" disabled>
-      <button class="btn" id="add" type="button" disabled>+ เพิ่มรถ</button>
+      <button class="btn" id="add" type="button" disabled>+ เพิ่มรถ / งาน</button>
     </div>
     <p class="mute" id="count"></p>
+    <p><label><input type="checkbox" id="show-all"> แสดงรถที่ไม่มีงานด้วย</label></p>
     <div id="list"></div>
   </section>
 
@@ -129,10 +135,24 @@ dialog em{font-style:normal;color:var(--no)}
     <h2><b>4</b> จบกะ ส่งออกรายงาน</h2>
     <div class="line" style="margin:0">
       <button class="btn primary" id="export" type="button" disabled>⬇ ส่งออกรายงาน Excel</button>
-      <span class="mute grow" id="status" role="status"></span>
+      <span class="save-state" id="status" role="status" hidden></span>
     </div>
   </section>
 
+  <dialog id="add-dialog" aria-labelledby="add-title">
+    <form id="add-form">
+      <h3 id="add-title">เพิ่มรถ / งาน</h3>
+      <div class="line">
+        <label class="field grow">เบอร์รถ (เลือกจากรายการ หรือพิมพ์ใหม่)<input id="add-scc" list="add-list" autocomplete="off" required></label>
+        <datalist id="add-list"></datalist>
+        <label class="field grow">ทะเบียน (เฉพาะรถใหม่)<input id="add-plate" autocomplete="off"></label>
+      </div>
+      <div class="line" style="margin:0">
+        <button class="btn primary" type="submit">เพิ่ม</button>
+        <button class="btn" id="add-cancel" type="button">ยกเลิก</button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="plan-dialog" aria-labelledby="plan-title">
     <h3 id="plan-title"></h3>
     <ul id="plan-notes" class="bad"></ul>
@@ -157,6 +177,6 @@ dialog em{font-style:normal;color:var(--no)}
   paint();
 })();
 </script>
-<script type="module" src="./bbs.js?v=8"></script>
+<script type="module" src="./bbs.js?v=9"></script>
 </body>
 </html>

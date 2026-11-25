@@ -127,13 +127,16 @@ function newReport() {
     };
 }
 
+// สีของแถบ: แดง = พลาด, เหลือง = ยังไม่ถึงชีต, เขียว = เรียบร้อย
 function status(text, bad = false) {
-    $('status').textContent = text;
-    $('status').classList.toggle('bad', bad);
+    const wait = !bad && /รอส่ง|กำลัง|ในเครื่อง/.test(text);
+    $('status').textContent = text ? (bad ? '⚠ ' : wait ? '⏳ ' : '✔ ') + text : '';
+    $('status').className = 'save-state ' + (bad ? 'bad' : wait ? 'wait' : 'done');
+    $('status').hidden = !text;
 }
 
-// ส่งขึ้นชีตเป็นรอบ: หลังหยุดกรอก 15 วินาที หรืออย่างช้าทุก 60 วินาที และตอนสลับ/ปิดหน้า
-const IDLE_MS = 15000;
+// ส่งขึ้นชีตเป็นรอบ: หลังหยุดกรอก 5 วินาที หรืออย่างช้าทุก 60 วินาที และตอนสลับ/ปิดหน้า
+const IDLE_MS = 5000;
 const MAX_WAIT_MS = 60000;
 const pending = new Map(); // key -> ข้อมูลที่รอส่ง
 let idleTimer;
@@ -143,11 +146,13 @@ async function flush() {
     clearTimeout(idleTimer);
     clearTimeout(maxTimer);
     maxTimer = null;
+    if (pending.size) status('กำลังส่งขึ้น Google Sheet…');
     for (const [key, doc] of [...pending]) {
         pending.delete(key);
         try {
             await call({ action: 'save', key, doc });
-            status(pending.size ? 'รอส่งขึ้น Google Sheet…' : 'บันทึกลง Google Sheet แล้ว');
+            status(pending.size ? 'รอส่งขึ้น Google Sheet…'
+                : 'บันทึกลง Google Sheet แล้ว ' + new Date().toTimeString().slice(0, 5) + ' น.');
         } catch (err) {
             if (!pending.has(key)) pending.set(key, doc);
             status('ส่งขึ้น Google Sheet ไม่ได้ (เก็บในเครื่องแล้ว จะลองใหม่): ' + err.message, true);
@@ -341,16 +346,27 @@ function vehicleCard(v) {
     return card;
 }
 
+// คันที่ต้องแสดง: มีงาน มีรอบตรวจ เพิ่มเข้ามาเอง หรือกำลังเปิดอยู่
+const hasWork = (v) => v.trips.length > 0 || v.rounds.length > 0 || !!v.pinned || openCards.has(v.scc);
+
 function render() {
     $('checker').value = report.checker || '';
     $('monitor').value = report.monitor || '';
     const q = $('search').value.trim().toLowerCase();
-    $('list').replaceChildren(...report.vehicles
-        .filter((v) => !q || [v.scc, v.plate, v.driver].join(' ').toLowerCase().includes(q))
-        .map(vehicleCard));
+    const shown = report.vehicles.filter((v) => q
+        ? [v.scc, v.plate, v.driver].join(' ').toLowerCase().includes(q)
+        : $('show-all').checked || hasWork(v));
+    $('list').replaceChildren(...shown.map(vehicleCard));
+    if (template && !shown.length) {
+        $('list').append(el('p', { className: 'empty', textContent: q
+            ? 'ไม่พบรถที่ค้นหา'
+            : 'ยังไม่มีรถที่มีงาน — อัปโหลดแผนงานในข้อ 2 หรือกด “+ เพิ่มรถ / งาน”' }));
+    }
     for (const id of ['export', 'plan-button', 'search', 'add']) $(id).disabled = !template;
-    $('count').textContent = template ? 'รถทั้งหมด ' + report.vehicles.length + ' คัน · ตรวจแล้ว ' +
-        report.vehicles.filter((v) => v.rounds.length).length + ' คัน' : 'ยังไม่มีรายชื่อรถ';
+    const working = report.vehicles.filter(hasWork).length;
+    $('count').textContent = template ? 'มีงาน ' + working + ' คัน · ตรวจแล้ว ' +
+        report.vehicles.filter((v) => v.rounds.length).length + ' คัน · ไม่มีงาน (ซ่อนไว้) ' +
+        (report.vehicles.length - working) + ' คัน' : 'ยังไม่มีรายชื่อรถ';
     $('template-name').textContent = template ? template.name : '';
     $('template-name').hidden = !!API_URL || !template;
 }
@@ -439,6 +455,7 @@ function bind() {
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && pending.size) flush(); });
     for (const id of ['checker', 'monitor']) $(id).addEventListener('input', () => { report[id] = $(id).value; save(); });
     $('search').addEventListener('input', render);
+    $('show-all').addEventListener('change', render);
     $('plan-button').addEventListener('click', () => $('plan').click());
     $('plan').addEventListener('change', async () => {
         const files = [...$('plan').files];
@@ -450,15 +467,32 @@ function bind() {
     $('plan-ok').addEventListener('click', () => { applyPlans(); $('plan-dialog').close(); });
     $('plan-cancel').addEventListener('click', () => $('plan-dialog').close());
     $('add').addEventListener('click', () => {
-        const scc = (prompt('เบอร์รถ (SCC)') || '').trim();
-        if (!scc) return;
-        if (report.vehicles.some((v) => v.scc === scc)) { status('มีรถเบอร์นี้อยู่แล้ว', true); return; }
-        const plate = (prompt('ทะเบียนรถ') || '').trim();
-        report.vehicles.push(emptyVehicle({ scc, plate, driver: '', risk: '' }));
-        openCards.add(scc);
+        $('add-list').replaceChildren(...report.vehicles.filter((v) => !hasWork(v)).map((v) =>
+            el('option', { value: v.scc, label: [v.plate, v.driver].filter(Boolean).join(' · ') })));
+        $('add-scc').value = '';
+        $('add-plate').value = '';
+        $('add-dialog').showModal();
+    });
+    $('add-cancel').addEventListener('click', () => $('add-dialog').close());
+    $('add-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const typed = $('add-scc').value.trim().toUpperCase();
+        if (!typed) return;
+        const no = vehicleNo(typed);
+        let v = report.vehicles.find((x) => x.scc.toUpperCase() === typed || (no && vehicleNo(x.scc) === no));
+        if (!v) {
+            v = emptyVehicle({ scc: no ? 'SCC' + no : typed, plate: $('add-plate').value.trim(), driver: '', risk: '' });
+            report.vehicles.push(v);
+        }
+        v.pinned = true;
+        if (!v.trips.length) v.trips.push({ ship: '', custId: '', cust: '' });
+        openCards.add(v.scc);
         $('search').value = '';
+        $('add-dialog').close();
         save();
         render();
+        [...$('list').querySelectorAll('.card')].find((c) => c.querySelector('summary b').textContent === v.scc)
+            ?.scrollIntoView({ block: 'start' });
     });
     $('export').addEventListener('click', async () => {
         $('export').disabled = true;
