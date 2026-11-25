@@ -421,6 +421,7 @@ function vehicleRow(v) {
     return el('button', { type: 'button', className: 'row' + (v.rounds.length ? '' : ' none'), onclick: () => openVehicle(v.scc) },
         el('span', { className: 'car' },
             el('b', { textContent: v.scc }),
+            v.plate ? el('span', { className: 'plate', textContent: v.plate }) : null,
             el('span', { className: 'who', textContent: v.driver || 'ไม่มีคนขับ' }),
             v.changes?.length ? el('span', { className: 'changed', textContent: 'แผนเปลี่ยน' }) : null,
             el('span', { className: 'tally', textContent: v.rounds.length ? 'ตรวจ ' + v.rounds.length + ' รอบ' : 'ยังไม่ตรวจ' })),
@@ -459,7 +460,8 @@ function vehiclePage(v) {
 
         page.replaceChildren(
             button('← กลับหน้ารวม', closeVehicle),
-            el('h3', { className: 'title', textContent: v.scc + ' ' + (v.driver || '') }),
+            el('h3', { className: 'title' }, v.scc + ' ',
+                v.plate ? el('span', { className: 'plate', textContent: v.plate }) : null, ' ' + (v.driver || '')),
             destinations(v, redraw),
             button('+ ตรวจรอบใหม่', () => {
                 const time = new Date().toTimeString().slice(0, 8);
