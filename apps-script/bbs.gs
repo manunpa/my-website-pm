@@ -1,14 +1,19 @@
 /**
- * ที่เก็บข้อมูลหน้า "บันทึก BBS" (bbs.html) ลง Google ชีต — รับเฉพาะคนที่ล็อกอินเว็บแล้ว (ตรวจ Firebase token)
+ * หลังบ้านหน้า "บันทึก BBS" (bbs.html) — รับเฉพาะคนที่ล็อกอินเว็บแล้ว (ตรวจ Firebase token)
  *
- * แท็บ reports : 1 แถวต่อ 1 วัน/กะ (ข้อมูลทั้งรายงาน ใช้โหลดกลับขึ้นเว็บ)
+ * ฟอร์มต้นแบบ : ไฟล์ .xlsx ในโฟลเดอร์ Drive ตาม FOLDER_PATH (อ่านอย่างเดียว ไม่แก้ไฟล์)
+ * แท็บ reports : 1 แถวต่อ ฟอร์ม/วัน/กะ (ข้อมูลทั้งรายงาน ใช้โหลดกลับขึ้นเว็บ)
  * แท็บ rounds  : 1 แถวต่อ 1 รอบตรวจ (อ่าน/กรอง/ทำสถิติได้ในชีต)
  * ทั้งสองแท็บสร้างให้เองครั้งแรกที่บันทึก
  *
  * วิธีติดตั้ง: สร้าง Google ชีตใหม่ → ส่วนขยาย → Apps Script → วางโค้ดนี้ทับ → บันทึก
- * → เลือกฟังก์ชัน authorize แล้วกด "เรียกใช้" → การทำให้ใช้งานได้ → เว็บแอป
- *   (เรียกใช้ในฐานะ: ฉัน, ผู้มีสิทธิ์เข้าถึง: ทุกคน) → คัดลอก URL /exec ไปใส่ API_URL ใน bbs.js
+ * → เลือกฟังก์ชัน authorize แล้วกด "เรียกใช้" → อนุญาต (บันทึกการดำเนินการจะแสดงรายชื่อฟอร์มที่เจอ)
+ * → การทำให้ใช้งานได้ → เว็บแอป (เรียกใช้ในฐานะ: ฉัน, ผู้มีสิทธิ์เข้าถึง: ทุกคน)
+ * → คัดลอก URL /exec ไปใส่ API_URL ใน bbs.js
  */
+
+// โฟลเดอร์เก็บฟอร์ม: ไดรฟ์ของฉัน → Database → BBS
+const FOLDER_PATH = ['Database', 'BBS'];
 
 // Firebase โปรเจกต์ที่ยอมรับ: projectId → Web API key (ค่าจาก firebaseConfig ใน firebase-guard.js ไม่ใช่ความลับ — แยกเป็น 2 ท่อนเพื่อไม่ให้ถูกซ่อนเป็น ••• ตอนคัดลอก)
 const FIREBASE_PROJECTS = {
@@ -24,7 +29,10 @@ function doPost(e) {
     return json_({ status: 'error', error: 'unauthorized', reason: FAIL_REASON_, message: 'เซสชันหมดอายุหรือไม่มีสิทธิ์ กรุณาล็อกอินใหม่' });
   }
   try {
-    if (!/^\d{4}-\d{2}-\d{2}_(day|night)$/.test(body.key)) throw new Error('key ไม่ถูกต้อง');
+    if (body.action === 'forms') return json_({ status: 'success', forms: listForms_() });
+    if (body.action === 'form') return json_(getForm_(String(body.id)));
+    // key = รหัสไฟล์ฟอร์ม_วันที่_กะ
+    if (!/^[\w-]{10,80}_\d{4}-\d{2}-\d{2}_(day|night)$/.test(body.key)) throw new Error('key ไม่ถูกต้อง');
     if (body.action === 'load') return json_({ status: 'success', doc: load_(body.key) });
     if (body.action === 'save') {
       const lock = LockService.getScriptLock();
@@ -42,7 +50,63 @@ function doGet() {
   return json_({ status: 'error', error: 'unauthorized', message: 'ต้องเข้าสู่ระบบผ่านเว็บก่อน' });
 }
 
+// ===== ฟอร์มต้นแบบใน Drive =====
+function folder_() {
+  // เทียบเฉพาะตัวอักษรอังกฤษ/ตัวเลข: อักขระแฝงที่มองไม่เห็น ช่องว่าง และตัวพิมพ์เล็กใหญ่ไม่มีผล
+  // ชื่อโฟลเดอร์ใน Drive ซ้ำกันได้ จึงเก็บทุกอันที่ตรง
+  const plain = function (text) { return String(text).replace(/[^A-Za-z0-9]/g, '').toLowerCase(); };
+  let level = [DriveApp.getRootFolder()];
+  FOLDER_PATH.forEach(function (name, depth) {
+    const next = [];
+    level.forEach(function (parent) {
+      const found = parent.getFolders();
+      while (found.hasNext()) {
+        const child = found.next();
+        if (plain(child.getName()) === plain(name)) next.push(child);
+      }
+    });
+    if (!next.length) {
+      // บอกชื่อโฟลเดอร์ที่มองเห็นจริง ช่วยดูว่าชื่อเพี้ยนหรือคนละบัญชี
+      const seen = [];
+      level.forEach(function (parent) {
+        const all = parent.getFolders();
+        while (all.hasNext() && seen.length < 30) seen.push('"' + all.next().getName() + '"');
+      });
+      throw new Error('ไม่พบโฟลเดอร์ "' + name + '" (' + FOLDER_PATH.slice(0, depth + 1).join('/') +
+        ') โฟลเดอร์ที่เจอตรงนั้น: ' + (seen.join(', ') || 'ไม่มีเลย'));
+    }
+    level = next;
+  });
+  return level[0];
+}
+
+function formFiles_() {
+  const files = folder_().getFiles();
+  const list = [];
+  while (files.hasNext()) {
+    const file = files.next();
+    if (/\.xlsx$/i.test(file.getName())) list.push(file);
+  }
+  return list;
+}
+
+function listForms_() {
+  return formFiles_()
+    .map(function (f) { return { id: f.getId(), name: f.getName(), updated: f.getLastUpdated().getTime() }; })
+    .sort(function (a, b) { return a.name.localeCompare(b.name); });
+}
+
+// ส่งเฉพาะไฟล์ที่อยู่ในโฟลเดอร์ฟอร์ม (กันการขอไฟล์อื่นใน Drive ด้วยรหัสไฟล์)
+function getForm_(id) {
+  const file = formFiles_().filter(function (f) { return f.getId() === id; })[0];
+  if (!file) throw new Error('ไม่พบฟอร์มนี้ในโฟลเดอร์');
+  return { status: 'success', name: file.getName(), updated: file.getLastUpdated().getTime(),
+    data: Utilities.base64Encode(file.getBlob().getBytes()) };
+}
+
+// ===== ข้อมูลที่กรอก =====
 const CHUNK = 45000; // 1 ช่องในชีตเก็บได้ไม่เกิน 50,000 ตัวอักษร
+const ROUND_HEADERS = ['key', 'ฟอร์ม', 'วันที่', 'กะ', 'SCC', 'ทะเบียน', 'พขร.', 'เวลา', 'สถานที่', 'ผ่าน', 'ไม่ผ่าน', 'หมายเหตุ'];
 
 function tab_(name, headers) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -57,17 +121,20 @@ function tab_(name, headers) {
 
 function reports_() { return tab_('reports', ['key', 'updated', 'by', 'data']); }
 
-function findRow_(sheet, key) {
+// หมายเลขแถวทั้งหมดที่คอลัมน์ A ตรงกับ key
+function rowsOf_(sheet, key) {
   const last = sheet.getLastRow();
-  if (last < 2) return 0;
-  const keys = sheet.getRange(2, 1, last - 1, 1).getDisplayValues();
-  for (let i = 0; i < keys.length; i++) if (keys[i][0] === key) return i + 2;
-  return 0;
+  if (last < 2) return [];
+  const rows = [];
+  sheet.getRange(2, 1, last - 1, 1).getDisplayValues().forEach(function (r, i) {
+    if (r[0] === key) rows.push(i + 2);
+  });
+  return rows;
 }
 
 function load_(key) {
   const sheet = reports_();
-  const row = findRow_(sheet, key);
+  const row = rowsOf_(sheet, key)[0];
   if (!row) return '';
   return sheet.getRange(row, 4, 1, Math.max(1, sheet.getLastColumn() - 3)).getValues()[0].join('');
 }
@@ -75,32 +142,42 @@ function load_(key) {
 function save_(key, doc, email) {
   const report = JSON.parse(doc);
   const sheet = reports_();
-  const row = findRow_(sheet, key) || sheet.getLastRow() + 1;
+  const row = rowsOf_(sheet, key)[0] || sheet.getLastRow() + 1;
   const chunks = [];
   for (let i = 0; i < doc.length; i += CHUNK) chunks.push(doc.slice(i, i + CHUNK));
-  sheet.getRange(row, 1, 1, sheet.getMaxColumns()).clearContent();
+  if (row <= sheet.getLastRow()) sheet.getRange(row, 1, 1, sheet.getLastColumn()).clearContent();
   sheet.getRange(row, 1, 1, 3 + chunks.length).setValues([[key, new Date(), email].concat(chunks)]);
   writeRounds_(key, report);
 }
 
-// แทนที่แถวของวัน/กะนี้ทั้งชุด
+// แก้เฉพาะแถวของ ฟอร์ม/วัน/กะ นี้ ไม่แตะข้อมูลอื่น
 function writeRounds_(key, report) {
-  const headers = ['key', 'SCC', 'ทะเบียน', 'พขร.', 'เวลา', 'สถานที่', 'ประเภท', 'ผ่าน', 'ไม่ผ่าน', 'หมายเหตุ'];
-  const sheet = tab_('rounds', headers);
-  const last = sheet.getLastRow();
-  const old = last > 1 ? sheet.getRange(2, 1, last - 1, headers.length).getDisplayValues() : [];
-  const rows = old.filter(function (r) { return r[0] !== key; });
+  const sheet = tab_('rounds', ROUND_HEADERS);
+  const rows = [];
   report.vehicles.forEach(function (v) {
     v.rounds.forEach(function (r) {
       const marks = Object.keys(r.marks || {});
-      rows.push([key, v.scc, v.plate, v.driver, r.time, r.place, r.type,
+      rows.push([key, report.formName || '', report.date, report.shift, v.scc, v.plate, v.driver, r.time, r.place,
         marks.filter(function (c) { return r.marks[c] === 'P'; }).join(' '),
         marks.filter(function (c) { return r.marks[c] === 'O'; }).join(' '),
         r.note || ''].map(safe_));
     });
   });
-  if (last > 1) sheet.getRange(2, 1, last - 1, headers.length).clearContent();
-  if (rows.length) sheet.getRange(2, 1, rows.length, headers.length).setNumberFormat('@').setValues(rows);
+  // ลบจากล่างขึ้นบน ทีละช่วงที่ติดกัน
+  const old = rowsOf_(sheet, key);
+  while (old.length) {
+    let start = old.pop();
+    let count = 1;
+    while (old.length && old[old.length - 1] === start - 1) { start = old.pop(); count++; }
+    // ชีตห้ามลบจนไม่เหลือแถวนอกจากแถวตรึง
+    if (sheet.getMaxRows() - count < 2) sheet.insertRowAfter(sheet.getMaxRows());
+    sheet.deleteRows(start, count);
+  }
+  if (!rows.length) return;
+  const from = sheet.getLastRow() + 1;
+  const missing = from + rows.length - 1 - sheet.getMaxRows();
+  if (missing > 0) sheet.insertRowsAfter(sheet.getMaxRows(), missing);
+  sheet.getRange(from, 1, rows.length, ROUND_HEADERS.length).setNumberFormat('@').setValues(rows);
 }
 
 // ข้อความที่ขึ้นต้นเหมือนสูตรต้องเก็บเป็นข้อความ
@@ -168,7 +245,8 @@ function json_(obj) {
 }
 
 // ครั้งแรกหลังวางโค้ด: เลือกฟังก์ชันนี้แล้วกด "เรียกใช้" → ตรวจสอบสิทธิ์ → อนุญาต
-// (ให้สคริปต์ติดต่อ Firebase ได้ — ถ้าไม่ทำ เว็บจะโหลดข้อมูลไม่ได้แม้ล็อกอินแล้ว)
 function authorize() {
   UrlFetchApp.fetch('https://www.google.com');
+  SpreadsheetApp.getActiveSpreadsheet().getName();
+  listForms_().forEach(function (f) { Logger.log('พบฟอร์ม: ' + f.name); });
 }

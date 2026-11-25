@@ -33,6 +33,7 @@ input,select{background:var(--panel);border:1px solid var(--line);border-radius:
 .line{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
 .grow{flex:1 1 200px}
 label{font-size:13px;color:var(--mute)}
+[hidden]{display:none !important}
 .mute{color:var(--mute);font-size:13px}
 .bad{color:var(--no)}
 #status{min-height:1.5em;margin:0 0 8px}
@@ -49,6 +50,10 @@ details>.line{margin:6px 0 0}
 .chk.ok{border-color:var(--ok);color:var(--ok)}
 .chk.no{border-color:var(--no);color:var(--no);font-weight:600}
 summary{cursor:pointer}
+dialog{width:min(640px,94vw);max-height:85vh;overflow:auto;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:16px}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+dialog ul{padding-left:18px;margin:0 0 12px}
+dialog em{font-style:normal;color:var(--no)}
 </style>
 </head>
 <body>
@@ -64,7 +69,8 @@ summary{cursor:pointer}
 
   <div class="panel">
     <div class="line">
-      <label class="btn" for="template">เลือกไฟล์ฟอร์มต้นแบบ (.xlsx)</label>
+      <select id="form" class="grow" aria-label="ฟอร์ม" hidden></select>
+      <label class="btn" id="pick-file" for="template">เลือกไฟล์ฟอร์มต้นแบบ (.xlsx)</label>
       <input type="file" id="template" accept=".xlsx" hidden>
       <span class="mute" id="template-name"></span>
     </div>
@@ -75,15 +81,26 @@ summary{cursor:pointer}
       <input id="monitor" class="grow" placeholder="Monitor" aria-label="Monitor">
     </div>
     <button class="btn primary" id="export" type="button" disabled>ส่งออกรายงาน Excel</button>
-    <p class="mute">ไฟล์ต้นแบบเก็บไว้ในเครื่องนี้เท่านั้น เลือกครั้งเดียว</p>
+    
   </div>
 
   <p class="mute" id="status" role="status"></p>
   <div class="line" id="tools" hidden>
     <input id="search" class="grow" type="search" placeholder="ค้นหาเบอร์รถ / ทะเบียน / ชื่อ" aria-label="ค้นหา">
+    <label class="btn" for="plan" title="ดึงเฉพาะวันที่และกะที่เลือกด้านบน">📄 อัปโหลดแผนงาน</label>
+    <input type="file" id="plan" accept=".xlsx" multiple hidden>
     <button class="btn" id="add" type="button">+ เพิ่มรถ</button>
   </div>
   <div id="list"></div>
+  <dialog id="plan-dialog" aria-labelledby="plan-title">
+    <h3 id="plan-title"></h3>
+    <ul id="plan-notes" class="bad"></ul>
+    <ul id="plan-list"></ul>
+    <div class="line" style="margin:0">
+      <button class="btn primary" id="plan-ok" type="button">เติมลงฟอร์ม</button>
+      <button class="btn" id="plan-cancel" type="button">ยกเลิก</button>
+    </div>
+  </dialog>
 </div>
 <script>
 (() => {
@@ -99,6 +116,6 @@ summary{cursor:pointer}
   paint();
 })();
 </script>
-<script type="module" src="./bbs.js?v=3"></script>
+<script type="module" src="./bbs.js?v=6"></script>
 </body>
 </html>

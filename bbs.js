@@ -1,8 +1,9 @@
 import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122-cut';
-import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=1';
+import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=3';
+import { readPlans, vehicleNo } from './bbs-plan.js?v=1';
 
 // URL /exec ของ Apps Script (apps-script/bbs.gs) — ว่างไว้ = เก็บในเครื่องนี้อย่างเดียว
-const API_URL = '';
+const API_URL = 'https://script.google.com/macros/s/AKfycbxGlbuYTL5_K8DZ7EIPT9P0NO5gef1od1f4WXzRvBPLbCvAPwST87Tl3hqtjMljY3Yx8w/exec';
 
 const $ = (id) => document.getElementById(id);
 const range = (a, b) => {
@@ -34,8 +35,45 @@ function idb(mode, run) {
     });
 }
 
-// ===== ข้อมูลรายงานต่อ 1 วัน/กะ =====
-const keyOf = () => $('date').value + '_' + $('shift').value;
+// ===== ฟอร์มต้นแบบจากโฟลเดอร์ Google Drive =====
+let forms = []; // [{ id, name, updated }]
+
+const fromBase64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0)).buffer;
+const call = async (body) => JSON.parse(await fetchProtectedText(API_URL, body));
+
+// ใช้สำเนาในเครื่องถ้าไฟล์ใน Drive ไม่ได้ถูกแก้
+async function openForm(id) {
+    template = null;
+    const info = forms.find((f) => f.id === id);
+    let saved = await idb('readonly', (s) => s.get('form:' + id)).catch(() => null);
+    if (!saved || (info && info.updated > saved.updated)) {
+        status('กำลังโหลดฟอร์มจาก Google Drive…');
+        const res = await call({ action: 'form', id });
+        saved = { buffer: fromBase64(res.data), name: res.name, updated: res.updated };
+        await idb('readwrite', (s) => s.put(saved, 'form:' + id)).catch(() => {});
+    }
+    await useTemplate(saved.buffer, saved.name);
+}
+
+async function loadForms() {
+    try {
+        forms = (await call({ action: 'forms' })).forms;
+        localStorage.setItem('bbs-forms', JSON.stringify(forms));
+    } catch (err) {
+        status('โหลดรายชื่อฟอร์มจาก Google Drive ไม่ได้: ' + err.message, true);
+        try { forms = JSON.parse(localStorage.getItem('bbs-forms')) || []; } catch { forms = []; }
+    }
+    $('form').replaceChildren(...forms.map((f) => el('option', { value: f.id, textContent: f.name.replace(/\.xlsx$/i, '') })));
+    $('form').hidden = false;
+    $('pick-file').hidden = true;
+    if (!forms.length) throw new Error('ไม่พบไฟล์ฟอร์ม .xlsx ในโฟลเดอร์ Drive');
+    const last = localStorage.getItem('bbs-form');
+    if (forms.some((f) => f.id === last)) $('form').value = last;
+    await openForm($('form').value);
+}
+
+// ===== ข้อมูลรายงานต่อ 1 ฟอร์ม/วัน/กะ =====
+const keyOf = () => (API_URL ? $('form').value + '_' : '') + $('date').value + '_' + $('shift').value;
 const localKey = (key) => 'bbs-report:' + key;
 
 function emptyVehicle(v) {
@@ -50,7 +88,7 @@ function newReport() {
     return {
         date: $('date').value, shift: $('shift').value,
         checker: $('checker').value, monitor: $('monitor').value,
-        vehicles: template ? template.vehicles.map(emptyVehicle) : []
+        vehicles: []
     };
 }
 
@@ -59,26 +97,56 @@ function status(text, bad = false) {
     $('status').classList.toggle('bad', bad);
 }
 
-let saveTimer;
+// ส่งขึ้นชีตเป็นรอบ: หลังหยุดกรอก 15 วินาที หรืออย่างช้าทุก 60 วินาที และตอนสลับ/ปิดหน้า
+const IDLE_MS = 15000;
+const MAX_WAIT_MS = 60000;
+const pending = new Map(); // key -> ข้อมูลที่รอส่ง
+let idleTimer;
+let maxTimer = null;
+
+async function flush() {
+    clearTimeout(idleTimer);
+    clearTimeout(maxTimer);
+    maxTimer = null;
+    for (const [key, doc] of [...pending]) {
+        pending.delete(key);
+        try {
+            await call({ action: 'save', key, doc });
+            status(pending.size ? 'รอส่งขึ้น Google Sheet…' : 'บันทึกลง Google Sheet แล้ว');
+        } catch (err) {
+            if (!pending.has(key)) pending.set(key, doc);
+            status('ส่งขึ้น Google Sheet ไม่ได้ (เก็บในเครื่องแล้ว จะลองใหม่): ' + err.message, true);
+            maxTimer ||= setTimeout(flush, MAX_WAIT_MS);
+        }
+    }
+}
+
+function queue(key, doc) {
+    pending.set(key, doc);
+    status('บันทึกในเครื่องแล้ว รอส่งขึ้น Google Sheet…');
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(flush, IDLE_MS);
+    maxTimer ||= setTimeout(flush, MAX_WAIT_MS);
+}
+
 function save() {
     report.updatedAt = Date.now();
-    const key = report.date + '_' + report.shift;
+    const key = report.key;
     try {
         localStorage.setItem(localKey(key), JSON.stringify(report));
         localStorage.setItem('bbs-names', JSON.stringify({ checker: report.checker, monitor: report.monitor }));
     } catch { status('บันทึกในเครื่องไม่ได้ (พื้นที่เต็มหรือถูกบล็อก)', true); return; }
     if (!API_URL) { status('บันทึกในเครื่องนี้แล้ว (ยังไม่ได้เชื่อม Google Sheet)'); return; }
-    status('รอส่งขึ้น Google Sheet…');
-    clearTimeout(saveTimer);
-    const doc = JSON.stringify(report);
-    saveTimer = setTimeout(async () => {
-        try {
-            await fetchProtectedText(API_URL, { action: 'save', key, doc });
-            status('บันทึกลง Google Sheet แล้ว');
-        } catch (err) {
-            status('ส่งขึ้น Google Sheet ไม่ได้ (เก็บในเครื่องแล้ว): ' + err.message, true);
-        }
-    }, 2500);
+    queue(key, JSON.stringify(report));
+}
+
+// รถในฟอร์มที่ยังไม่มีในรายงาน → เพิ่มเข้าไป ข้อมูลที่กรอกแล้วคงเดิม
+function mergeVehicles() {
+    report.key = keyOf();
+    if (!template) return;
+    report.formName = template.name;
+    const have = new Set(report.vehicles.map((v) => v.scc));
+    report.vehicles.push(...template.vehicles.filter((v) => !have.has(v.scc)).map(emptyVehicle));
 }
 
 async function load() {
@@ -86,18 +154,22 @@ async function load() {
     let local = null;
     try { local = JSON.parse(localStorage.getItem(localKey(key))); } catch { /* เริ่มใหม่ */ }
     report = local || newReport();
+    mergeVehicles();
     render();
-    if (!API_URL) return;
+    if (!API_URL || !template) return;
     try {
         status('กำลังโหลดจาก Google Sheet…');
-        const res = JSON.parse(await fetchProtectedText(API_URL, { action: 'load', key }));
+        const res = await call({ action: 'load', key });
         const remote = res.doc ? JSON.parse(res.doc) : null;
         if (key !== keyOf()) return;
         if (remote && (remote.updatedAt || 0) > ((local && local.updatedAt) || 0)) {
             report = remote;
+            mergeVehicles();
             render();
         }
-        status('ข้อมูลตรงกับ Google Sheet');
+        // กรอกค้างไว้แล้วยังไม่ได้ส่ง (ปิดหน้าไปก่อน) → ส่งตอนนี้
+        if (local && (local.updatedAt || 0) > ((remote && remote.updatedAt) || 0)) queue(key, JSON.stringify(local));
+        else status('ข้อมูลตรงกับ Google Sheet');
     } catch (err) {
         status('โหลดจาก Google Sheet ไม่ได้: ' + err.message, true);
     }
@@ -250,6 +322,54 @@ async function useTemplate(buffer, name) {
     template = { buffer, name, ...(await readTemplate(buffer)) };
 }
 
+// ===== อัปโหลดแผนงาน: ดึงเฉพาะวันที่ + กะ ที่เลือกอยู่ ให้ตรวจสรุปก่อนเติม =====
+let planPreview = []; // [{ v, item }]
+
+async function importPlans(files) {
+    const { date, shift } = report;
+    const when = date.split('-').reverse().join('/') + (shift === 'night' ? ' กะกลางคืน' : ' กะกลางวัน');
+    status('กำลังอ่านแผนงาน…');
+    const { vehicles, notes } = await readPlans(files, date, shift);
+    const mine = new Map(report.vehicles.map((v) => [vehicleNo(v.scc), v]));
+    planPreview = [...vehicles].filter(([no]) => mine.has(no)).map(([no, item]) => ({ v: mine.get(no), item }));
+    const missing = [...vehicles.keys()].filter((no) => !mine.has(no));
+    status('');
+    $('plan-title').textContent = 'แผนงาน ' + when + ': ตรงกับฟอร์มนี้ ' + planPreview.length + ' คัน';
+    $('plan-list').replaceChildren(...planPreview.map(({ v, item }) => el('li', {},
+        el('b', { textContent: v.scc }),
+        ' ' + (item.driver || 'ไม่ระบุคนขับ') + ' · ' + item.trips.length + ' งาน',
+        v.trips.length && item.trips.length ? el('em', { textContent: ' (แทนงานเดิม ' + v.trips.length + ')' }) : null,
+        el('div', { className: 'mute', textContent: item.trips.map((t) => [t.ship, t.cust].filter(Boolean).join(' ')).join(' | ') }))));
+    $('plan-notes').replaceChildren(...[
+        ...notes,
+        ...(missing.length ? ['รถในแผนที่ไม่มีในฟอร์มนี้ (ไม่เติม): ' + missing.join(', ')] : [])
+    ].map((text) => el('li', { textContent: text })));
+    $('plan-ok').disabled = !planPreview.length;
+    $('plan-dialog').dataset.key = report.key || keyOf();
+    $('plan-dialog').showModal();
+    $('plan-dialog').scrollTop = 0; // เริ่มอ่านจากหัวสรุป
+}
+
+function applyPlans() {
+    // เปลี่ยนวันที่/ฟอร์มระหว่างเปิดสรุป → ไม่เติมผิดรายงาน
+    if ($('plan-dialog').dataset.key !== (report.key || keyOf())) return;
+    for (const { v, item } of planPreview) {
+        if (item.driver) v.driver = item.driver;
+        if (item.risk) v.risk = item.risk;
+        else v.risk ||= item.riskIfEmpty;
+        if (item.trips.length) v.trips = item.trips.map((t) => ({ ...t }));
+        if (v.driver) { v.gps ||= 'ปกติ'; v.cctv ||= 'ปกติ'; }
+    }
+    save();
+    render();
+}
+
+// ชื่อไฟล์ส่งออกตามชื่อฟอร์ม โดยตัดคำว่า "วันที่/เดือน..." ท้ายชื่อออก
+function baseName() {
+    const name = API_URL ? template.name.replace(/\.xlsx$/i, '').split('วันที่')[0].trim() : '';
+    return name || 'รายงานติดตามพฤติกรรมพขร. BBS';
+}
+
 function bind() {
     $('template').addEventListener('change', async () => {
         const file = $('template').files[0];
@@ -258,9 +378,7 @@ function bind() {
             const buffer = await file.arrayBuffer();
             await useTemplate(buffer, file.name);
             await idb('readwrite', (s) => s.put({ buffer, name: file.name }, 'template'));
-            // รถในฟอร์มที่ยังไม่มีในรายงาน → เพิ่มเข้าไป ข้อมูลที่กรอกแล้วคงเดิม
-            const have = new Set(report.vehicles.map((v) => v.scc));
-            report.vehicles.push(...template.vehicles.filter((v) => !have.has(v.scc)).map(emptyVehicle));
+            mergeVehicles();
             render();
             save();
         } catch (err) {
@@ -269,8 +387,30 @@ function bind() {
         $('template').value = '';
     });
     for (const id of ['date', 'shift']) $(id).addEventListener('change', () => { if ($('date').value) load(); });
+    $('form').addEventListener('change', async () => {
+        $('list').replaceChildren();
+        $('export').disabled = true;
+        try {
+            await openForm($('form').value);
+            localStorage.setItem('bbs-form', $('form').value);
+            status('');
+        } catch (err) {
+            status('เปิดฟอร์มไม่ได้: ' + err.message, true);
+        }
+        await load();
+    });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && pending.size) flush(); });
     for (const id of ['checker', 'monitor']) $(id).addEventListener('input', () => { report[id] = $(id).value; save(); });
     $('search').addEventListener('input', render);
+    $('plan').addEventListener('change', async () => {
+        const files = [...$('plan').files];
+        $('plan').value = '';
+        if (!files.length) return;
+        try { await importPlans(files); }
+        catch (err) { console.error(err); status('อ่านแผนงานไม่ได้: ' + err.message, true); }
+    });
+    $('plan-ok').addEventListener('click', () => { applyPlans(); $('plan-dialog').close(); });
+    $('plan-cancel').addEventListener('click', () => $('plan-dialog').close());
     $('add').addEventListener('click', () => {
         const scc = (prompt('เบอร์รถ (SCC)') || '').trim();
         if (!scc) return;
@@ -289,7 +429,7 @@ function bind() {
             const [y, m, d] = report.date.split('-');
             const link = el('a', {
                 href: URL.createObjectURL(blob),
-                download: 'รายงานติดตามพฤติกรรมพขร. BBS ' + d + '-' + m + '-' + (Number(y) + 543) +
+                download: baseName() + ' ' + d + '-' + m + '-' + (Number(y) + 543) +
                     (report.shift === 'night' ? ' Night' : ' Day') + '.xlsx'
             });
             link.click();
@@ -316,10 +456,13 @@ requireLogin(async () => {
         $('monitor').value = names.monitor || '';
     } catch { /* ไม่มีชื่อเดิม */ }
     try {
-        const saved = await idb('readonly', (s) => s.get('template'));
-        if (saved) await useTemplate(saved.buffer, saved.name);
+        if (API_URL) await loadForms();
+        else {
+            const saved = await idb('readonly', (s) => s.get('template'));
+            if (saved) await useTemplate(saved.buffer, saved.name);
+        }
     } catch (err) {
-        status('อ่านไฟล์ต้นแบบที่จำไว้ไม่ได้: ' + err.message, true);
+        status('เปิดฟอร์มไม่ได้: ' + err.message, true);
     }
     bind();
     await load();
