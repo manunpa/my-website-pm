@@ -261,6 +261,141 @@ body{position:relative;isolation:isolate}
   .chip:not(.active){background:var(--panel)}
   .sidefoot{background:color-mix(in srgb,var(--panel) 72%,transparent)}
 }
+/* ===== ฟังก์ชันที่ยกมาจาก my-web-p3 ===== */
+/* ปุ่มแผนที่ซ้ายบน: OSM/Google · รูปแบบ · ชั้นเสริม Google */
+.mapcontrols{flex-wrap:wrap}
+.mapright{margin-left:auto}
+.mapleft{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start}
+.mapleft .map-switcher{gap:2px;padding:4px}
+.mapbtn.ic{width:32px;min-width:32px;padding:0}
+.mapbtn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.mapbtn svg{display:block}
+.tiles-dark{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.88) saturate(.75)}
+.leaflet-google-mutant{background:transparent}
+/* แถบใกล้สุดอยู่ใต้ปุ่มด้านบนเสมอ (--ctl-h วัดจากความสูงจริงของปุ่ม) */
+.nearbar{top:calc(var(--ctl-h,58px) + 28px)}
+@media(max-width:850px){.nearbar{top:calc(var(--ctl-h,48px) + 18px)}}
+.nb-drive-info{flex-shrink:0;color:#1a73e8;font-weight:700;font-size:12px;font-variant-numeric:tabular-nums}
+.nearbar .nb-drive{border:0;border-top:1px solid var(--border);background:none;color:#1a73e8;font:inherit;font-size:12px;font-weight:600;padding:6px 0 0;cursor:pointer;justify-content:center;gap:6px}
+.nearbar .nb-drive:disabled{opacity:.6}
+.pdrive{color:#1a73e8;font-weight:700}
+/* การ์ดชั้นออฟชอร์ */
+.layercard.off.on{border-color:#0e7490}
+.layercard.off.on .lc-check{background:#0e7490;border-color:#0e7490}
+.platcluster div{background:#082f3a;border-color:#0e7490;box-shadow:0 0 0 4px #0e749033,0 2px 6px #0005}
+.legend-dot.plat{border-radius:2px;transform:rotate(45deg);width:9px;height:9px}
+.legend-dot.area{background:transparent!important;border:1.5px dashed;border-radius:2px;width:11px;height:9px}
+@media(max-width:850px){.mapstats .floating-card{min-width:64px}}
+@media(max-width:470px){.mapstats .statlabel{font-size:8.5px}.lc-check{display:none}}
+/* ป๊อปอัป: บรรทัดพื้นที่ / ที่มาข้อมูล */
+.pop-area{font-size:11px;font-weight:600;margin-top:6px}
+.pop-area.muted{font-weight:400;color:var(--muted)}
+.pop-src{font-size:9.5px;color:var(--muted);margin-top:4px;line-height:1.4}
+.popactions+.popactions{margin-top:6px}
+/* หมุดจุดแวะ / จุดผ่าน / เส้นทาง */
+.route-hit{cursor:copy}
+.stop-marker,.via-marker{background:none;border:0}
+.stop-marker span{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#1a73e8;border:2px solid #fff;box-sizing:border-box;color:#fff;font:700 12px/1 Inter,sans-serif;box-shadow:0 2px 6px #0007}
+.via-marker span{display:block;width:18px;height:18px;border-radius:50%;background:#fff;border:3px solid #1a73e8;box-sizing:border-box;box-shadow:0 2px 6px #0007;cursor:grab}
+/* วางแผนเส้นทาง (พับไว้ในแถบรายการ) */
+.planner{flex:none;margin:8px 8px 0;min-width:309px;border:1px solid var(--border);border-radius:12px;background:var(--panel);max-height:55%;overflow:auto}
+.planner>summary{display:flex;align-items:center;gap:6px;padding:10px 12px;cursor:pointer;font-size:12px;font-weight:700;list-style:none;position:sticky;top:0;background:var(--panel);z-index:1}
+.planner>summary::-webkit-details-marker{display:none}
+.planner>summary::after{content:"▾";margin-left:auto;color:var(--muted);transition:transform .2s}
+.planner[open]>summary::after{transform:rotate(180deg)}
+.planner[open]>summary{border-bottom:1px solid var(--border)}
+.planner .muted{color:var(--muted);font-weight:400}
+.planner-body{display:grid;gap:8px;padding:10px 12px 12px;font-size:11px}
+.planner-hint{margin:0;line-height:1.55}
+.stops{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.stops li{display:flex;align-items:center;gap:7px;min-width:0;flex-wrap:wrap}
+.stop-n{flex:none;display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:#1a73e8;color:#fff;font-size:10px;font-weight:700}
+.stop-name{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.stop-leg{flex-basis:100%;padding-left:27px;font-style:normal;color:var(--muted);font-size:10px;font-variant-numeric:tabular-nums;order:3}
+.stop-leg b{color:var(--text)}
+.stop-x{flex:none;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:none;color:var(--muted);font-size:11px}
+.stop-x:hover{color:var(--text);background:var(--panel2)}
+.via-row{padding-left:6px;color:var(--muted)}
+.via-row .stop-name{font-weight:400}
+.via-dot{flex:none;width:12px;height:12px;margin:0 4px;border-radius:50%;background:#fff;border:3px solid #1a73e8;box-sizing:border-box}
+.planner-add{display:flex;gap:6px}
+.planner-add input{min-width:0;flex:1;height:30px;padding:0 10px;border-radius:9px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:11px;outline:none}
+.planner-add input:focus{border-color:var(--accent)}
+.planner-actions{display:flex;flex-wrap:wrap;gap:6px}
+.planbtn{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 10px;border-radius:9px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap;cursor:pointer}
+.planbtn:hover{border-color:var(--accent)}
+.planbtn.primary{background:#1a73e8;border-color:#1a73e8;color:#fff}
+.planbtn:disabled{opacity:.5;cursor:not-allowed}
+.planbtn svg{flex:none}
+.drivebtn{margin-top:8px;height:28px;color:#1a73e8}
+.link-btn{padding:0;border:0;background:none;color:var(--accent);font:inherit;text-decoration:underline;cursor:pointer}
+.planner-truck{display:grid;gap:6px;padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:var(--panel2)}
+.truck-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.truck-row button{height:26px;padding:0 9px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:10.5px}
+.truck-row button.on{background:#1a73e8;border-color:#1a73e8;color:#fff}
+.truck-row button:disabled{opacity:.55;cursor:default}
+.truck-row input{height:28px;padding:0 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:11px;color-scheme:light dark}
+.truck-row .truck-plate{min-width:0;flex:1 1 110px}
+.truck-note{margin:0}
+.planner-sum{margin:0;line-height:1.55}
+.planner-sum a{color:var(--accent)}
+.planner-along{display:grid;gap:6px;border-top:1px solid var(--border);padding-top:8px}
+.planner-radius{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.planner-radius button{height:24px;padding:0 9px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:10.5px}
+.planner-radius button.on{background:#1a73e8;border-color:#1a73e8;color:#fff}
+.planner-focus{display:flex;align-items:flex-start;gap:7px;line-height:1.4;cursor:pointer}
+.planner-focus input{margin-top:1px}
+.planner-count{margin:0}
+.along{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.along button{display:grid;grid-template-columns:auto 1fr;column-gap:8px;width:100%;padding:6px 8px;border:0;border-radius:8px;background:none;color:var(--text);text-align:left}
+.along button:hover{background:var(--panel2)}
+.along .nb-fuel{grid-row:1 / span 2;align-self:center;margin:0;font-style:normal}
+.along .pname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;font-weight:600}
+.along .pmeta{font-size:10px;color:var(--muted)}
+.view-sum{margin:4px 4px 8px;padding:8px 11px;border-radius:10px;font-size:11px;line-height:1.5;color:var(--muted);background:var(--panel2)}
+.view-sum b{color:var(--text)}
+@media(max-width:850px){.planner{min-width:0}}
+/* กลางล่าง: สรุปเส้นทาง + แถบฝน */
+.map-stack{position:absolute;z-index:460;left:50%;bottom:calc(var(--bot-h,40px) + 30px + env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;width:max-content;max-width:calc(100% - 140px);pointer-events:none}
+.map-stack>*{pointer-events:auto}
+.map-stack [hidden]{display:none}
+.route-chip{display:flex;align-items:center;gap:8px;max-width:100%;padding:6px 6px 6px 10px;border-radius:12px;background:var(--top);backdrop-filter:blur(14px);border:1px solid #1a73e888;color:var(--text);font-size:11.5px;box-shadow:var(--shadow)}
+.route-chip>svg{flex:none;color:#1a73e8}
+.route-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
+.route-note,.route-credit{flex:none;color:var(--muted);font-size:10px}
+.route-x{flex:none;width:24px;height:24px;padding:0;border:0;border-radius:7px;background:none;color:var(--text)}
+.route-x:hover{background:var(--panel2)}
+.rain-bar{display:flex;flex-direction:column;max-width:100%;padding:5px 10px 5px 5px;border-radius:12px;background:var(--top);backdrop-filter:blur(14px);border:1px solid var(--border);color:var(--text);font-size:11px;box-shadow:var(--shadow)}
+.rain-row{display:flex;align-items:center;gap:8px}
+.rain-row:first-child{justify-content:space-between;padding:0 0 4px 3px}
+.rain-src{display:inline-flex;padding:2px;border-radius:9px;background:var(--panel2);border:1px solid var(--border)}
+.rain-src button{height:22px;padding:0 9px;border:0;border-radius:7px;background:none;color:var(--muted);font-size:10.5px;font-weight:600}
+.rain-src button.on{background:#0a7ea4;color:#fff}
+.rain-play{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:8px;background:#0a7ea4;color:#fff;font-size:11px}
+.rain-play:disabled,.rain-bar input:disabled{opacity:.5}
+.rain-bar input[type=range]{width:min(130px,28vw);accent-color:#0a7ea4}
+.rain-time{flex:none;font-variant-numeric:tabular-nums;white-space:nowrap}
+.rain-credit{flex:none;color:var(--muted);font-size:10px}
+.rainbtn.on{background:#0a7ea4;color:#fff;border-color:#0a7ea4;box-shadow:0 0 0 4px #0a7ea433,var(--shadow)}
+@media(max-width:850px){
+  .map-stack{left:10px;right:58px;transform:none;width:auto;max-width:none;align-items:stretch;bottom:calc(var(--bot-h,40px) + 18px + env(safe-area-inset-bottom))}
+  .rain-bar input[type=range]{flex:1;width:auto;min-width:50px}
+}
+/* Street View ทับพื้นที่แผนที่ */
+.sv-panel{position:absolute;inset:0;z-index:1100;display:flex;flex-direction:column;background:var(--bg)}
+.sv-head{flex:none;display:flex;align-items:center;gap:10px;padding:8px;background:var(--panel);border-bottom:1px solid var(--border);font-size:12px}
+.sv-name{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+.sv-link{flex:none;color:var(--accent);font-weight:600;text-decoration:none;font-size:11px}
+.sv-x{flex:none;width:30px;height:30px;padding:0;border:0;border-radius:8px;background:none;color:var(--text);font-size:15px}
+.sv-x:hover{background:var(--panel2)}
+.sv-body{position:relative;flex:1;min-height:0}
+.sv-canvas{position:absolute;inset:0}
+.sv-canvas[hidden],.sv-msg[hidden],.sv-foot[hidden]{display:none}
+.sv-msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px;text-align:center;color:var(--muted);font-size:12px;line-height:1.6}
+.sv-msg strong{color:var(--text);font-size:13px}
+.sv-msg span{max-width:440px}
+.sv-msg .popbtn{flex:none;margin-top:6px}
+.sv-foot{position:absolute;left:10px;bottom:10px;padding:2px 8px;border-radius:6px;background:var(--top);color:var(--muted);font-size:10px;pointer-events:none}
 </style>
 </head>
 <body>
@@ -285,23 +420,24 @@ body{position:relative;isolation:isolate}
       <div class="sidehead">
         <div class="side-title"><h2 id="sideTitleText">รายการ Geofence</h2><span class="count" id="pointCount">0 จุด</span></div>
         <div class="searchwrap"><span>⌕</span><input id="searchInput" placeholder="ค้นหาชื่อ หรือวางพิกัด เช่น 13.75, 100.50" autocomplete="off" enterkeyhint="search"><button type="button" class="searchclear" id="searchClear" title="ล้างการค้นหา" aria-label="ล้างการค้นหา" hidden>✕</button></div>
-        <div class="filterline"><button class="chip active" data-filter="all">ทั้งหมด</button><button class="chip" data-filter="valid">มีพิกัด</button><button class="chip" data-filter="invalid">พิกัดไม่ครบ</button><button class="chip" data-filter="dup" title="Geofence ที่ชื่อหรือพิกัดซ้ำกัน">ข้อมูลซ้ำ</button><select class="supplierselect" id="supplierSelect" title="กรองตาม Supplier"><option value="all">Supplier: ทั้งหมด</option></select><select class="supplierselect" id="brandSelect" title="กรองแบรนด์ปั๊มน้ำมัน" hidden><option value="all">⛽ ปั๊ม: ทุกแบรนด์</option></select></div>
+        <div class="filterline"><button class="chip active" data-filter="all">ทั้งหมด</button><button class="chip" data-filter="valid">มีพิกัด</button><button class="chip" data-filter="invalid">พิกัดไม่ครบ</button><button class="chip" data-filter="dup" title="Geofence ที่ชื่อหรือพิกัดซ้ำกัน">ข้อมูลซ้ำ</button><button class="chip" data-filter="view" title="เฉพาะจุดในขอบเขตแผนที่ เรียงจากใกล้กึ่งกลางจอ">ในจอนี้</button><select class="supplierselect" id="supplierSelect" title="กรองตาม Supplier"><option value="all">Supplier: ทั้งหมด</option></select><select class="supplierselect" id="brandSelect" title="กรองแบรนด์ปั๊มน้ำมัน" hidden><option value="all">⛽ ปั๊ม: ทุกแบรนด์</option></select></div>
       </div>
+      <!-- วางแผนเส้นทาง (พับไว้) — maps.js วาดเนื้อหาใน #plannerBody -->
+      <details class="planner" id="planner"><summary><span>🛣 วางแผนเส้นทาง</span> <span id="plannerCount" class="muted"></span></summary><div class="planner-body" id="plannerBody"></div></details>
       <div class="pointlist" id="pointList"><div class="empty"><span class="loading"></span>กำลังโหลดรายการพิกัด</div></div>
       <div class="sidefoot"><span id="sourceLabel">Google Sheets API</span><span id="lastUpdated">—</span></div>
     </aside>
     <section class="maparea">
       <div id="map"></div>
       <div class="mapcontrols">
-        <div class="map-switcher">
-          <button class="mapbtn active" data-layer="street">▦ แผนที่</button>
-          <button class="mapbtn" data-layer="satellite">▧ ดาวเทียม</button>
-        </div>
+        <!-- OSM / Google · รูปแบบแผนที่ · ชั้นเสริมของ Google (maps.js วาดปุ่ม) -->
+        <div class="mapleft" id="baseControls"></div>
         <div class="mapright">
           <div class="mapstats">
             <!-- การ์ดตัวเลข = ปุ่มเปิด/ปิดชั้นข้อมูล (maps.js) -->
             <button type="button" class="floating-card layercard on" id="layerGeo" aria-pressed="true" title="เปิด/ปิด Geofence บนแผนที่"><div class="statlabel"><span class="lc-check"></span>Geofence</div><div class="statvalue" id="statGeo">—</div></button>
             <button type="button" class="floating-card layercard st" id="layerStations" aria-pressed="false" title="เปิด/ปิดปั๊มน้ำมันบนแผนที่"><div class="statlabel"><span class="lc-check"></span>⛽ ปั๊มน้ำมัน</div><div class="statvalue" id="statStations">—</div></button>
+            <button type="button" class="floating-card layercard off" id="layerOffshore" aria-pressed="false" title="เปิด/ปิดแท่นผลิตและแปลงสัมปทานปิโตรเลียม (กรมเชื้อเพลิงธรรมชาติ)"><div class="statlabel"><span class="lc-check"></span>◆ ออฟชอร์</div><div class="statvalue" id="statOffshore">—</div></button>
           </div>
         </div>
       </div>
@@ -309,8 +445,13 @@ body{position:relative;isolation:isolate}
         <div class="legend"><div class="floating-card"><span id="supplierLegend" class="suplegend"><span class="legend-item"><span class="legend-dot"></span>จุดพิกัด</span></span></div></div>
         <div class="floating-card coordinates" id="cursorCoords">LAT — · LNG —</div>
       </div>
-      <button type="button" class="nearbar" id="nearBar" hidden title="กดเพื่อไปที่จุดนี้"></button>
+      <div class="nearbar" id="nearBar" role="group" hidden title="กดเพื่อไปที่จุดนี้"></div>
       <button type="button" class="recenter" id="recenterBtn" hidden>⌖ กลับมาที่ตำแหน่งฉัน</button>
+      <!-- กลางล่าง: สรุปเส้นทาง + แถบเวลาเรดาร์ฝน (ซ้อนกันเอง ไม่ทับกัน) -->
+      <div class="map-stack" id="mapStack">
+        <div class="route-chip" id="routeChip" role="status" hidden></div>
+        <div class="rain-bar" id="rainBar" role="group" aria-label="ชั้นฝน" hidden></div>
+      </div>
       <div class="toast" id="toast"></div>
     </section>
   </main>
@@ -322,6 +463,6 @@ body{position:relative;isolation:isolate}
 
 <!-- ต้องเปิดผ่านเว็บเซิร์ฟเวอร์ (http/https) ไม่ใช่ file:// เพราะใช้ type="module" -->
 <!-- ?v= บังคับให้มือถือโหลด maps.js ตัวใหม่ทันทีหลังอัปเดต (เปลี่ยนเลขทุกครั้งที่แก้ maps.js) -->
-<script type="module" src="./maps.js?v=cut-20261122"></script>
+<script type="module" src="./maps.js?v=20261125-p3"></script>
 </body>
 </html>

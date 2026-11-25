@@ -115,9 +115,10 @@ export async function doLogout() {
  * - ส่งเป็น POST แบบ text/plain → token อยู่ใน body ไม่อยู่ใน URL และไม่ต้องผ่าน CORS preflight
  * - Apps Script ตอบ {status:"error", error:"unauthorized"} ถ้า token ใช้ไม่ได้ → ขอ token ใหม่แล้วลองอีกครั้งเดียว
  * @param {string} url  URL /exec ของ Apps Script
+ * @param {object} [extra]  ค่าอื่นที่ส่งไปพร้อม token (เช่น {kind:'map'} ของตัวนับโควตา Google Maps)
  * @returns {Promise<string>} ข้อความ JSON ที่ได้
  */
-export async function fetchProtectedText(url) {
+export async function fetchProtectedText(url, extra = {}) {
   const user = auth.currentUser;
   if (!user) throw new Error("ยังไม่ได้เข้าสู่ระบบ");
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -125,7 +126,7 @@ export async function fetchProtectedText(url) {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ idToken }),
+      body: JSON.stringify({ ...extra, idToken }),
       redirect: "follow",
       cache: "no-store"
     });

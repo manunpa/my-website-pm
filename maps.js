@@ -1,27 +1,129 @@
-import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122-cut';
+import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261125-maps';
+import * as R from './maps-route.js?v=20261125';
+import {
+  loadRainFrames, rainTimeLabel, lagLabel, RAIN_SHOW_MAX_ZOOM, RAIN_OPACITY,
+  loadOffshore, DMF_CREDIT, PLATFORM_GROUP, PLATFORM_COLOR, areaColor, areaPopupHtml, platformDetailsHtml, windyLink,
+  ADMIN_CREDIT, loadAdmin, adminReady, areaOf, formatArea, areaSearchText
+} from './maps-layers.js?v=20261125';
+import { setProtectedFetch, getGoogleBase, openStreetView, closeStreetView, onGoogleAuthFail } from './maps-google.js?v=20261125';
+setProtectedFetch(fetchProtectedText);
 /* API ชุดที่ 1: Geofence — โค้ดอยู่ที่ apps-script/geofence.gs (URL เดิม ...uVCF ยังเปิดไว้ให้ my-web-p3 ใช้) */
 const API_URL = 'https://script.google.com/macros/s/AKfycbyZFJgBnwq8u-8ND1zQo9T9tJ6XuGX5ZXIAeip2EkI6uNf7eZOhIqAjU435doLMtABf/exec';
 /* API ชุดที่ 2: ปั๊มน้ำมันทุกแบรนด์ (แท็บละแบรนด์ มีรายละเอียดสถานี) — โค้ดอยู่ที่ apps-script/stations.gs เว้นว่างไว้ = ไม่โหลด */
 const STATIONS_API_URL = 'https://script.google.com/macros/s/AKfycbx2TJEkaUdHu5gYck2T5YRsqCdfxFob8pTq78ehlhYgXsEV7oxEkYc5Dz3h3AQ1r40zNQ/exec';
 const $ = id => document.getElementById(id);
-let allRows = [], filteredRows = [], activeFilter = 'all', activeSupplier = 'all', selectedId = null, currentLayer = 'street';
-// ชั้นข้อมูล: Geofence (Supplier) กับ ปั๊มน้ำมัน (แบรนด์) เปิด/ปิดแยกกัน และกรองแยกกัน — จำค่าที่เลือกไว้ในเครื่อง
-let showGeo = true, showStations = false, activeBrand = 'all';
-try{ const s=JSON.parse(localStorage.getItem('accessMapsLayers')||'null'); if(s){ showGeo=s.geo!==false; showStations=!!s.st; } }catch{}
-function saveLayers(){ try{ localStorage.setItem('accessMapsLayers',JSON.stringify({geo:showGeo,st:showStations})); }catch{} }
+let allRows = [], filteredRows = [], activeFilter = 'all', activeSupplier = 'all', selectedId = null;
+// ชั้นข้อมูล: Geofence (Supplier) / ปั๊มน้ำมัน (แบรนด์) / งานออฟชอร์ (แท่นผลิต + แปลงสัมปทาน) เปิด/ปิดแยกกัน — จำค่าที่เลือกไว้ในเครื่อง
+let showGeo = true, showStations = false, showOff = false, showPlat = true, showAreas = true, activeBrand = 'all';
+try{ const s=JSON.parse(localStorage.getItem('accessMapsLayers')||'null'); if(s){ showGeo=s.geo!==false; showStations=!!s.st; showOff=!!s.off; } }catch{}
+function saveLayers(){ try{ localStorage.setItem('accessMapsLayers',JSON.stringify({geo:showGeo,st:showStations,off:showOff})); }catch{} }
 const NO_SUPPLIER = '(ไม่ระบุ Supplier)';
 let markerById = new Map();
+// งานออฟชอร์ (โหลดครั้งแรกที่เปิดชั้น) — id แท่นผลิตเริ่มที่ PLAT_ID0 ไม่ชนกับ Geofence/ปั๊ม
+const PLAT_ID0 = 1e7;
+let offRows = [], offAreas = null, offStatus = 'idle';
+// แผนเส้นทาง: stops = จุดแวะ (จุดแรกคือต้นทาง), vias = จุดผ่านที่ลากเส้นทาง, route = เส้นทางที่คำนวณ, along = ปั๊มตามทาง
+let plan = { stops: [], vias: [], route: null, along: null, base: null };
+let planBusy = false, alongLoading = false, planFocus = true;
+const planFocusActive = () => !!plan.along && planFocus;
+// เส้นทางขับจริงจากตำแหน่งของฉัน/พิกัดที่ค้นหา: {from, items:{id:{km,min}}, route:{id,name,km,min,coords}|null}
+let drive = null, driveBusy = false;
 
-const map = L.map('map',{zoomControl:false,preferCanvas:true}).setView([13.7563,100.5018],6);
+// ดับเบิลคลิก = ดูพิกัด + ตำบล/อำเภอ/จังหวัด ของจุดนั้น (ไม่ซูม) · ซูมด้วยปุ่ม ล้อเมาส์ หรือสองนิ้ว
+const map = L.map('map',{zoomControl:false,preferCanvas:true,doubleClickZoom:false,maxZoom:19}).setView([13.7563,100.5018],6);
 L.control.zoom({position:'bottomright'}).addTo(map);
-const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-  maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-  className:'street-tiles' // โหมดมืดใช้ CSS filter (--map-filter) กับเลเยอร์นี้เท่านั้น ภาพดาวเทียมไม่ถูกปรับสี
+
+// ===== แผนที่พื้นหลัง: OpenStreetMap (ฟรี) หรือ Google Maps (นับโควตาร่วม — ดู maps-google.js) =====
+const OSM_ATTR='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const OSM_URL='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+const TILES={
+  // โหมดมืดของหน้าเว็บใช้ CSS filter (--map-filter) กับแผนที่ถนน (street-tiles) เท่านั้น ภาพดาวเทียมไม่ถูกปรับสี
+  street:()=>L.tileLayer(OSM_URL,{maxZoom:19,attribution:OSM_ATTR,className:'street-tiles'}),
+  dark:()=>L.tileLayer(OSM_URL,{maxZoom:19,attribution:OSM_ATTR,className:'tiles-dark'}),
+  satellite:()=>L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
+    maxZoom:19,attribution:'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community'}),
+  // แผนที่ภูมิประเทศฟรี (เส้นชั้นความสูง + เงาภูเขา) ภาพมีถึงซูม 17 ใกล้กว่านั้นขยายภาพเอา
+  terrain:()=>L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{subdomains:'abc',maxNativeZoom:17,maxZoom:19,
+    attribution:'Map data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM · Style © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)'})
+};
+const ICON={
+  map:'<path d="M14.1 5.6a2 2 0 0 0 1.8 0l3.7-1.9A1 1 0 0 1 21 4.6v12.8a1 1 0 0 1-.6.9l-4.5 2.3a2 2 0 0 1-1.8 0l-4.2-2.1a2 2 0 0 0-1.8 0l-3.7 1.8A1 1 0 0 1 3 19.4V6.6a1 1 0 0 1 .6-.9l4.5-2.3a2 2 0 0 1 1.8 0z"/><path d="M15 5.8v15M9 3.2v15"/>',
+  moon:'<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  sat:'<path d="M13 7 9 3 5 7l4 4"/><path d="m17 11 4 4-4 4-4-4"/><path d="m8 12 4 4 6-6-4-4Z"/><path d="m16 8 3-3"/><path d="M9 21a6 6 0 0 0-6-6"/>',
+  globe:'<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/>',
+  mountain:'<path d="m8 3 4 8 5-5 5 15H2L8 3z"/>',
+  pin:'<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+  car:'<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>',
+  bus:'<path d="M8 6v6M15 6v6M2 12h19.6"/><path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3"/><circle cx="7" cy="18" r="2"/><path d="M9 18h5"/><circle cx="16" cy="18" r="2"/>',
+  bike:'<circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/>',
+  rain:'<path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2"/><path d="M16 14v6M8 14v6M12 16v6"/>'
+};
+const svgIcon=(k,s=16)=>`<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>`;
+const BASE_TYPES={
+  osm:[['street','แผนที่','map'],['dark','แผนที่มืด','moon'],['satellite','ดาวเทียม','sat'],['terrain','ภูมิประเทศ','mountain']],
+  google:[['street','แผนที่','map'],['dark','แผนที่มืด','moon'],['satellite','ดาวเทียม','sat'],['hybrid','ไฮบริด','globe'],['terrain','ภูมิประเทศ','mountain']]
+};
+// ชั้นเสริมของ Google เป็นส่วนหนึ่งของแผนที่เดิม (ไม่นับโควตาเพิ่ม)
+const GOOGLE_OVERLAYS=[['poi','หมุด Google','pin'],['traffic','การจราจร','car'],['transit','ขนส่งสาธารณะ','bus'],['bike','จักรยาน','bike']];
+let base={engine:'osm',type:'street',overlays:[]};
+try{ const s=JSON.parse(localStorage.getItem('accessMapsBase')||'null'); if(s){ base={engine:s.engine==='google'?'google':'osm',type:String(s.type||'street'),overlays:Array.isArray(s.overlays)?s.overlays:[]}; } }catch{}
+if(!BASE_TYPES.google.some(t=>t[0]===base.type)) base.type='street';
+function saveBase(){ try{ localStorage.setItem('accessMapsBase',JSON.stringify(base)); }catch{} }
+let osmLayer=null, osmType=null, googleBase=null, googleDown=null, googleLoading=false;
+function applyBase(){
+  const useGoogle=base.engine==='google'&&googleBase;
+  if(useGoogle){
+    googleBase.setType(base.type,base.overlays.includes('poi'));
+    ['traffic','transit','bike'].forEach(id=>googleBase.setOverlay(id,base.overlays.includes(id)));
+    if(!map.hasLayer(googleBase.layer)){ googleBase.layer.addTo(map); googleBase.layer.bringToBack(); }
+    if(osmLayer){ map.removeLayer(osmLayer); osmLayer=null; osmType=null; }
+  }else{
+    // ไฮบริดมีเฉพาะ Google → OpenStreetMap ใช้ดาวเทียมแทน
+    const t=BASE_TYPES.osm.some(x=>x[0]===base.type)?base.type:'satellite';
+    if(osmType!==t){ if(osmLayer) map.removeLayer(osmLayer); osmLayer=TILES[t]().addTo(map); osmLayer.bringToBack(); osmType=t; }
+    if(base.engine==='osm'&&googleBase&&map.hasLayer(googleBase.layer)) map.removeLayer(googleBase.layer);
+  }
+  renderBaseControls();
+}
+function setEngine(e){
+  if(e==='google'&&googleDown){ toast(`${googleDown} — รีเฟรชหน้าเพื่อลองใหม่`,5000); return; }
+  base.engine=e; saveBase();
+  if(e==='google'&&!googleBase&&!googleLoading){
+    googleLoading=true; toast('กำลังโหลด Google Maps…',8000);
+    getGoogleBase().then(b=>{
+      googleLoading=false; googleBase=b;
+      if(base.engine==='google') toast(`Google Maps · เดือนนี้ใช้ไป ${b.used.toLocaleString('th-TH')} / ${b.limit.toLocaleString('th-TH')} ครั้ง (2 เว็บรวมกัน)`,4000);
+      applyBase();
+    }).catch(err=>{ googleLoading=false; googleFail(err.message); });
+  }
+  applyBase();
+}
+// Google ใช้ไม่ได้ (ครบโควตา / key ถูกปฏิเสธ / โหลดไม่ได้ / ตัวนับใช้ไม่ได้) → กลับไป OpenStreetMap ทันที ปิดปุ่ม Google จนกว่าจะรีเฟรชหน้า
+function googleFail(why){
+  googleDown=why;
+  if(base.engine==='google'){ base.engine='osm'; saveBase(); toast(`${why} — สลับไปใช้ OpenStreetMap ให้อัตโนมัติ`,8000); }
+  applyBase();
+}
+onGoogleAuthFail(()=>googleFail('Google Maps ใช้ไม่ได้ (key ถูกปฏิเสธ)'));
+function renderBaseControls(){
+  const box=$('baseControls'); if(!box) return;
+  const types=BASE_TYPES[base.engine];
+  const curType=base.engine==='osm'&&!types.some(t=>t[0]===base.type)?'satellite':base.type;
+  box.innerHTML=`<div class="map-switcher" role="radiogroup" aria-label="ผู้ให้บริการแผนที่">`+
+      [['osm','OSM','OpenStreetMap (ฟรี)'],['google','Google','Google Maps (นับโควตาร่วม 2 เว็บ)']].map(([id,l,t])=>
+        `<button type="button" class="mapbtn${base.engine===id?' active':''}" role="radio" aria-checked="${base.engine===id}" data-engine="${id}" title="${esc(id==='google'&&googleDown?googleDown+' — รีเฟรชหน้าเพื่อลองใหม่':t)}"${id==='google'&&googleDown?' disabled':''}>${l}${id==='google'&&googleLoading?' …':''}</button>`).join('')+
+    `</div><div class="map-switcher" role="radiogroup" aria-label="รูปแบบแผนที่">`+
+      types.map(([id,l,ic])=>`<button type="button" class="mapbtn ic${curType===id?' active':''}" role="radio" aria-checked="${curType===id}" data-type="${id}" title="${l}" aria-label="${l}">${svgIcon(ic)}</button>`).join('')+
+    `</div>`+(base.engine==='google'?`<div class="map-switcher" role="group" aria-label="ชั้นข้อมูลเพิ่มเติมของ Google">`+
+      GOOGLE_OVERLAYS.map(([id,l,ic])=>{ const on=base.overlays.includes(id); return `<button type="button" class="mapbtn ic${on?' active':''}" aria-pressed="${on}" data-gov="${id}" title="${on?'ซ่อน':'แสดง'}${l}" aria-label="${l}">${svgIcon(ic)}</button>`; }).join('')+`</div>`:'');
+}
+$('baseControls')?.addEventListener('click',e=>{
+  const eng=e.target.closest('[data-engine]'), ty=e.target.closest('[data-type]'), gov=e.target.closest('[data-gov]');
+  if(eng){ if(eng.dataset.engine!==base.engine) setEngine(eng.dataset.engine); return; }
+  if(ty){ base.type=ty.dataset.type; saveBase(); applyBase(); return; }
+  if(gov){ const id=gov.dataset.gov; base.overlays=base.overlays.includes(id)?base.overlays.filter(x=>x!==id):[...base.overlays,id]; saveBase(); applyBase(); }
 });
-const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
-  maxZoom:19,attribution:'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community'
-});
-streetLayer.addTo(map);
+applyBase();
 const clusters = L.markerClusterGroup({chunkedLoading:true,chunkInterval:100,chunkDelay:25,maxClusterRadius:55,showCoverageOnHover:false,removeOutsideVisibleBounds:true,spiderfyOnMaxZoom:true});
 map.addLayer(clusters);
 // กลุ่มหมุดของปั๊มน้ำมันแยกจาก Geofence: วงกลุ่มคนละแบบ นับแยกกัน
@@ -30,6 +132,13 @@ const stationClusters = L.markerClusterGroup({chunkedLoading:true,chunkInterval:
     const n=c.getChildCount(), size=n<10?30:n<100?36:n<1000?42:46;
     return L.divIcon({className:'stcluster',html:`<div style="width:${size}px;height:${size}px"><b>⛽</b>${n.toLocaleString('th-TH')}</div>`,iconSize:[size,size]});
   }});
+// กลุ่มหมุดแท่นผลิตนอกชายฝั่ง (สีฟ้าอมเขียว แยกจากกลุ่มอื่น)
+const platClusters = L.markerClusterGroup({chunkedLoading:true,maxClusterRadius:50,showCoverageOnHover:false,spiderfyOnMaxZoom:true,
+  iconCreateFunction:c=>{
+    const n=c.getChildCount(), size=n<10?30:n<100?36:42;
+    return L.divIcon({className:'stcluster platcluster',html:`<div style="width:${size}px;height:${size}px"><b>◆</b>${n.toLocaleString('th-TH')}</div>`,iconSize:[size,size]});
+  }});
+let areaLayer = null; // แปลงสัมปทาน (GeoJSON)
 
 let searchMarker = null;
 // พิกัดที่ค้นหาล่าสุด (กด Enter) ใช้คำนวณ Geofence ที่ใกล้ที่สุด
@@ -51,14 +160,16 @@ function formatKm(km){
   return km.toLocaleString('th-TH',{minimumFractionDigits:1,maximumFractionDigits:1});
 }
 // "ใกล้ที่สุด 5 อันดับ" ตามชั้นที่เปิดอยู่: เปิด Geofence → นับ Geofence (ตาม Supplier)
-// ปิด Geofence แต่เปิดปั๊ม → นับปั๊ม (ตามแบรนด์) · ปิดทั้งคู่ → ไม่มี (เส้นประ/แถบลอย/รายการหายไป)
-const nearestKind = () => showGeo ? 'geo' : showStations ? 'station' : null;
+// ปิด Geofence แต่เปิดปั๊ม → นับปั๊ม (ตามแบรนด์) · ปิดทั้งคู่แต่เปิดแท่นผลิต → นับแท่นผลิต · ปิดหมด → ไม่มี
+// ระหว่างแผนเส้นทางซ่อนสถานีอื่น (focus) ก็ไม่มีเส้นประเช่นกัน
+const nearestKind = () => planFocusActive() ? null : showGeo ? 'geo' : showStations ? 'station' : showOff&&showPlat&&offRows.length ? 'platform' : null;
 // เปิดทั้ง 2 ชั้น → แสดงปั๊มใกล้สุดเพิ่มต่อท้ายแยกออกมา
-const showPumpExtra = () => showGeo && showStations;
+const showPumpExtra = () => showGeo && showStations && !planFocusActive();
 function nearestPoints(lat,lng,n=NEAREST_COUNT){
   const kind=nearestKind();
   if(!kind) return [];
   if(kind==='station') return nearestStations(lat,lng,n);
+  if(kind==='platform') return offRows.map(p=>({p,km:distanceKm(lat,lng,p.lat,p.lng)})).sort((a,b)=>a.km-b.km).slice(0,n);
   return allRows
     .filter(p=>p.kind==='geo'&&validPoint(p)&&(activeSupplier==='all'||p.supplier===activeSupplier))
     .map(p=>({p,km:distanceKm(lat,lng,p.lat,p.lng)}))
@@ -172,6 +283,7 @@ function clearSearchMarker(){
   document.querySelector('.locatebtn')?.classList.remove('on');
   stopFollow();
   searchPoint=null; gpsActive=false;
+  dropStaleDrive();
   nearestLines.clearLayers();
   updateNearBar();
 }
@@ -190,10 +302,12 @@ function updateNearBar(){
   bar.dataset.id=near.p.id;
   bar.classList.toggle('following',followWatchId!==null);
   const st=showPumpExtra()?nearestStations(searchPoint.lat,searchPoint.lng,1)[0]:null;
-  const isPump=nearestKind()==='station';
+  const kind=nearestKind(), isPump=kind==='station';
   const stColor=st?supplierColor(st.p.supplier):'';
-  bar.innerHTML=`<span class="nb-row" data-go="${near.p.id}"><span class="nb-dot"></span><span class="nb-label">${isPump?'⛽ ปั๊มใกล้สุด':'ใกล้สุด'}</span><span class="nb-name">${isPump?esc(near.p.station.brand)+' · ':''}${esc(near.p.name)}</span><span class="nb-dist">${formatDist(near.km)}</span></span>`+
-    (st?`<span class="nb-row nb-st" data-go="${st.p.id}"><span class="nb-fuel" style="background:${stColor};color:${fuelInk(stColor)}">⛽</span><span class="nb-label">ปั๊มใกล้สุด</span><span class="nb-name">${esc(st.p.station.brand)} · ${esc(st.p.name)}</span><span class="nb-dist">${formatDist(st.km)}</span></span>`:'');
+  const dr=drive?.items[near.p.id];
+  bar.innerHTML=`<span class="nb-row" data-go="${near.p.id}"><span class="nb-dot"></span><span class="nb-label">${isPump?'⛽ ปั๊มใกล้สุด':kind==='platform'?'แท่นใกล้สุด':'ใกล้สุด'}</span><span class="nb-name">${isPump?esc(near.p.station.brand)+' · ':''}${esc(near.p.name)}</span><span class="nb-dist">${formatDist(near.km)}</span>${dr?`<span class="nb-drive-info">ขับ ${R.formatMin(dr.min)}</span>`:''}</span>`+
+    (st?`<span class="nb-row nb-st" data-go="${st.p.id}"><span class="nb-fuel" style="background:${stColor};color:${fuelInk(stColor)}">⛽</span><span class="nb-label">ปั๊มใกล้สุด</span><span class="nb-name">${esc(st.p.station.brand)} · ${esc(st.p.name)}</span><span class="nb-dist">${formatDist(st.km)}</span></span>`:'')+
+    (kind!=='platform'?`<button type="button" class="nb-row nb-drive" data-drivenear${driveBusy?' disabled':''} title="คำนวณระยะและเวลาขับจริงไป 5 จุดที่ใกล้ที่สุด (ประมาณการสำหรับรถยนต์ ไม่รวมรถติด)">${svgIcon('car',13)} ${driveBusy?'กำลังคำนวณเส้นทางขับ…':drive?'คำนวณเส้นทางขับใหม่':'ดูเส้นทางขับจริง ไป 5 จุดใกล้สุด'}</button>`:'');
 }
 
 // opts.accuracy (เมตร) = มาจากปุ่มตำแหน่งของฉัน → แสดงเป็นจุดสีฟ้า + วงความแม่นยำ
@@ -207,16 +321,13 @@ function showSearchMarker(lat,lng,opts={}){
       :'<div style="width:22px;height:22px;border-radius:50%;background:#e05260;border:3px solid #fff;box-shadow:0 0 0 4px #e0526055,0 3px 10px #0006"></div>',
     iconSize:[22,22], iconAnchor:[11,11]
   });
-  searchPoint={lat,lng}; gpsActive=isGps;
+  searchPoint={lat,lng}; gpsActive=isGps; searchAcc=isGps?opts.accuracy:0;
+  dropStaleDrive();
   const near=nearestPoints(lat,lng);
-  const st=showPumpExtra()?nearestStations(lat,lng,1)[0]:null;
-  const nearText=(near.length?`<br><br>ใกล้ที่สุด: <b>${esc(near[0].p.name)}</b><br>ระยะ ${formatKm(near[0].km)} กม.`:'')+
-    (st?`<br><br>⛽ ปั๊มใกล้สุด: <b>${esc(st.p.station.brand)} · ${esc(st.p.name)}</b><br>ระยะ ${formatKm(st.km)} กม.`:'');
-  if(isGps) accuracyCircle=L.circle([lat,lng],{radius:opts.accuracy,color:'#1a73e8',weight:1,opacity:.5,fillColor:'#1a73e8',fillOpacity:.12,interactive:false}).addTo(map);
+  // วงความแม่นยำใหญ่มาก (ไม่มี GPS เดาตำแหน่งจากเครือข่าย) จะบังทั้งแผนที่ → ไม่แสดงวง
+  if(isGps) accuracyCircle=L.circle([lat,lng],{radius:opts.accuracy,color:'#1a73e8',weight:1,opacity:opts.accuracy<=ACC_CIRCLE_MAX_M?.5:0,fillColor:'#1a73e8',fillOpacity:opts.accuracy<=ACC_CIRCLE_MAX_M?.12:0,interactive:false}).addTo(map);
   searchMarker = L.marker([lat,lng],{icon,zIndexOffset:1000}).addTo(map);
-  const title=isGps?'ตำแหน่งของฉัน':'พิกัดที่ค้นหา';
-  const accText=isGps?`<br>ความแม่นยำ: ±${Math.round(opts.accuracy).toLocaleString('th-TH')} ม.`:'';
-  searchMarker.bindPopup(`<div class="popup-title">${title}</div><div class="popup-coord">Latitude: ${lat}<br>Longitude: ${lng}${accText}${nearText}</div>${popupActions(lat,lng)}`);
+  searchMarker.bindPopup(searchPopupHtml);
   drawNearestLines();
   // ซูมให้เห็นทั้งหมุดที่ค้นหาและจุดที่ใกล้ที่สุดในจอเดียว
   if(near.length) map.flyToBounds(L.latLngBounds([[lat,lng],...near.map(n=>[n.p.lat,n.p.lng])]),{padding:[70,70],maxZoom:16,duration:.8});
@@ -231,13 +342,43 @@ function showSearchMarker(lat,lng,opts={}){
   renderList();
 }
 
-// ===== ปุ่มในป๊อปอัป: คัดลอกพิกัด / นำทางด้วย Google Maps =====
-function popupActions(lat,lng){
+const ACC_CIRCLE_MAX_M = 1000;
+let searchAcc = 0;
+// ป๊อปอัปของหมุดค้นหา / จุดสีฟ้า (สร้างใหม่ทุกครั้งที่เปิด จึงเป็นข้อมูลล่าสุดเสมอ)
+function searchPopupHtml(){
+  if(!searchPoint) return '';
+  const {lat,lng}=searchPoint;
+  const near=nearestPoints(lat,lng);
+  const st=showPumpExtra()?nearestStations(lat,lng,1)[0]:null;
+  const nearText=(near.length?`<br><br>ใกล้ที่สุด: <b>${esc(near[0].p.name)}</b><br>ระยะ ${formatKm(near[0].km)} กม.`:'')+
+    (st?`<br><br>⛽ ปั๊มใกล้สุด: <b>${esc(st.p.station.brand)} · ${esc(st.p.name)}</b><br>ระยะ ${formatKm(st.km)} กม.`:'');
+  const title=gpsActive?`ตำแหน่งของฉัน${followWatchId!==null?' (ติดตามอยู่)':''}`:'พิกัดที่ค้นหา';
+  const accText=gpsActive?`<br>ความแม่นยำ: ±${Math.round(searchAcc).toLocaleString('th-TH')} ม.`:'';
+  return `<div class="popup-title">${title}</div><div class="popup-coord">Latitude: ${lat}<br>Longitude: ${lng}${accText}${nearText}</div>${areaLineHtml(lat,lng)}${popupActions(lat,lng,{name:title,isSearch:true})}`;
+}
+
+// ===== ปุ่มในป๊อปอัป =====
+// คัดลอกพิกัด / นำทาง (Google Maps) / Street View / เพิ่มในแผนเส้นทาง / เส้นทางขับจากตำแหน่งของฉัน
+// แท่นผลิตกลางทะเล: ไม่มีถนนและภาพถนน → แสดงลิงก์ลม/คลื่น (Windy) แทน
+function popupActions(lat,lng,o={}){
   const nav=`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+  const onRoad=o.onRoad!==false, c=`${lat}, ${lng}`;
+  const add=o.id!==undefined?`data-addplan="${o.id}"`:`data-addxy="${c}"`;
   return `<div class="popactions">
-    <button type="button" class="popbtn" data-copy="${lat}, ${lng}">⧉ คัดลอกพิกัด</button>
-    <a class="popbtn primary" href="${nav}" target="_blank" rel="noopener">➤ นำทาง</a>
-  </div>`;
+    <button type="button" class="popbtn" data-copy="${c}">⧉ คัดลอกพิกัด</button>
+    ${onRoad?`<a class="popbtn primary" href="${nav}" target="_blank" rel="noopener">➤ นำทาง</a>`
+      :`<a class="popbtn primary" href="${windyLink({lat,lng})}" target="_blank" rel="noopener">🌬 ลม/คลื่น (Windy)</a>`}
+  </div>${onRoad?`<div class="popactions">
+    <button type="button" class="popbtn" data-sv="${lat},${lng}" data-name="${esc(o.name||'')}">👁 Street View</button>
+    ${o.isSearch?'':`<button type="button" class="popbtn" ${add}>＋ เพิ่มในแผน</button>`}
+    ${o.id!==undefined&&searchPoint?`<button type="button" class="popbtn" data-drive="${o.id}" title="เส้นทางขับจากตำแหน่งของฉัน/พิกัดที่ค้นหา มาที่จุดนี้ (ประมาณการสำหรับรถยนต์)">🚗 เส้นทางขับ</button>`:''}
+  </div>`:''}`;
+}
+// บรรทัด ต./อ./จ. ในป๊อปอัป (ยังไม่โหลดไฟล์ขอบเขต → ว่างไว้ แล้วเติมเมื่อโหลดเสร็จ)
+function areaLineHtml(lat,lng){
+  if(!adminReady()) return '';
+  const a=areaOf(lat,lng);
+  return a?`<div class="pop-area" title="${esc(ADMIN_CREDIT)}">📍 ${esc(formatArea(a))}</div>`:'';
 }
 async function copyText(text){
   try{ await navigator.clipboard.writeText(text); return true; }
@@ -251,6 +392,16 @@ async function copyText(text){
   }
 }
 document.addEventListener('click',async e=>{
+  const t=e.target.closest?.('[data-sv],[data-addplan],[data-addxy],[data-drive],[data-drivenear]');
+  if(t){
+    e.preventDefault(); e.stopPropagation();
+    if(t.dataset.sv){ const [lat,lng]=t.dataset.sv.split(',').map(Number); if(Number.isFinite(lat)&&Number.isFinite(lng)) openStreetView(document.querySelector('.maparea'),{lat,lng,name:t.dataset.name||''},esc); }
+    else if(t.dataset.addplan){ const p=rowById(t.dataset.addplan); if(p){ addStop(stopOf(p)); map.closePopup(); } }
+    else if(t.dataset.addxy){ if(addCoordStop(t.dataset.addxy)) map.closePopup(); }
+    else if(t.dataset.drive){ const p=rowById(t.dataset.drive); if(p) driveTo(p); }
+    else if(t.hasAttribute('data-drivenear')) driveNearest();
+    return;
+  }
   const btn=e.target.closest('.popbtn[data-copy]');
   if(!btn) return;
   e.preventDefault(); e.stopPropagation();
@@ -436,11 +587,21 @@ function renderLegend(){
     const dot=n=>`<span class="legend-dot${kind==='station'?' fuel':' drop'}" style="background:${supplierColor(n)}"></span>`;
     return `<div class="legrow"><span class="leghead">${head}</span>`+names.map(n=>`<button type="button" class="legend-item sup${active===n?' on':''}${active!=='all'&&active!==n?' dim':''}" ${attr}="${esc(n)}" title="กดเพื่อกรองเฉพาะ ${esc(label(n))}">${dot(n)}${esc(label(n))}</button>`).join('')+'</div>';
   };
-  box.innerHTML=(showGeo?row('geo',activeSupplier,'data-sup','Geofence'):'')+(showStations?row('station',activeBrand,'data-brand','⛽ ปั๊มน้ำมัน'):'');
+  // งานออฟชอร์: ปุ่มเปิด/ปิด แท่นผลิต กับ แปลงสัมปทาน แยกกัน
+  const off=showOff&&offStatus==='ready'?`<div class="legrow"><span class="leghead" title="ที่มา: ${esc(DMF_CREDIT)}">ออฟชอร์</span>`+
+    `<button type="button" class="legend-item sup${showPlat?' on':' dim'}" data-offpart="plat" title="แท่นผลิตปิโตรเลียม (กด = ซ่อน/แสดง)"><span class="legend-dot plat" style="background:${PLATFORM_COLOR}"></span>แท่นผลิต ${offRows.length.toLocaleString('th-TH')}</button>`+
+    `<button type="button" class="legend-item sup${showAreas?' on':' dim'}" data-offpart="areas" title="แปลงสัมปทานปิโตรเลียม (กด = ซ่อน/แสดง)"><span class="legend-dot area" style="border-color:${PLATFORM_COLOR}"></span>แปลงสัมปทาน ${(offAreas?.features.length||0).toLocaleString('th-TH')}</button></div>`:'';
+  box.innerHTML=(showGeo?row('geo',activeSupplier,'data-sup','Geofence'):'')+(showStations?row('station',activeBrand,'data-brand','⛽ ปั๊มน้ำมัน'):'')+off;
   box.closest('.legend')?.toggleAttribute('hidden',!box.innerHTML);
 }
 // กดชื่อในคำอธิบายสัญลักษณ์ → กรองเฉพาะ Supplier/แบรนด์นั้น (กดซ้ำ = แสดงทั้งหมด)
 $('supplierLegend')?.addEventListener('click',e=>{
+  const part=e.target.closest('[data-offpart]');
+  if(part){
+    if(part.dataset.offpart==='plat'){ showPlat=!showPlat; renderPlatLayer(); afterLayerChange(); renderList(); }
+    else { showAreas=!showAreas; renderAreaLayer(); renderLegend(); }
+    return;
+  }
   const sup=e.target.closest('[data-sup]'), brand=e.target.closest('[data-brand]');
   const sel=sup?$('supplierSelect'):brand?$('brandSelect'):null;
   if(!sel) return;
@@ -449,15 +610,24 @@ $('supplierLegend')?.addEventListener('click',e=>{
   sel.dispatchEvent(new Event('change'));
 });
 
+// หมุดแท่นผลิต: สี่เหลี่ยมข้าวหลามตัด (ต่างจากหมุดหยดน้ำ/วงกลมปั๊ม)
+const platformIcon = L.divIcon({
+  className:'stpin',
+  html:`<svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 1.5 22.5 12 12 22.5 1.5 12z" fill="${PLATFORM_COLOR}" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" fill="#fff"/></svg>`,
+  iconSize:[22,22], iconAnchor:[11,11], popupAnchor:[0,-11]
+});
+// ป๊อปอัปของหมุด (สร้างตอนเปิด จึงมีบรรทัด ต./อ./จ. และปุ่มเส้นทางขับตามสถานะล่าสุด)
+function pointPopupHtml(p){
+  const coord=`<div class="popup-coord">${p.kind==='geo'?`Supplier: ${esc(p.supplier)}<br>`:''}Latitude: ${p.lat}<br>Longitude: ${p.lng}</div>`;
+  const body=p.kind==='station'?stationDetailsHtml(p.station):p.kind==='platform'?platformDetailsHtml(p.platform,esc):'';
+  return `<div class="popup-title">${esc(p.name)}</div>${body}${coord}${areaLineHtml(p.lat,p.lng)}${popupActions(p.lat,p.lng,{id:p.id,name:p.name,onRoad:p.kind!=='platform'})}`;
+}
 function buildMarker(p,group){
   const color=supplierColor(p.supplier);
-  const marker=L.marker([p.lat,p.lng],{title:p.name,icon:p.kind==='station'?stationIcon(color):pinIcon(color)});
+  const marker=L.marker([p.lat,p.lng],{title:p.name,icon:p.kind==='station'?stationIcon(color):p.kind==='platform'?platformIcon:pinIcon(color)});
   marker.__grp=group;
   marker.supplierIcon=marker.options.icon;
-  marker.bindPopup(p.station
-    ? `<div class="popup-title">${esc(p.name)}</div>${stationDetailsHtml(p.station)}<div class="popup-coord">Latitude: ${p.lat}<br>Longitude: ${p.lng}</div>${popupActions(p.lat,p.lng)}`
-    : `<div class="popup-title">${esc(p.name)}</div><div class="popup-coord">Supplier: ${esc(p.supplier)}<br>Latitude: ${p.lat}<br>Longitude: ${p.lng}</div>${popupActions(p.lat,p.lng)}`,
-    p.station?{maxWidth:300,minWidth:240}:undefined);
+  marker.bindPopup(()=>pointPopupHtml(p),p.kind!=='geo'?{maxWidth:300,minWidth:240}:{minWidth:220});
   marker.on('click',()=>{ selectPoint(p.id); scrollRowIntoView(p.id); });
   markerById.set(p.id,marker);
   return marker;
@@ -516,25 +686,54 @@ function renderLayer(group,rows,on){
   if(on){ group.addLayers(rows.filter(validPoint).map(p=>buildMarker(p,group))); if(!map.hasLayer(group)) map.addLayer(group); }
   else if(map.hasLayer(group)) map.removeLayer(group);
 }
-const renderGeoLayer = () => renderLayer(clusters,geoRows(),showGeo);
-const renderStationLayer = () => renderLayer(stationClusters,stationRows(),showStations);
+// แผนเส้นทางที่หาปั๊มตามทางแล้ว (focus): บนแผนที่เหลือแค่จุดแวะกับปั๊มตามทาง จนกว่าจะปิดสวิตช์ในแผน
+function planKeep(){
+  if(!planFocusActive()) return null;
+  const s=new Set(plan.along.items.map(i=>i.p.id));
+  plan.stops.forEach(st=>s.add(st.id));
+  return s;
+}
+function renderGeoLayer(){
+  const keep=planKeep();
+  renderLayer(clusters,keep?geoRows().filter(p=>keep.has(p.id)):geoRows(),showGeo);
+}
+// ปั๊มตามเส้นทางแสดงบนแผนที่เสมอ แม้ปิดชั้นปั๊มน้ำมันอยู่ (เฉพาะไม่กี่สิบแห่งนั้น)
+function renderStationLayer(){
+  const keep=planKeep();
+  let rows=stationRows(), on=showStations;
+  if(plan.along&&!showStations){ rows=plan.along.items.map(i=>i.p); on=true; }
+  renderLayer(stationClusters,keep?rows.filter(p=>keep.has(p.id)):rows,on);
+}
+const renderPlatLayer = () => renderLayer(platClusters,offRows,showOff&&showPlat&&!planFocusActive());
+function renderAreaLayer(){
+  if(areaLayer){ map.removeLayer(areaLayer); areaLayer=null; }
+  if(!showOff||!showAreas||!offAreas) return;
+  areaLayer=L.geoJSON(offAreas,{
+    style:f=>({color:areaColor(f.properties),weight:1.4,dashArray:'6 4',fillColor:areaColor(f.properties),fillOpacity:.1}),
+    onEachFeature:(f,layer)=>layer.bindPopup(areaPopupHtml(f.properties,esc),{maxWidth:300})
+  }).addTo(map);
+  areaLayer.bringToBack();
+}
 function afterLayerChange(){
   selectedMarker=null; selectPoint(selectedId);
   renderLegend(); renderLayerCards();
   drawNearestLines(); updateNearBar();
 }
+// เปลี่ยนแผนเส้นทาง/focus → วาดทุกชั้นใหม่
+function refreshLayers(){ renderGeoLayer(); renderStationLayer(); renderPlatLayer(); afterLayerChange(); renderList(); }
 function renderLayerCards(){
-  const set=(cardId,valId,on,n)=>{
+  const set=(cardId,valId,on,n,busyText)=>{
     const card=$(cardId); if(!card) return;
     card.classList.toggle('on',on); card.setAttribute('aria-pressed',on);
-    $(valId).innerHTML=on?n.toLocaleString('th-TH'):'<small>ปิดอยู่</small>';
+    $(valId).innerHTML=busyText?`<small>${busyText}</small>`:on?n.toLocaleString('th-TH'):'<small>ปิดอยู่</small>';
   };
   set('layerGeo','statGeo',showGeo,geoRows().length);
   set('layerStations','statStations',showStations,stationRows().length);
+  set('layerOffshore','statOffshore',showOff,offRows.length,showOff&&offStatus==='loading'?'กำลังโหลด…':'');
   if($('supplierSelect')) $('supplierSelect').hidden=!showGeo;
   if($('brandSelect')) $('brandSelect').hidden=!showStations;
   const t=$('sideTitleText');
-  if(t) t.textContent=showGeo&&showStations?'รายการ Geofence + ปั๊ม':showStations?'รายการปั๊มน้ำมัน':'รายการ Geofence';
+  if(t) t.textContent=showGeo&&showStations?'รายการ Geofence + ปั๊ม':showStations?'รายการปั๊มน้ำมัน':!showGeo&&showOff?'รายการแท่นผลิต':'รายการ Geofence';
 }
 function fitToVisible(){
   const all=(showGeo?geoRows():showStations?stationRows():[]).filter(validPoint);
@@ -544,7 +743,7 @@ function fitToVisible(){
   else if(pts.length>1) map.fitBounds(L.latLngBounds(pts.map(p=>[p.lat,p.lng])),{padding:[45,45],maxZoom:12});
 }
 function renderMap(opts={}){
-  renderGeoLayer(); renderStationLayer();
+  renderGeoLayer(); renderStationLayer(); renderPlatLayer();
   afterLayerChange();
   if(opts.fit!==false) fitToVisible();
 }
@@ -583,7 +782,7 @@ let listShown = 0;
 function rowHtml(p){
   const valid=validPoint(p), selected=selectedId===p.id;
   return `<div class="pointrow ${selected?'selected':''}" data-id="${p.id}">
-      <div class="pin${p.kind==='station'?' fuel':''}"${valid?` style="color:${supplierColor(p.supplier)};background:${supplierColor(p.supplier)}1f"`:''}>${!valid?'!':p.kind==='station'?FUEL_SVG:'⌖'}</div>
+      <div class="pin${p.kind==='station'?' fuel':''}"${valid?` style="color:${supplierColor(p.supplier)};background:${supplierColor(p.supplier)}1f"`:''}>${!valid?'!':p.kind==='station'?FUEL_SVG:p.kind==='platform'?'◆':'⌖'}</div>
       <div class="pointinfo"><div class="pointname">${esc(p.name)}${p.dup&&activeFilter==='dup'?` <span class="dupbadge">${p.dup}</span>`:''}</div><div class="pointcoord">${valid?`${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`:'ไม่พบ Latitude / Longitude'}${p.supplier!==NO_SUPPLIER?` · <span class="pointsup" style="color:${supplierColor(p.supplier)}">${esc(p.supplier)}</span>`:''}</div></div>
       <div class="pointarrow">${valid?'›':'·'}</div>
     </div>`;
@@ -629,18 +828,30 @@ function renderList(){
     renderNearest(pointList,pointCount);
     return;
   }
+  // ตัวกรอง "ในจอนี้": เฉพาะจุดในขอบเขตแผนที่ เรียงจากใกล้กึ่งกลางจอ
+  const inView=activeFilter==='view', bnd=inView?map.getBounds():null, ctr=inView?map.getCenter():null;
+  const keep=planKeep();
   filteredRows=allRows.filter(p=>{
-    const matches = !!coordQ || (p.name+' '+p.supplier+(p.searchText?' '+p.searchText:'')).toLocaleLowerCase().includes(q);
-    if(p.kind==='station'){ if(!showStations||(activeBrand!=='all'&&p.supplier!==activeBrand)) return false; }
+    if(keep&&!keep.has(p.id)) return false;
+    const matches = !!coordQ || (p.name+' '+p.supplier+(p.searchText?' '+p.searchText:'')+(p.areaSearch?' '+p.areaSearch:'')).toLocaleLowerCase().includes(q);
+    if(p.kind==='station'){ if(!(showStations||(keep&&plan.along))||(activeBrand!=='all'&&p.supplier!==activeBrand)) return false; }
+    else if(p.kind==='platform'){ if(!showOff||!showPlat) return false; }
     else if(!showGeo||(activeSupplier!=='all'&&p.supplier!==activeSupplier)) return false;
     const valid=validPoint(p);
+    if(inView) return matches&&valid&&bnd.contains([p.lat,p.lng]);
     return matches&&(activeFilter==='all'||(activeFilter==='valid'&&valid)||(activeFilter==='invalid'&&!valid)||(activeFilter==='dup'&&!!p.dup));
   });
   // ตัวกรองข้อมูลซ้ำ: เรียงให้แถวที่ซ้ำกันอยู่ติดกัน
   if(activeFilter==='dup') filteredRows.sort((a,b)=>a.dupKey.localeCompare(b.dupKey,'th')||a.id-b.id);
+  if(inView) filteredRows.sort((a,b)=>distanceKm(ctr.lat,ctr.lng,a.lat,a.lng)-distanceKm(ctr.lat,ctr.lng,b.lat,b.lng));
   if(pointCount) pointCount.textContent=`${filteredRows.length.toLocaleString('th-TH')} จุด`;
-  if(!filteredRows.length){pointList.innerHTML='<div class="empty">ไม่พบรายการที่ตรงกับการค้นหา</div>';return}
-  const hint=coordQ?'<div class="nearhint">กด Enter เพื่อหา Geofence ที่ใกล้พิกัดนี้ที่สุด</div>':'';
+  if(!filteredRows.length){pointList.innerHTML=`<div class="empty">${inView?'ไม่มีจุดในขอบเขตแผนที่นี้':'ไม่พบรายการที่ตรงกับการค้นหา'}</div>`;return}
+  let hint=coordQ?'<div class="nearhint">กด Enter เพื่อหา Geofence ที่ใกล้พิกัดนี้ที่สุด</div>':'';
+  // สรุปสั้น ๆ ว่าในจอนี้มีอะไรกี่จุด (แยกตาม Supplier / แบรนด์)
+  if(inView){
+    const c=new Map(); filteredRows.forEach(p=>c.set(p.supplier,(c.get(p.supplier)||0)+1));
+    hint+=`<div class="view-sum">ในจอนี้ <b>${filteredRows.length.toLocaleString('th-TH')}</b> จุด`+[...c].sort((a,b)=>b[1]-a[1]).slice(0,6).map(([n,k])=>` · ${esc(n.replace(/ Station$/,''))} ${k.toLocaleString('th-TH')}`).join('')+' · เรียงจากใกล้กึ่งกลางจอ</div>';
+  }
   const first=filteredRows.slice(0,LIST_PAGE);
   listShown=first.length;
   pointList.innerHTML=hint+first.map(rowHtml).join('')+moreHtml();
@@ -655,8 +866,9 @@ function renderNearest(pointList,pointCount){
   const kind=nearestKind();
   const supNote=kind==='geo'&&activeSupplier!=='all'?`<div class="nearsub">เฉพาะ Supplier: ${esc(activeSupplier)}</div>`
     :kind==='station'&&activeBrand!=='all'?`<div class="nearsub">เฉพาะแบรนด์: ${esc(activeBrand.replace(/ Station$/,''))}</div>`:'';
-  const head=`<div class="nearhead"><div class="neartitle">${kind==='station'?'⛽ ปั๊มน้ำมันที่ใกล้ที่สุด':kind==='geo'?'Geofence ที่ใกล้ที่สุด':'จุดที่ใกล้ที่สุด'}</div>
-    <div class="nearsub">จาก ${searchPoint.lat}, ${searchPoint.lng} · ระยะเส้นตรง</div>${supNote}</div>`;
+  const head=`<div class="nearhead"><div class="neartitle">${kind==='station'?'⛽ ปั๊มน้ำมันที่ใกล้ที่สุด':kind==='geo'?'Geofence ที่ใกล้ที่สุด':kind==='platform'?'◆ แท่นผลิตที่ใกล้ที่สุด':'จุดที่ใกล้ที่สุด'}</div>
+    <div class="nearsub">จาก ${searchPoint.lat}, ${searchPoint.lng} · ระยะเส้นตรง${drive?' · ขับจริง (รถยนต์ ไม่รวมรถติด)':''}</div>${supNote}
+    ${near.length&&kind!=='platform'?`<button type="button" class="planbtn drivebtn" data-drivenear${driveBusy?' disabled':''}>${svgIcon('car',13)} ${driveBusy?'กำลังคำนวณ…':drive?'คำนวณเส้นทางขับใหม่':'ขับจริงไป 5 จุดใกล้สุด'}</button>`:''}</div>`;
   // เปิดชั้นปั๊มน้ำมันอยู่ → แสดงปั๊มที่ใกล้ที่สุด 3 อันดับต่อท้าย (แยกจาก 5 อันดับ Geofence)
   const sts=showPumpExtra()?nearestStations(searchPoint.lat,searchPoint.lng,3):[];
   filteredRows=filteredRows.concat(sts.map(n=>n.p)); listShown=filteredRows.length;
@@ -669,12 +881,12 @@ function renderNearest(pointList,pointCount){
       <div class="dist"><b>${formatKm(km)}</b><span>กม.</span></div>
     </div>`;
   }).join(''):'';
-  if(!near.length){pointList.innerHTML=head+`<div class="empty">${kind?'ไม่มีจุดที่มีพิกัดให้เทียบระยะ':'ปิดทั้ง Geofence และปั๊มน้ำมันอยู่<br>กดการ์ดมุมขวาบนเพื่อเปิดชั้นข้อมูล'}</div>`+stHtml;return}
+  if(!near.length){pointList.innerHTML=head+`<div class="empty">${kind?'ไม่มีจุดที่มีพิกัดให้เทียบระยะ':planFocusActive()?'แผนเส้นทางกำลังซ่อนสถานีอื่นอยู่<br>ปิดสวิตช์ "แสดงเฉพาะปั๊มตามเส้นทาง" ในแผนเพื่อดูจุดใกล้สุด':'ปิดทั้ง Geofence และปั๊มน้ำมันอยู่<br>กดการ์ดมุมขวาบนเพื่อเปิดชั้นข้อมูล'}</div>`+stHtml;return}
   pointList.innerHTML=head+near.map(({p,km},i)=>{
-    const selected=selectedId===p.id;
+    const selected=selectedId===p.id, dr=drive?.items[p.id];
     return `<div class="pointrow ${selected?'selected':''} ${i===0?'nearest':i===1?'second':''}" data-id="${p.id}">
       <div class="pin rank">${i+1}</div>
-      <div class="pointinfo"><div class="pointname">${esc(p.name)}</div><div class="pointcoord">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}${p.supplier!==NO_SUPPLIER?` · <span class="pointsup" style="color:${supplierColor(p.supplier)}">${esc(p.supplier)}</span>`:''}</div></div>
+      <div class="pointinfo"><div class="pointname">${esc(p.name)}</div><div class="pointcoord">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}${p.supplier!==NO_SUPPLIER?` · <span class="pointsup" style="color:${supplierColor(p.supplier)}">${esc(p.supplier)}</span>`:''}${dr?`<br><b class="pdrive">ขับ ${R.formatMin(dr.min)} (${dr.km.toFixed(1)} กม.)</b>`:''}</div></div>
       <div class="dist"><b>${formatKm(km)}</b><span>กม.</span></div>
     </div>`;
   }).join('')+stHtml;
@@ -719,8 +931,9 @@ function applyData(mainText,stText,fit){
     try{ rows.push(...normalizeStationRows(JSON.parse(stText),rows.length)); }
     catch(e){ console.error(e); stationsOk=false; }
   }
-  allRows=rows;
+  allRows=rows.concat(offRows);
   markDuplicates();
+  indexAreas();
   if(selectedId!==null&&!allRows.some(p=>p.id===selectedId)) selectedId=null;
   buildSupplierOptions();
   renderMap({fit});renderList();
@@ -792,6 +1005,8 @@ const searchInputEl = $('searchInput');
 if(searchInputEl){
   searchInputEl.addEventListener('input',scheduleRenderList);
   searchInputEl.addEventListener('input',syncSearchClear);
+  // พิมพ์ค้นหา ≥ 2 ตัว → โหลดขอบเขตตำบล/อำเภอ/จังหวัด เพื่อค้นด้วยชื่อพื้นที่ได้ (เช่น "บางนา", "ชลบุรี")
+  searchInputEl.addEventListener('input',e=>{ if(e.target.value.trim().length>=2) ensureAdmin(); });
   // ปุ่ม ✕ ล้างช่องค้นหาทีเดียว (ล้างหมุดค้นหา/ตำแหน่งของฉันด้วย เหมือนลบข้อความจนหมด)
   $('searchClear')?.addEventListener('click',()=>{
     searchInputEl.value='';
@@ -841,11 +1056,37 @@ $('layerStations')?.addEventListener('click',()=>{
   showStations=!showStations; saveLayers(); renderStationLayer(); afterLayerChange(); renderList();
   if(showStations) toast(`แสดงปั๊มน้ำมัน ${stationRows().length.toLocaleString('th-TH')} แห่ง`,2500);
 });
+// งานออฟชอร์ (แท่นผลิต + แปลงสัมปทาน จาก DMF) โหลดครั้งแรกที่เปิด
+$('layerOffshore')?.addEventListener('click',()=>{
+  showOff=!showOff; saveLayers();
+  if(showOff&&offStatus!=='ready') loadOff();
+  renderPlatLayer(); renderAreaLayer(); afterLayerChange(); renderList();
+});
+async function loadOff(){
+  if(offStatus==='loading') return;
+  offStatus='loading'; renderLayerCards();
+  try{
+    const d=await loadOffshore();
+    offRows=d.platforms.map((p,i)=>({id:PLAT_ID0+i,name:p.name,lat:p.lat,lng:p.lng,supplier:PLATFORM_GROUP,kind:'platform',platform:p.platform,
+      searchText:`${p.platform.operator} ${p.platform.operatorE} ${p.platform.field} ${p.platform.block} ${p.platform.lease}`}));
+    offAreas=d.areas; offStatus='ready';
+    allRows=allRows.filter(p=>p.kind!=='platform').concat(offRows);
+    indexAreas();
+    if(showOff) toast(`แสดงแท่นผลิต ${offRows.length.toLocaleString('th-TH')} แห่ง · แปลงสัมปทาน ${offAreas.features.length.toLocaleString('th-TH')} แปลง`,3000);
+  }catch(err){
+    console.error(err); offStatus='error'; showOff=false; saveLayers();
+    toast(`โหลดข้อมูลแท่นผลิต/แปลงสัมปทานไม่สำเร็จ (${err.message})`,6000);
+  }
+  renderPlatLayer(); renderAreaLayer(); afterLayerChange(); renderList();
+}
 
 document.querySelectorAll('.chip').forEach(btn=>btn.addEventListener('click',()=>{
   document.querySelectorAll('.chip').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');activeFilter=btn.dataset.filter;renderList();
 }));
+// ตัวกรอง "ในจอนี้": เลื่อน/ซูมแผนที่แล้วรายการตามมา
+let viewListTimer=null;
+map.on('moveend',()=>{ if(activeFilter!=='view'||(searchPoint&&parseLatLng($('searchInput')?.value||''))) return; clearTimeout(viewListTimer); viewListTimer=setTimeout(renderList,300); });
 
 const sidebarToggleEl = $('sidebarToggle');
 if(sidebarToggleEl){
@@ -887,13 +1128,6 @@ if(themeToggleEl){
 const refreshBtnEl = $('refreshBtn');
 if(refreshBtnEl) refreshBtnEl.addEventListener('click',loadData);
 
-document.querySelectorAll('[data-layer]').forEach(btn=>btn.addEventListener('click',()=>{
-  document.querySelectorAll('[data-layer]').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
-  currentLayer=btn.dataset.layer;
-  if(currentLayer==='satellite'){map.removeLayer(streetLayer);satelliteLayer.addTo(map)}
-  else{map.removeLayer(satelliteLayer);streetLayer.addTo(map)}
-}));
-
 map.on('mousemove',e=>{
   const cursorCoords = $('cursorCoords');
   if(cursorCoords) cursorCoords.textContent=`LAT ${e.latlng.lat.toFixed(5)} · LNG ${e.latlng.lng.toFixed(5)}`;
@@ -914,6 +1148,19 @@ const LocateControl = L.Control.extend({
   }
 });
 map.addControl(new LocateControl());
+// ปุ่มเรดาร์ฝน (อยู่เหนือปุ่มตำแหน่งของฉัน)
+const RainControl = L.Control.extend({
+  options:{position:'bottomright'},
+  onAdd(){
+    const btn=L.DomUtil.create('button','locatebtn rainbtn');
+    btn.type='button'; btn.id='rainBtn'; btn.title='เรดาร์ฝน (ย้อนหลัง 2 ชั่วโมง)'; btn.setAttribute('aria-label','เรดาร์ฝน');
+    btn.innerHTML=svgIcon('rain',20);
+    L.DomEvent.disableClickPropagation(btn);
+    L.DomEvent.on(btn,'click',()=>setRainOn(!rain.on));
+    return btn;
+  }
+});
+map.addControl(new RainControl());
 
 // กดปุ่มวนเป็น 3 สถานะ: ปิด → หาตำแหน่งครั้งเดียว (on) → ติดตามเรียลไทม์ (follow) → ปิด
 function locateMe(btn){
@@ -1069,6 +1316,7 @@ function followFrame(){
 }
 // กดแถบลอย → พาไปที่ Geofence ที่ใกล้ที่สุด
 $('nearBar')?.addEventListener('click',e=>{
+  if(e.target.closest('[data-drivenear]')) return; // ปุ่มเส้นทางขับ (จัดการที่ document)
   const id=Number(e.target.closest('[data-go]')?.dataset.go ?? $('nearBar').dataset.id);
   if(!Number.isFinite(id)) return;
   selectPoint(id);
@@ -1093,10 +1341,10 @@ function stopFollow(){
 // ส่วนการขยับจุด/แผนที่ทำใน followFrame ทุกเฟรม
 function updateMyPosition(lat,lng,accuracy){
   if(!searchMarker||!searchPoint) return;
-  searchPoint={lat,lng};
-  const near=nearestPoints(lat,lng);
-  const nearText=near.length?`<br><br>ใกล้ที่สุด: <b>${esc(near[0].p.name)}</b><br>ระยะ ${formatKm(near[0].km)} กม.`:'';
-  searchMarker.setPopupContent(`<div class="popup-title">ตำแหน่งของฉัน (ติดตามอยู่)</div><div class="popup-coord">Latitude: ${lat}<br>Longitude: ${lng}<br>ความแม่นยำ: ±${Math.round(accuracy).toLocaleString('th-TH')} ม.${nearText}</div>${popupActions(lat,lng)}`);
+  searchPoint={lat,lng}; searchAcc=accuracy;
+  dropStaleDrive();
+  if(searchMarker.isPopupOpen()) searchMarker.getPopup().update();
+  if(accuracyCircle) accuracyCircle.setStyle({opacity:accuracy<=ACC_CIRCLE_MAX_M?.5:0,fillOpacity:accuracy<=ACC_CIRCLE_MAX_M?.12:0});
   const inp=$('searchInput'); if(inp) inp.value=`${lat}, ${lng}`;
   drawNearestLines();
   renderList();
@@ -1121,6 +1369,492 @@ document.addEventListener('visibilitychange',()=>{
   if(document.hidden&&followWatchId!==null){ stopFollow(); toast('ปิดการติดตามตำแหน่งอัตโนมัติ (ออกจากหน้าจอ) — กดปุ่มเพื่อเริ่มใหม่',5000); }
 });
 
+// ===================================================================================
+// ===== ฟังก์ชันที่ยกมาจาก my-web-p3 (หน้า Maps) =====
+// ===================================================================================
+const rowById = id => allRows.find(p=>String(p.id)===String(id));
+const stopOf = p => ({id:p.id,name:p.name,lat:p.lat,lng:p.lng});
+// "13.7563, 100.5018", "13.7563 100.5018", "(13.7, 100.5)" หรือลิงก์ Google Maps → {lat,lng} (สลับให้ถ้าพิมพ์ ลองจิจูด, ละติจูด)
+function parseCoordsLoose(s){
+  const t=String(s).trim();
+  const m=t.match(/@(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/)||t.match(/[?&](?:q|query|ll)=(-?\d+(?:\.\d+)?)(?:,|%2C)\s*(-?\d+(?:\.\d+)?)/i)
+    ||t.match(/^\(?\s*(-?\d+(?:\.\d+)?)\s*(?:,|\s)\s*(-?\d+(?:\.\d+)?)\s*\)?$/);
+  if(!m) return null;
+  let lat=+m[1], lng=+m[2];
+  if(Math.abs(lat)>90&&Math.abs(lng)<=90) [lat,lng]=[lng,lat];
+  if(!(Math.abs(lat)<=90&&Math.abs(lng)<=180)) return null;
+  return {lat,lng};
+}
+
+// ===== ตำบล / อำเภอ / จังหวัด =====
+// ไฟล์ขอบเขต (~8 MB) โหลดครั้งแรกที่ต้องใช้: เปิดป๊อปอัปหมุด, ดับเบิลคลิกแผนที่, หรือพิมพ์ค้นหา
+let adminP=null, openPopup=null;
+function ensureAdmin(){
+  if(adminReady()) return Promise.resolve(true);
+  adminP ??= loadAdmin().then(()=>{
+    indexAreas();
+    if(openPopup&&typeof openPopup.getContent()==='function') openPopup.update();
+    return true;
+  }).catch(e=>{ console.error(e); adminP=null; return false; });
+  return adminP;
+}
+map.on('popupopen',e=>{ openPopup=e.popup; if(!adminReady()) ensureAdmin(); });
+map.on('popupclose',e=>{ if(openPopup===e.popup) openPopup=null; });
+// ชื่อพื้นที่ของทุกจุด เพื่อให้ค้นหา "บางนา" / "ชลบุรี" เจอ (ทำทีละช่วง ไม่ให้หน้าค้าง)
+let areaIndexRun=0;
+async function indexAreas(){
+  if(!adminReady()) return;
+  const run=++areaIndexRun, rows=allRows;
+  for(let i=0;i<rows.length;i++){
+    const p=rows[i];
+    if(p.areaSearch===undefined&&validPoint(p)) p.areaSearch=areaSearchText(areaOf(p.lat,p.lng));
+    if(i%1500===1499){ await new Promise(r=>setTimeout(r)); if(run!==areaIndexRun) return; }
+  }
+  const q=$('searchInput')?.value.trim();
+  if(q&&!parseLatLng(q)) renderList();
+}
+
+// ===== ดับเบิลคลิก / คลิกขวา / กดค้าง (มือถือ) ที่แผนที่ → พิกัด + ตำบล/อำเภอ/จังหวัด ของจุดนั้น =====
+let lastPick=0;
+function pickHtml(lat,lng,status){
+  const c=`${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+  const a=status==='done'?areaOf(lat,lng):null, at=a?formatArea(a):'';
+  const area=status==='loading'?'<div class="pop-area muted">กำลังหาตำบล / อำเภอ / จังหวัด…</div>'
+    :status==='error'?'<div class="pop-area muted">โหลดข้อมูลขอบเขตไม่สำเร็จ แสดงเฉพาะพิกัด</div>'
+    :at?`<div class="pop-area">📍 ${esc(at)}</div>${a.near?'<div class="pop-src">ใกล้แนวเขต ค่านี้อาจคลาดเคลื่อน</div>':''}`
+    :'<div class="pop-area muted">ไม่พบพื้นที่ปกครอง (อาจอยู่ในทะเลหรือนอกประเทศ)</div>';
+  return `<div class="popup-title">จุดที่เลือกบนแผนที่</div><div class="popup-coord">${c}</div>${area}
+    <div class="popactions"><button type="button" class="popbtn" data-copy="${c}">⧉ คัดลอกพิกัด</button>${at?`<button type="button" class="popbtn" data-copy="${esc(at)}">⧉ คัดลอกพื้นที่</button>`:''}</div>
+    <div class="popactions"><button type="button" class="popbtn" data-addxy="${c}">＋ เพิ่มในแผน</button><button type="button" class="popbtn" data-sv="${lat},${lng}">👁 Street View</button>
+      <a class="popbtn primary" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank" rel="noopener">➤ นำทาง</a></div>
+    ${at?`<div class="pop-src">${esc(ADMIN_CREDIT)}</div>`:''}`;
+}
+function pickPlace(ll){
+  if(Date.now()-lastPick<400) return; // กดค้างอาจได้ 2 เหตุการณ์
+  lastPick=Date.now();
+  const {lat,lng}=ll;
+  const pp=L.popup({maxWidth:300,minWidth:220,autoPanPadding:[30,30]}).setLatLng(ll).setContent(pickHtml(lat,lng,adminReady()?'done':'loading')).openOn(map);
+  if(!adminReady()) ensureAdmin().then(ok=>{ if(map.hasLayer(pp)) pp.setContent(pickHtml(lat,lng,ok?'done':'error')); });
+}
+map.on('dblclick',e=>pickPlace(e.latlng));
+map.on('contextmenu',e=>pickPlace(e.latlng));
+(()=>{ // กดค้างบนมือถือ
+  const box=map.getContainer();
+  let hold=null;
+  box.addEventListener('pointerdown',e=>{
+    if(e.pointerType!=='touch'||e.target.closest('.leaflet-control,.leaflet-marker-icon,.leaflet-popup')) return;
+    const {clientX,clientY}=e;
+    clearTimeout(hold);
+    hold=setTimeout(()=>{ hold=null; pickPlace(map.mouseEventToLatLng({clientX,clientY})); },650);
+    const move=ev=>{ if(Math.hypot(ev.clientX-clientX,ev.clientY-clientY)>10) off(); };
+    const off=()=>{ clearTimeout(hold); hold=null; window.removeEventListener('pointermove',move); window.removeEventListener('pointerup',off); window.removeEventListener('pointercancel',off); };
+    window.addEventListener('pointermove',move); window.addEventListener('pointerup',off); window.addEventListener('pointercancel',off);
+  });
+})();
+
+// ===== เส้นทางขับจริง (OSRM เฉพาะตอนกด) จากตำแหน่งของฉัน / พิกัดที่ค้นหา =====
+// ขยับไปเกิน 300 ม. → ทิ้งผลเดิม (ไม่ตรงแล้ว)
+function dropStaleDrive(){
+  if(!drive) return;
+  if(searchPoint&&distanceKm(drive.from.lat,drive.from.lng,searchPoint.lat,searchPoint.lng)<=0.3) return;
+  drive=null; drawRoute(); renderRouteChip();
+}
+async function driveNearest(){
+  if(!searchPoint||driveBusy) return;
+  const from={lat:searchPoint.lat,lng:searchPoint.lng};
+  const targets=nearestPoints(from.lat,from.lng).filter(n=>n.p.kind!=='platform');
+  if(!targets.length) return;
+  driveBusy=true; updateNearBar(); renderList();
+  try{
+    const res=await R.driveTable(from,targets.map(n=>n.p));
+    const items={}; let best=null;
+    targets.forEach((n,i)=>{ if(!res[i]) return; items[n.p.id]=res[i]; if(!best||res[i].min<best.r.min) best={p:n.p,r:res[i]}; });
+    if(!best){ drive={from,items,route:null}; toast('ไม่พบเส้นทางถนนไปยังจุดใกล้เคียง',5000); return; }
+    const rt=await R.driveRoute(from,best.p);
+    drive={from,items,route:{id:best.p.id,name:best.p.name,...rt}};
+    if(best.p.id!==targets[0].p.id) toast(`ใกล้สุดเมื่อขับจริงคือ ${best.p.name} (${R.formatMin(best.r.min)}) ไม่ใช่จุดที่ใกล้สุดแบบเส้นตรง`,8000);
+  }catch(e){
+    toast(`คำนวณเส้นทางขับไม่สำเร็จ: ${e.message} (ยังแสดงระยะเส้นตรงตามเดิม)`,7000);
+  }finally{
+    driveBusy=false; drawRoute(); renderRouteChip(); updateNearBar(); renderList();
+  }
+}
+async function driveTo(p){
+  if(!searchPoint||driveBusy) return;
+  const from={lat:searchPoint.lat,lng:searchPoint.lng};
+  driveBusy=true; toast('กำลังคำนวณเส้นทางขับ…',4000);
+  try{
+    const rt=await R.driveRoute(from,p);
+    const keep=drive&&distanceKm(drive.from.lat,drive.from.lng,from.lat,from.lng)<=0.3?drive.items:{};
+    drive={from,items:{...keep,[p.id]:{km:rt.km,min:rt.min}},route:{id:p.id,name:p.name,...rt}};
+    map.closePopup();
+  }catch(e){ toast(`คำนวณเส้นทางขับไม่สำเร็จ: ${e.message}`,7000); }
+  finally{ driveBusy=false; drawRoute(); renderRouteChip(); updateNearBar(); renderList(); }
+}
+
+// ===== วางแผนเส้นทาง (หลายจุด + ปั๊มตามทาง + ลากเส้นทาง + เวลาถึงตามความเร็วรถบรรทุก) =====
+let truck={type:'SEMI',plate:''};
+try{ const s=JSON.parse(localStorage.getItem('accessMapsTruck')||'null'); if(s) truck={type:s.type==='10W'?'10W':'SEMI',plate:String(s.plate??'')}; }catch{}
+function setTruck(patch){ truck={...truck,...patch}; try{ localStorage.setItem('accessMapsTruck',JSON.stringify(truck)); }catch{} }
+// เวลาออกเดินทางเริ่มต้น = ทุก 15 นาทีถัดไป
+let departAt=(()=>{
+  const d=new Date(Math.ceil((Date.now()+5*60000)/(15*60000))*15*60000), p=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+})();
+// ทะเบียนที่รู้จักกำหนดประเภทรถเอง ไม่งั้นใช้ประเภทที่เลือก (ค่าเริ่มต้นหัวลาก+หาง ซึ่งช้ากว่า เหมือนหน้าเอกสาร)
+function truckInfo(){
+  const vt=R.vehicleTypeOf(truck.plate), type=vt??truck.type;
+  return {...truck,known:!!vt,type,speed:R.SPEED[type],label:R.TYPE_LABEL[type]};
+}
+function tripInfo(){
+  const ms=Date.parse(departAt);
+  if(!plan.route?.legs?.length||!Number.isFinite(ms)) return null;
+  const sp=truckInfo().speed, legKm=plan.route.legs.map(l=>l.km);
+  return {times:R.etaTimes(ms,legKm,sp),legMin:legKm.map(km=>R.truckMinutes(km,sp)),totalMin:R.truckMinutes(plan.route.km,sp)};
+}
+const clockFmt=new Intl.DateTimeFormat('th-TH',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Bangkok'});
+const dayKey=ms=>new Date(ms+7*3600000).toISOString().slice(0,10);
+function timeLabel(ms,departMs){
+  const days=Math.round((Date.parse(dayKey(ms))-Date.parse(dayKey(departMs)))/86400000);
+  return `${clockFmt.format(new Date(ms))}${days>0?` (+${days} วัน)`:''}`;
+}
+const defaultRadius=()=>plan.along?.radiusKm??(plan.route?.km>200?2:5);
+// เปลี่ยนจุดแวะ → เส้นทางและรายการปั๊มเดิมใช้ไม่ได้แล้ว · จุดผ่านคงไว้เฉพาะตอนเพิ่มจุดต่อท้าย
+function setStops(next){
+  const appended=next.length>=plan.stops.length&&plan.stops.every((s,i)=>next[i]===s);
+  const hadAlong=!!plan.along;
+  plan={stops:next,vias:appended?plan.vias:[],route:null,along:null,base:null};
+  planChanged(hadAlong);
+}
+function planChanged(layersToo){
+  renderPlanner(); drawPlanLayers(); renderRouteChip();
+  if(layersToo) refreshLayers();
+}
+function addStop(s){
+  if(plan.stops.length>=R.MAX_STOPS){ toast(`เพิ่มได้สูงสุด ${R.MAX_STOPS} จุด`,3500); return; }
+  if(plan.stops.some(x=>String(x.id)===String(s.id))){ toast('จุดนี้อยู่ในแผนแล้ว',2500); return; }
+  setStops([...plan.stops,s]);
+  const det=$('planner'); if(det) det.open=true;
+  toast(`เพิ่ม "${s.name}" ในแผนเส้นทางแล้ว (${plan.stops.length} จุด)${isMobile()?' · ดูที่ ☰ รายการ':''}`,3000);
+}
+function addCoordStop(text){
+  const c=parseCoordsLoose(text);
+  if(!c){ toast('พิกัดไม่ถูกต้อง พิมพ์เป็น ละติจูด, ลองจิจูด เช่น 13.7563, 100.5018',4500); return false; }
+  if(plan.stops.length>=R.MAX_STOPS){ toast(`เพิ่มได้สูงสุด ${R.MAX_STOPS} จุด`,3500); return false; }
+  addStop({id:`xy:${c.lat.toFixed(6)},${c.lng.toFixed(6)}`,name:`พิกัด ${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`,lat:c.lat,lng:c.lng});
+  return true;
+}
+function addMeStop(){
+  if(!gpsActive||!searchPoint||plan.stops.some(x=>x.id==='me')) return;
+  setStops([{id:'me',name:'ตำแหน่งของฉัน',lat:searchPoint.lat,lng:searchPoint.lng},...plan.stops].slice(0,R.MAX_STOPS));
+}
+function removeStop(i){
+  if(plan.vias.length) toast('เอาจุดแวะออก จึงล้างจุดผ่านที่ลากไว้ด้วย ลากปรับเส้นทางใหม่ได้',4500);
+  setStops(plan.stops.filter((_,k)=>k!==i));
+}
+function clearPlan(){ const had=!!plan.along; plan={stops:[],vias:[],route:null,along:null,base:null}; planChanged(had); }
+// เรียงจุดที่ 2 เป็นต้นไปให้ขับรวมเร็วที่สุด (จุดแรกคงเป็นจุดเริ่ม)
+async function optimizePlan(){
+  if(plan.stops.length<3||planBusy) return;
+  planBusy=true; renderPlanner();
+  try{
+    const {dur}=await R.driveMatrix(plan.stops);
+    const order=R.bestOrder(dur);
+    if(!order){ toast('ไม่พบลำดับที่ขับถึงครบทุกจุดได้ (บางจุดไม่มีถนนเชื่อมถึงกัน)',6000); return; }
+    const hadVias=plan.vias.length>0;
+    const total=order.slice(1).reduce((s,j,k)=>s+dur[order[k]][j],0);
+    planBusy=false;
+    setStops(order.map(i=>plan.stops[i]));
+    toast(`เรียงลำดับใหม่แล้ว: ขับรวมประมาณ ${R.formatMin(total)}${hadVias?' (ล้างจุดผ่านที่ลากไว้แล้ว)':''}`,5000);
+  }catch(e){ toast(`เรียงลำดับไม่สำเร็จ: ${e.message}`,6000); }
+  finally{ planBusy=false; renderPlanner(); }
+}
+// ปั๊มน้ำมันที่อยู่ห่างเส้นทางไม่เกิน radiusKm (ตามแบรนด์ที่เลือกอยู่)
+function alongFor(route,radiusKm){
+  const pts=allRows.filter(p=>p.kind==='station'&&validPoint(p)&&(activeBrand==='all'||p.supplier===activeBrand));
+  const {items,total}=R.alongRoute(route.coords,pts,radiusKm);
+  return {items,radiusKm,scale:total?route.km/total:1};
+}
+// เส้นทางเดียวผ่านจุดแวะและจุดผ่าน (เรียก OSRM 1 ครั้ง) — คำนวณไม่ได้ (จุดผ่านไม่อยู่บนถนน) ทุกอย่างคงเดิม
+async function routePlan(stops,vias,keepView=false){
+  if(stops.length<2||planBusy) return;
+  planBusy=true; renderPlanner();
+  const {pts,isVia}=R.waypointsOf(stops,vias);
+  const hadAlong=!!plan.along;
+  try{
+    const rt=await R.driveRouteVia(pts);
+    const route={...rt,subLegs:rt.legs,legs:R.mainLegs(rt.legs,isVia),editable:true,keepView};
+    const along=plan.along?alongFor(route,plan.along.radiusKm):null;
+    // เส้นทางแรกที่ไม่มีจุดผ่าน = ที่ระบบเสนอ เก็บไว้เทียบกับเส้นที่ปรับแล้ว
+    plan={...plan,vias,route,along,base:vias.length?plan.base:{km:route.km,min:route.min}};
+    if(drive) drive={...drive,route:null}; // บนแผนที่มีเส้นทางทีละเส้น
+  }catch(e){
+    const w=e.waypoint;
+    const why=w==null?e.message:isVia[w]?'จุดผ่านที่ลากไปอยู่ไกลจากถนนเกินไป วางบนถนนหรือใกล้ถนนมากกว่านี้'
+      :`จุดแวะที่ ${isVia.slice(0,w+1).filter(v=>!v).length} อยู่ไกลจากถนนเกินไป`;
+    toast(`คำนวณเส้นทางไม่สำเร็จ: ${why}`,7000);
+  }finally{
+    planBusy=false; planChanged(hadAlong||!!plan.along);
+  }
+}
+const buildPlan=()=>routePlan(plan.stops,plan.vias);
+// คลิกที่เส้นทาง → มีจุดผ่านสีขาวขึ้นตรงนั้น (ลากไปวางบนถนนที่ต้องการ)
+function routeClick(pt){
+  if(!plan.route||planBusy) return;
+  if(plan.vias.length>=R.MAX_VIAS){ toast(`เพิ่มจุดผ่านได้สูงสุด ${R.MAX_VIAS} จุด`,3500); return; }
+  const subLegs=plan.route.subLegs;
+  const {sub,atKm}=R.locateOnRoute(plan.route.coords,plan.route.km,subLegs.map(l=>l.km),pt.lat,pt.lng);
+  plan={...plan,vias:R.insertVia(plan.stops,plan.vias,sub,pt),route:{...plan.route,subLegs:R.splitLeg(subLegs,sub,atKm),keepView:true}};
+  planChanged(false);
+  toast('ลากจุดสีขาวไปวางบนถนนที่ต้องการ เส้นทางจะอ้อมไปผ่านจุดนั้น',4000);
+}
+const viaDrag=(i,pt)=>routePlan(plan.stops,plan.vias.map((v,k)=>(k===i?{...v,lat:pt.lat,lng:pt.lng}:v)),true);
+function removeVia(i){
+  const vias=plan.vias.filter((_,k)=>k!==i);
+  if(plan.route) routePlan(plan.stops,vias,true); else { plan={...plan,vias}; planChanged(false); }
+}
+function clearVias(){ if(plan.route) routePlan(plan.stops,[],true); else { plan={...plan,vias:[]}; planChanged(false); } }
+function planFuel(radiusKm=defaultRadius()){
+  if(!plan.route) return;
+  if(!allRows.some(p=>p.kind==='station')){ toast('ยังไม่มีข้อมูลปั๊มน้ำมัน ลองกด ↻ โหลดข้อมูลใหม่',5000); return; }
+  plan={...plan,along:alongFor(plan.route,radiusKm)};
+  alongLimit=ALONG_SHOW;
+  planChanged(true);
+}
+const ALONG_SHOW=25;
+let alongLimit=ALONG_SHOW;
+function renderPlanner(){
+  const body=$('plannerBody'); if(!body) return;
+  const cnt=$('plannerCount'); if(cnt) cnt.textContent=plan.stops.length?`(${plan.stops.length} จุด)`:'';
+  const route=plan.route, trip=tripInfo(), tk=truckInfo(), along=plan.along;
+  const hasMeStop=plan.stops.some(s=>s.id==='me');
+  const stopsHtml=plan.stops.map((s,i)=>{
+    let leg='';
+    if(trip&&i===0) leg=`<em class="stop-leg">ออก ${timeLabel(trip.times[0],trip.times[0])}</em>`;
+    else if(trip&&route?.legs?.[i-1]) leg=`<em class="stop-leg" title="${route.legs[i-1].km.toFixed(1)} กม. ที่ ${tk.speed} กม./ชม.">${route.legs[i-1].km.toFixed(1)} กม. · ${R.formatMin(trip.legMin[i-1])} · ถึง <b>${timeLabel(trip.times[i],trip.times[0])}</b></em>`;
+    const vias=plan.vias.map((v,k)=>v.leg===i?`<li class="via-row"><span class="via-dot"></span><span class="stop-name">จุดผ่าน · ${v.lat.toFixed(4)}, ${v.lng.toFixed(4)}</span><button type="button" class="stop-x" data-act="rmvia" data-k="${k}" aria-label="เอาจุดผ่านนี้ออก">✕</button></li>`:'').join('');
+    return `<li><span class="stop-n">${i+1}</span><span class="stop-name" title="${esc(s.name)}">${esc(s.name)}</span>${leg}<button type="button" class="stop-x" data-act="rm" data-i="${i}" aria-label="เอา ${esc(s.name)} ออกจากแผน">✕</button></li>${vias}`;
+  }).join('');
+  const sum=route?`<p class="planner-sum">รวม <b>${route.km.toFixed(1)} กม.</b> · ขับ <b>${R.formatMin(trip?trip.totalMin:route.min)}</b>
+      ${trip?`<span class="muted"> (${tk.label} ${tk.speed} กม./ชม. ตามเกณฑ์ในหน้าเอกสาร · ถึงปลายทาง <b>${timeLabel(trip.times[trip.times.length-1],trip.times[0])}</b>)</span>`:''}
+      <span class="muted"> · ยังไม่รวมเวลาโหลด พัก และลงของ</span><br>
+      <span class="muted">บริการเส้นทางคิดแบบรถยนต์ ${R.formatMin(route.min)} · เส้นทางจาก <a href="${R.OSRM_CREDIT.url}" target="_blank" rel="noopener">${R.OSRM_CREDIT.name}</a></span>
+      ${plan.base&&plan.vias.length?`<br><span class="muted">เทียบกับเส้นที่ระบบเสนอ: ${route.km-plan.base.km>=0?'+':''}${(route.km-plan.base.km).toFixed(1)} กม.${trip?` · ${route.km-plan.base.km>=0?'+':'−'}${R.formatMin(Math.abs(trip.totalMin-(plan.base.km/tk.speed)*60))}`:''}</span>`:''}</p>`:'';
+  const truckHtml=route&&trip?`<div class="planner-truck">
+      <div class="truck-row" role="radiogroup" aria-label="ประเภทรถ"><span class="muted">รถ</span>${Object.keys(R.SPEED).map(t=>`<button type="button" role="radio" aria-checked="${tk.type===t&&!tk.known}" class="${tk.type===t?'on':''}" data-act="truck" data-type="${t}"${tk.known?' disabled':''} title="${R.TYPE_LABEL[t]} ความเร็วเฉลี่ย ${R.SPEED[t]} กม./ชม. (ตามเกณฑ์ในหน้าเอกสาร)">${R.TYPE_LABEL[t]} ${R.SPEED[t]}</button>`).join('')}
+        <input type="text" class="truck-plate" id="planPlate" value="${esc(truck.plate)}" placeholder="ทะเบียน เช่น 79-5846" aria-label="ทะเบียนรถ (ไม่บังคับ)"></div>
+      ${truck.plate.trim()?`<p class="muted truck-note">${tk.known?`พบทะเบียน ${esc(truck.plate.trim())} → ${tk.label} ${tk.speed} กม./ชม.`:'ไม่พบทะเบียนในข้อมูลรถ ใช้ประเภทที่เลือกไว้'}</p>`:''}
+      <label class="truck-row"><span class="muted">ออกเดินทาง</span><input type="datetime-local" id="planDepart" value="${esc(departAt)}" aria-label="วันและเวลาออกเดินทาง"></label></div>`:'';
+  const googleLink=R.googleDirections((()=>{ const pts=R.waypointsOf(plan.stops,plan.vias).pts; return pts.length<=11?pts:plan.stops; })());
+  const alongHtml=along?`<div class="planner-along">
+      <div class="planner-radius" role="radiogroup" aria-label="ระยะห่างจากเส้นทาง"><span class="muted">ปั๊มห่างจากเส้นทางไม่เกิน</span>${[2,5,10].map(r=>`<button type="button" role="radio" aria-checked="${along.radiusKm===r}" class="${along.radiusKm===r?'on':''}" data-act="radius" data-r="${r}">${r} กม.</button>`).join('')}</div>
+      <label class="planner-focus"><input type="checkbox" id="planFocus"${planFocus?' checked':''}> แสดงเฉพาะปั๊มตามเส้นทางและจุดแวะ (ซ่อนสถานีอื่นบนแผนที่)</label>
+      <p class="muted planner-count">${along.items.length===0?'ไม่พบปั๊มในระยะนี้ ลองขยายระยะ':`พบ ${along.items.length} แห่ง เรียงตามลำดับตลอดเส้นทาง`}</p>
+      <ul class="along">${along.items.slice(0,alongLimit).map(({p,offKm,atKm})=>{ const c=supplierColor(p.supplier); return `<li><button type="button" data-act="along" data-id="${p.id}"><i class="nb-fuel" style="background:${c};color:${fuelInk(c)}">⛽</i><span class="pname">${esc(p.station.brand)} · ${esc(p.name)}</span><span class="pmeta">กม.ที่ ${Math.round(atKm*along.scale)} · ห่างเส้นทาง ${formatDist(offKm)}</span></button></li>`; }).join('')}</ul>
+      ${alongLimit<along.items.length?`<button type="button" class="listmore" data-act="more">แสดงเพิ่ม (${along.items.length-alongLimit})</button>`:''}</div>`:'';
+  body.innerHTML=`${plan.stops.length===0?'<p class="muted planner-hint">กด "＋ เพิ่มในแผน" ในป๊อปอัปของหมุด หรือดับเบิลคลิกแผนที่ หรือพิมพ์พิกัดด้านล่าง จุดแรกคือจุดเริ่ม แล้วดูเส้นทางรวมและปั๊มตามทางได้</p>':''}
+    <ol class="stops">${stopsHtml}</ol>
+    <form class="planner-add" id="planAddForm"><input type="text" inputmode="decimal" autocomplete="off" id="planCoord" placeholder="เพิ่มจุดจากพิกัด เช่น 13.7563, 100.5018" aria-label="เพิ่มจุดจากพิกัดละติจูด ลองจิจูด"><button type="submit" class="planbtn">เพิ่ม</button></form>
+    <div class="planner-actions">
+      ${gpsActive&&searchPoint&&!hasMeStop?`<button type="button" class="planbtn" data-act="me">⌖ ตำแหน่งของฉันเป็นต้นทาง</button>`:''}
+      <button type="button" class="planbtn" data-act="opt"${planBusy||plan.stops.length<3?' disabled':''} title="เรียงจุดที่ 2 เป็นต้นไปให้ขับรวมสั้นที่สุด (จุดแรกคงเป็นจุดเริ่ม)">เรียงให้สั้นสุด</button>
+      <button type="button" class="planbtn primary" data-act="build"${planBusy||plan.stops.length<2?' disabled':''}>${planBusy?'กำลังคำนวณ…':'ดูเส้นทาง'}</button>
+      <button type="button" class="planbtn" data-act="fuel"${planBusy||!route?' disabled':''} title="${route?'หาปั๊มน้ำมันที่อยู่ใกล้เส้นทางนี้':'กด &quot;ดูเส้นทาง&quot; ก่อน'}">⛽ ปั๊มตามเส้นทาง</button>
+      ${googleLink?`<a class="planbtn" href="${googleLink}" target="_blank" rel="noopener">↗ เปิดใน Google Maps</a>`:''}
+      ${plan.stops.length?'<button type="button" class="planbtn" data-act="clear">ล้างแผน</button>':''}
+    </div>
+    ${route?`<p class="planner-hint muted"><b>ปรับเส้นทางให้ตรงกับที่รถวิ่งได้จริง:</b> คลิกที่เส้นสีน้ำเงินบนแผนที่ จะมีจุดขาวขึ้น แล้วลากจุดนั้นไปวางบนถนนที่ต้องการ เส้นทางจะอ้อมไปผ่านจุดนั้น (ลากต่อได้หลายจุด)${plan.vias.length?` · <button type="button" class="link-btn" data-act="clearvias">ล้างจุดผ่านทั้งหมด (${plan.vias.length})</button>`:''}</p>`:''}
+    ${truckHtml}${sum}${alongHtml}`;
+}
+$('planner')?.addEventListener('click',e=>{
+  const b=e.target.closest('[data-act]'); if(!b||b.disabled) return;
+  const act=b.dataset.act;
+  if(act==='rm') removeStop(Number(b.dataset.i));
+  else if(act==='rmvia') removeVia(Number(b.dataset.k));
+  else if(act==='me') addMeStop();
+  else if(act==='opt') optimizePlan();
+  else if(act==='build') buildPlan();
+  else if(act==='fuel') planFuel();
+  else if(act==='clear') clearPlan();
+  else if(act==='clearvias') clearVias();
+  else if(act==='truck'){ setTruck({type:b.dataset.type}); renderPlanner(); renderRouteChip(); }
+  else if(act==='radius') planFuel(Number(b.dataset.r));
+  else if(act==='more'){ alongLimit+=ALONG_SHOW; renderPlanner(); }
+  else if(act==='along'){
+    const id=Number(b.dataset.id);
+    selectPoint(id);
+    if(isMobile()) $('sidebar')?.classList.add('collapsed');
+    revealMarker(id);
+  }
+});
+$('planner')?.addEventListener('submit',e=>{
+  e.preventDefault();
+  const inp=$('planCoord');
+  if(inp&&inp.value.trim()) addCoordStop(inp.value);
+});
+$('planner')?.addEventListener('change',e=>{
+  if(e.target.id==='planFocus'){ planFocus=e.target.checked; refreshLayers(); drawPlanLayers(); }
+  else if(e.target.id==='planDepart'){ departAt=e.target.value; renderPlanner(); renderRouteChip(); }
+});
+// พิมพ์ทะเบียน: วาดแผนใหม่แล้วคืนเคอร์เซอร์ให้ช่องเดิม
+$('planner')?.addEventListener('input',e=>{
+  if(e.target.id!=='planPlate') return;
+  const pos=e.target.selectionStart;
+  setTruck({plate:e.target.value}); renderPlanner(); renderRouteChip();
+  const inp=$('planPlate'); if(inp){ inp.focus(); try{ inp.setSelectionRange(pos,pos); }catch{} }
+});
+
+// ===== เส้นทาง จุดแวะ และจุดผ่านบนแผนที่ =====
+let stopLayer=null, viaLayer=null, routeLayer=null;
+function drawPlanLayers(){
+  if(stopLayer){ map.removeLayer(stopLayer); stopLayer=null; }
+  if(plan.stops.length) stopLayer=L.layerGroup(plan.stops.map((s,i)=>L.marker([s.lat,s.lng],{
+    zIndexOffset:5000,title:`${i+1}. ${s.name}`,interactive:false,
+    icon:L.divIcon({className:'stop-marker',html:`<span>${i+1}</span>`,iconSize:[24,24],iconAnchor:[12,12]})
+  }))).addTo(map);
+  if(viaLayer){ map.removeLayer(viaLayer); viaLayer=null; }
+  if(plan.route&&plan.vias.length) viaLayer=L.layerGroup(plan.vias.map((v,i)=>L.marker([v.lat,v.lng],{
+    draggable:true,zIndexOffset:6000,title:'จุดผ่าน: ลากเพื่อปรับเส้นทาง',
+    icon:L.divIcon({className:'via-marker',html:'<span></span>',iconSize:[18,18],iconAnchor:[9,9]})
+  }).on('dragend',e=>{ const p=e.target.getLatLng(); viaDrag(i,{lat:p.lat,lng:p.lng}); }))).addTo(map);
+  drawRoute();
+}
+// เส้นทางขับ: เส้นน้ำเงินขอบขาว ซูมให้เห็นทั้งเส้น (เส้นทางในแผนมีเส้นโปร่งใสกว้าง ๆ ทับไว้ให้คลิกเพิ่มจุดผ่าน)
+let shownRouteRef=null;
+function drawRoute(){
+  const route=plan.route??drive?.route??null;
+  if(route===shownRouteRef) return;
+  shownRouteRef=route;
+  if(routeLayer){ map.removeLayer(routeLayer); routeLayer=null; }
+  if(!route?.coords?.length) return;
+  const svg=L.svg({padding:.5});
+  const layers=[
+    L.polyline(route.coords,{color:'#fff',weight:9,opacity:.85,lineCap:'round',lineJoin:'round',interactive:false,renderer:svg}),
+    L.polyline(route.coords,{color:'#1a73e8',weight:5,opacity:.95,lineCap:'round',lineJoin:'round',interactive:false,renderer:svg})
+  ];
+  if(route.editable) layers.push(L.polyline(route.coords,{color:'#000',weight:22,opacity:0,interactive:true,bubblingMouseEvents:false,className:'route-hit',renderer:svg})
+    .on('click',e=>routeClick({lat:e.latlng.lat,lng:e.latlng.lng})));
+  routeLayer=L.layerGroup(layers).addTo(map);
+  if(!route.keepView) map.fitBounds(L.latLngBounds(route.coords),{padding:[60,60],maxZoom:16});
+}
+// แถบสรุปเส้นทางกลางล่างของแผนที่
+function renderRouteChip(){
+  const el=$('routeChip'); if(!el) return;
+  const route=plan.route??drive?.route??null;
+  if(!route){ el.hidden=true; el.innerHTML=''; return; }
+  const tk=truckInfo(), trip=plan.route?tripInfo():null;
+  el.hidden=false;
+  el.innerHTML=`${svgIcon('car',14)}<span class="route-text">${plan.route
+      ?`แผนเส้นทาง ${plan.stops.length} จุด · ${plan.route.km.toFixed(1)} กม. · ${R.formatMin(trip?trip.totalMin:plan.route.min)}`
+      :`ขับไป <b>${esc(drive.route.name)}</b> · ${drive.route.km.toFixed(1)} กม. · ${R.formatMin(drive.route.min)}`}</span>
+    <span class="route-note" title="${plan.route?`เวลาคิดจากความเร็ว ${tk.label} ${tk.speed} กม./ชม. ตามเกณฑ์ในหน้าเอกสาร ไม่รวมเวลาโหลด พัก และลงของ`:'คำนวณสำหรับรถยนต์บนถนน OpenStreetMap ไม่รวมรถติด รถบรรทุกจะช้ากว่า'}">${plan.route?`${tk.label} ${tk.speed}`:'โดยประมาณ'}</span>
+    <a class="route-credit" href="${R.OSRM_CREDIT.url}" target="_blank" rel="noopener">${R.OSRM_CREDIT.name}</a>
+    <button type="button" class="route-x" aria-label="ซ่อนเส้นทาง">✕</button>`;
+}
+$('routeChip')?.addEventListener('click',e=>{
+  if(!e.target.closest('.route-x')) return;
+  if(plan.route){ const had=!!plan.along; plan={...plan,route:null,along:null}; planChanged(had); }
+  else if(drive){ drive={...drive,route:null}; drawRoute(); renderRouteChip(); }
+});
+
+// ===== เรดาร์ฝน: RainViewer (ละเอียด ย้อนหลัง 2 ชม.) / ดาวเทียม NASA (หยาบ ย้อนหลัง 6 ชม.) =====
+// โหลดรายการภาพเฉพาะตอนเปิดชั้น (อัปเดตทุก 5 นาที) ถ้าเรดาร์ใช้ไม่ได้ สลับไป NASA เอง
+const rain={on:false,src:'radar',data:null,idx:0,playTimer:null,refresh:null,layer:null};
+try{ const s=JSON.parse(localStorage.getItem('accessMapsRain')||'null'); if(s){ rain.on=!!s.on; rain.src=s.src==='nasa'?'nasa':'radar'; } }catch{}
+function saveRain(){ try{ localStorage.setItem('accessMapsRain',JSON.stringify({on:rain.on,src:rain.src})); }catch{} }
+function stopRainPlay(){ clearInterval(rain.playTimer); rain.playTimer=null; }
+function setRainOn(on){
+  rain.on=on; saveRain(); stopRainPlay(); clearInterval(rain.refresh); rain.refresh=null;
+  if(on){ pullRain(true); rain.refresh=setInterval(()=>pullRain(false),5*60*1000); }
+  else rain.data=null;
+  renderRain();
+}
+async function pullRain(first){
+  const src=rain.src;
+  try{
+    const d=await loadRainFrames(src);
+    if(!rain.on||rain.src!==src) return;
+    rain.data=d;
+    rain.idx=first||rain.idx>=d.frames.length?d.frames.length-1:rain.idx;
+  }catch(e){
+    if(!rain.on||rain.src!==src) return;
+    if(src==='radar'){
+      try{ // RainViewer ล่ม/ไม่ให้ใช้ → ใช้ NASA แทน
+        await loadRainFrames('nasa');
+        if(!rain.on) return;
+        rain.src='nasa'; saveRain();
+        toast(`เรดาร์ RainViewer ใช้ไม่ได้ (${e.message}) — สลับไปใช้ข้อมูลดาวเทียม NASA แทน`,7000);
+        return pullRain(true);
+      }catch{}
+    }
+    toast(`โหลดข้อมูลฝนไม่สำเร็จ (${e.message})`,6000);
+    setRainOn(false); return;
+  }
+  renderRain();
+}
+function setRainSrc(s){ if(s===rain.src) return; stopRainPlay(); rain.src=s; rain.data=null; saveRain(); renderRain(); pullRain(true); }
+const rainFrame=()=>rain.on&&rain.data&&rain.data.source===rain.src?rain.data.frames[Math.min(rain.idx,rain.data.frames.length-1)]:null;
+function renderRainLayer(){
+  const f=rainFrame();
+  if(!f){ if(rain.layer){ map.removeLayer(rain.layer); rain.layer=null; } return; }
+  const cr=rain.data.credit, attribution=`Rain © <a href="${cr.url}" target="_blank" rel="noopener">${cr.name}</a>`;
+  if(rain.layer&&rain.layer.options.attribution!==attribution){ map.removeLayer(rain.layer); rain.layer=null; }
+  if(rain.layer){ rain.layer.setUrl(f.template); return; }
+  rain.layer=L.tileLayer(f.template,{opacity:RAIN_OPACITY,maxNativeZoom:rain.data.maxZoom,maxZoom:RAIN_SHOW_MAX_ZOOM,zIndex:10,attribution}).addTo(map);
+}
+function rainTimeText(){
+  const f=rainFrame(); if(!f) return 'กำลังโหลด…';
+  const latest=rain.idx>=rain.data.frames.length-1, lag=lagLabel(rain.data.lagMs);
+  return `${rainTimeLabel(f.time)} น.${latest?` · ล่าสุด${lag?` (${lag})`:''}`:''}`;
+}
+function renderRain(){
+  $('rainBtn')?.classList.toggle('on',rain.on);
+  const btn=$('rainBtn'); if(btn) btn.title=rain.on?'ปิดเรดาร์ฝน':'เรดาร์ฝน (ย้อนหลัง 2 ชั่วโมง)';
+  renderRainLayer();
+  const bar=$('rainBar'); if(!bar) return;
+  if(!rain.on||!rain.data){ bar.hidden=true; bar.innerHTML=''; return; }
+  const f=rainFrame(), n=rain.data.frames.length;
+  bar.hidden=false;
+  bar.innerHTML=`<div class="rain-row"><div class="rain-src" role="radiogroup" aria-label="แหล่งข้อมูลฝน">
+      <button type="button" role="radio" aria-checked="${rain.src==='radar'}" class="${rain.src==='radar'?'on':''}" data-rsrc="radar" title="เรดาร์ฝน (RainViewer): ละเอียด เกือบเรียลไทม์ ย้อนหลัง 2 ชั่วโมง">เรดาร์</button>
+      <button type="button" role="radio" aria-checked="${rain.src==='nasa'}" class="${rain.src==='nasa'?'on':''}" data-rsrc="nasa" title="ดาวเทียม NASA: หยาบ (ราว 10 กม.) ช้ากว่าปัจจุบันหลายชั่วโมง ย้อนหลัง 6 ชั่วโมง">ดาวเทียม</button></div>
+      <a class="rain-credit" href="${rain.data.credit.url}" target="_blank" rel="noopener">${rain.data.credit.name}</a></div>
+    <div class="rain-row"><button type="button" class="rain-play"${f?'':' disabled'} aria-label="${rain.playTimer?'หยุดเล่น':'เล่นย้อนหลัง'}" title="${rain.playTimer?'หยุดเล่น':'เล่นย้อนหลัง'}">${rain.playTimer?'❚❚':'▶'}</button>
+      <input type="range" min="0" max="${n-1}" value="${Math.min(rain.idx,n-1)}"${f?'':' disabled'} aria-label="เวลาของข้อมูลฝน">
+      <span class="rain-time">${rainTimeText()}</span></div>`;
+}
+$('rainBar')?.addEventListener('click',e=>{
+  const s=e.target.closest('[data-rsrc]'); if(s){ setRainSrc(s.dataset.rsrc); return; }
+  if(e.target.closest('.rain-play')){
+    if(rain.playTimer) stopRainPlay();
+    else rain.playTimer=setInterval(()=>{ if(!rain.data) return; rain.idx=(rain.idx+1)%rain.data.frames.length; renderRainLayer(); const r=$('rainBar')?.querySelector('input[type=range]'); if(r) r.value=rain.idx; const t=$('rainBar')?.querySelector('.rain-time'); if(t) t.textContent=rainTimeText(); },700);
+    renderRain();
+  }
+});
+$('rainBar')?.addEventListener('input',e=>{
+  if(e.target.type!=='range') return;
+  stopRainPlay(); rain.idx=Number(e.target.value); renderRainLayer();
+  const t=$('rainBar').querySelector('.rain-time'); if(t) t.textContent=rainTimeText();
+  const p=$('rainBar').querySelector('.rain-play'); if(p){ p.textContent='▶'; p.title='เล่นย้อนหลัง'; }
+});
+
+// แถบลอยใกล้สุดอยู่ใต้ปุ่มด้านบนเสมอ (ปุ่มด้านบนสูงไม่เท่ากันตามขนาดจอ)
+(()=>{
+  const ctl=document.querySelector('.mapcontrols'), bot=document.querySelector('.mapbottom'), area=document.querySelector('.maparea');
+  if(!ctl||!area||!('ResizeObserver' in window)) return;
+  new ResizeObserver(()=>area.style.setProperty('--ctl-h',ctl.offsetHeight+'px')).observe(ctl);
+  // แถบสรุปเส้นทาง/ฝน อยู่เหนือคำอธิบายสัญลักษณ์ด้านล่างเสมอ (สูงต่างกันตามชั้นที่เปิด)
+  if(bot) new ResizeObserver(()=>area.style.setProperty('--bot-h',bot.offsetHeight+'px')).observe(bot);
+})();
+
+renderPlanner();
+renderRain();
+
 // ===== Firebase: ตรวจสิทธิ์ / Logout / ตัด Session (ดู firebase-guard.js) =====
 // โหลดข้อมูลหลังยืนยันตัวตนแล้วเท่านั้น
-requireLogin(() => loadData(), { logoutButtonId: 'logoutBtn' });
+requireLogin(() => {
+  loadData();
+  if(showOff) loadOff();
+  if(rain.on) setRainOn(true);
+  if(base.engine==='google') setEngine('google'); // ต้องล็อกอินก่อนจึงนับโควตาได้
+}, { logoutButtonId: 'logoutBtn' });
