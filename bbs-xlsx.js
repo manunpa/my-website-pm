@@ -2,7 +2,6 @@
 // ต้องมี JSZip โหลดไว้ก่อน (window.JSZip)
 
 const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
-const INPUT_FILL_THEME = '5'; // ช่องสีส้มในฟอร์ม = ช่องที่ต้องกรอก
 const DAY_TITLE = 'SC-Daily Checking Driver’s behavior  Report   กะกลางวัน   08.00 น.  - 20.00 น.';
 const NIGHT_TITLE = 'SC-Daily Checking Driver’s behavior  Report   กะกลางคืน   20.00 น.  - 08.00 น.';
 const MONTHS = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
@@ -51,18 +50,27 @@ export async function openBook(buffer) {
         return cell.getAttribute('t') === 's' ? strings[Number(v.textContent)] || '' : v.textContent;
     };
 
-    // style index ที่พื้นเป็นสีของช่องกรอก
+    // สีพื้นและเส้นซ้ายของแต่ละ style ใช้ดูว่าแถวไหนอยู่ในตารางและแถวไหนคือแถวคั่น
     const styles = await read('xl/styles.xml');
-    const fills = els(els(styles, 'fills')[0], 'fill').map((f) => {
+    const list = (name, child) => Array.from(els(styles, name)[0].children).filter((n) => n.localName === child);
+    const fills = list('fills', 'fill').map((f) => {
+        const pattern = els(f, 'patternFill')[0];
         const fg = els(f, 'fgColor')[0];
-        return !!fg && fg.getAttribute('theme') === INPUT_FILL_THEME;
+        if (!pattern || pattern.getAttribute('patternType') !== 'solid' || !fg) return '';
+        return fg.getAttribute('rgb')?.slice(-6) ||
+            'theme' + fg.getAttribute('theme') + ' ' + (fg.getAttribute('tint') || '');
     });
-    const inputStyles = new Set();
-    els(els(styles, 'cellXfs')[0], 'xf').forEach((xf, i) => {
-        if (fills[Number(xf.getAttribute('fillId'))]) inputStyles.add(String(i));
-    });
+    const borders = list('borders', 'border').map((x) => !!els(x, 'left')[0]?.getAttribute('style'));
+    const xfs = list('cellXfs', 'xf');
+    const look = (cell) => {
+        const xf = xfs[Number(cell?.getAttribute('s') || 0)];
+        return {
+            fill: fills[Number(xf?.getAttribute('fillId'))] || '',
+            border: !!borders[Number(xf?.getAttribute('borderId'))]
+        };
+    };
 
-    return { zip, read, sheetPath, value, inputStyles };
+    return { zip, read, sheetPath, value, look };
 }
 
 const cellAt = (row, col) => els(row, 'c').find((c) => colOf(c) === col);
@@ -84,8 +92,10 @@ function clearCell(cell) {
 
 function setCell(doc, row, col, val) {
     const cell = ensureCell(doc, row, col);
+    const empty = val === '' || val === null || val === undefined;
+    if (empty && els(cell, 'f').length) return;
     clearCell(cell);
-    if (val === '' || val === null || val === undefined) return;
+    if (empty) return;
     if (typeof val === 'number') {
         const v = doc.createElementNS(NS, 'v');
         v.textContent = String(val);
@@ -101,14 +111,27 @@ function setCell(doc, row, col, val) {
     cell.appendChild(is);
 }
 
-// กลุ่มแถวของรถ 1 คัน = แถวติดกันที่คอลัมน์ C เป็นช่องกรอก
+// เบอร์รถในคอลัมน์ B: ฟอร์มจริงเก็บเป็นตัวเลข (6707) บางช่องเป็นข้อความ (SCC9715)
+export function sccOf(text) {
+    const m = /^(SCC)?\s*(\d{3,5})(\s*S)?$/i.exec(String(text).trim());
+    return m ? 'SCC' + m[2] : '';
+}
+
+// กลุ่มแถวของรถ 1 คัน: เริ่มที่แถวมีเบอร์รถ จนถึงแถวคั่น (มีสี) คันถัดไป หรือสุดตาราง (ไม่มีเส้น)
+// ไม่พึ่งสีของช่องกรอก เพราะแต่ละฟอร์มลงสีไม่เหมือนกัน
 function findBlocks(book, doc) {
+    const neutral = (fill) => !fill || fill === 'FFFFFF' || fill.startsWith('theme0 ');
     const blocks = [];
     let current = null;
+    let startFill = '';
     for (const row of els(doc, 'row')) {
-        const c = cellAt(row, 'C');
-        if (rowNum(row) >= 7 && c && book.inputStyles.has(c.getAttribute('s'))) {
-            if (!current) blocks.push(current = []);
+        if (rowNum(row) < 7) continue;
+        const { fill, border } = book.look(cellAt(row, 'C'));
+        if (border && sccOf(book.value(cellAt(row, 'B')))) {
+            blocks.push(current = [row]);
+            startFill = fill;
+        } else if (current && border && (neutral(fill) || fill === startFill) &&
+            rowNum(row) === rowNum(current[current.length - 1]) + 1) {
             current.push(row);
         } else current = null;
     }
@@ -121,12 +144,12 @@ export async function readTemplate(buffer) {
     const doc = await book.read(book.sheetPath('ผ่าน_cctv'));
     const text = (row, col) => (row ? book.value(cellAt(row, col)).trim() : '');
     const vehicles = findBlocks(book, doc).map((rows) => ({
-        scc: text(rows[0], 'B'),
+        scc: sccOf(text(rows[0], 'B')),
         plate: text(rows[1], 'B'),
         driver: text(rows[0], 'E'),
         risk: text(rows[1], 'E')
-    })).filter((v) => v.scc);
-    if (!vehicles.length) throw new Error('ไม่พบช่องกรอกสีส้มในไฟล์นี้');
+    }));
+    if (!vehicles.length) throw new Error('ไม่พบแถวรถในฟอร์ม (คอลัมน์ B ต้องเป็นเบอร์รถ)');
 
     const header = els(doc, 'row').find((r) => rowNum(r) === 6);
     const checks = {};
@@ -151,6 +174,47 @@ function excelTime(date, time, shift) {
     let serial = (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 86400000;
     if (shift === 'night' && hh < 12) serial += 1;
     return serial + (hh * 60 + mm) / 1440;
+}
+
+// ฟอร์มเปล่าไม่ได้ตั้งรูปแบบวันที่ไว้ในช่องเวลา → เพิ่ม style ที่หน้าตาเดิมแต่แสดงเป็นวันที่และเวลา
+async function dateStyler(book) {
+    const styles = await book.read('xl/styles.xml');
+    const xfs = els(styles, 'cellXfs')[0];
+    const made = new Map();
+    let numFmts = els(styles, 'numFmts')[0];
+    let formatId = 0;
+    return {
+        apply(cell) {
+            const s = Number(cell.getAttribute('s') || 0);
+            const xf = els(xfs, 'xf')[s];
+            if (!xf || Number(xf.getAttribute('numFmtId') || 0) !== 0) return;
+            if (!formatId) {
+                if (!numFmts) {
+                    numFmts = styles.createElementNS(NS, 'numFmts');
+                    styles.documentElement.insertBefore(numFmts, styles.documentElement.firstChild);
+                }
+                const used = els(numFmts, 'numFmt').map((n) => Number(n.getAttribute('numFmtId')));
+                formatId = Math.max(163, ...used) + 1;
+                const format = styles.createElementNS(NS, 'numFmt');
+                format.setAttribute('numFmtId', String(formatId));
+                format.setAttribute('formatCode', 'dd/mm/yyyy\ hh:mm');
+                numFmts.appendChild(format);
+                numFmts.setAttribute('count', String(numFmts.children.length));
+            }
+            if (!made.has(s)) {
+                const copy = xf.cloneNode(true);
+                copy.setAttribute('numFmtId', String(formatId));
+                copy.setAttribute('applyNumberFormat', '1');
+                xfs.appendChild(copy);
+                made.set(s, els(xfs, 'xf').length - 1);
+                xfs.setAttribute('count', String(els(xfs, 'xf').length));
+            }
+            cell.setAttribute('s', String(made.get(s)));
+        },
+        save() {
+            if (formatId) book.zip.file('xl/styles.xml', toXml(styles));
+        }
+    };
 }
 
 function renumber(doc) {
@@ -194,11 +258,11 @@ function cloneRow(row) {
     return copy;
 }
 
-function fillReport(book, doc, report) {
+function fillReport(book, doc, report, dates) {
     markGaps(doc);
     const sheetData = els(doc, 'sheetData')[0];
     let blocks = findBlocks(book, doc);
-    const byScc = new Map(blocks.map((rows) => [book.value(cellAt(rows[0], 'B')).trim(), rows]));
+    const byScc = new Map(blocks.map((rows) => [sccOf(book.value(cellAt(rows[0], 'B'))), rows]));
 
     // รถที่ไม่มีในฟอร์ม: คัดลอกแถวคั่น + ชุดแถวของคันสุดท้ายต่อท้าย
     let number = Math.max(0, ...blocks.map((rows) => Number(book.value(cellAt(rows[0], 'A'))) || 0));
@@ -229,17 +293,20 @@ function fillReport(book, doc, report) {
         const v = data.get(scc) || { trips: [], rounds: [] };
         const need = Math.max(v.trips.length, v.rounds.length, 2);
         // ข้อมูลเกินแถวของฟอร์ม → แทรกแถวใหม่ (รูปแบบเดียวกัน) ก่อนแถวสุดท้ายของคันนั้น
+        // คันที่มีแค่ 2 แถวต้องต่อท้าย ไม่งั้นทะเบียน (แถวที่ 2) จะถูกดันลงไปล่างสุด
+        const append = rows.length < 3;
         while (rows.length < need) {
-            const source = rows[Math.max(0, rows.length - 2)];
+            const source = rows[append ? rows.length - 1 : rows.length - 2];
             const extra = cloneRow(source);
             for (const c of els(extra, 'c')) if (colNum(colOf(c)) <= 2) clearCell(c);
-            sheetData.insertBefore(extra, rows[rows.length - 1]);
-            rows.splice(rows.length - 1, 0, extra);
+            const at = append ? rows.length : rows.length - 1;
+            sheetData.insertBefore(extra, append ? rows[rows.length - 1].nextSibling : rows[at]);
+            rows.splice(at, 0, extra);
         }
         rows.forEach((row) => {
             for (const c of els(row, 'c')) {
                 const n = colNum(colOf(c));
-                if (n >= 3 && n <= colNum('AP')) clearCell(c);
+                if (n >= 3 && n <= colNum('AP') && !els(c, 'f').length) clearCell(c);
             }
         });
         if (v.driver || v.rounds.length || v.trips.length) used++;
@@ -254,6 +321,7 @@ function fillReport(book, doc, report) {
         });
         v.rounds.forEach((r, i) => {
             setCell(doc, rows[i], 'I', excelTime(report.date, r.time, report.shift));
+            if (r.time) dates.apply(cellAt(rows[i], 'I'));
             setCell(doc, rows[i], 'J', r.place || '');
             for (const [col, mark] of Object.entries(r.marks || {})) setCell(doc, rows[i], col, mark);
             setCell(doc, rows[i], 'AP', r.note || '');
@@ -296,9 +364,12 @@ function fillSummary(book, doc, report) {
             if (bad || r.note) issues.push({ v, r });
         }
     }
-    const first = row(10);
-    if (!first) return;
-    const rows = [first];
+    const all = els(doc, 'row');
+    const header = all.findIndex((r) => book.value(cellAt(r, 'A')).trim() === 'ลำดับ');
+    if (header < 0) return;
+    const rows = all.slice(header + 1).filter((r) => /^\d+$/.test(book.value(cellAt(r, 'A'))));
+    if (!rows.length) return;
+    const first = rows[0];
     while (rows.length < issues.length) {
         const extra = cloneRow(first);
         sheetData.insertBefore(extra, rows[rows.length - 1].nextSibling);
@@ -325,12 +396,14 @@ function fillSummary(book, doc, report) {
  */
 export async function buildReport(buffer, report) {
     const book = await openBook(buffer);
+    const dates = await dateStyler(book);
     for (const [part, fill] of [['ผ่าน_cctv', fillReport], ['ชมเชย', fillSummary]]) {
         const path = book.sheetPath(part);
         const doc = await book.read(path);
-        fill(book, doc, report);
+        fill(book, doc, report, dates);
         book.zip.file(path, toXml(doc));
     }
+    dates.save();
     // ลำดับคำนวณสูตรเดิมอ้างตำแหน่งแถวเก่า: ลบออก Excel สร้างใหม่เอง
     if (book.zip.file('xl/calcChain.xml')) {
         book.zip.remove('xl/calcChain.xml');

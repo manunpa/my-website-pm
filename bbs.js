@@ -1,6 +1,6 @@
 import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122-cut';
-import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=3';
-import { readPlans, vehicleNo } from './bbs-plan.js?v=1';
+import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=4';
+import { readPlans, vehicleNo } from './bbs-plan.js?v=2';
 
 // URL /exec ของ Apps Script (apps-script/bbs.gs) — ว่างไว้ = เก็บในเครื่องนี้อย่างเดียว
 const API_URL = 'https://script.google.com/macros/s/AKfycbxGlbuYTL5_K8DZ7EIPT9P0NO5gef1od1f4WXzRvBPLbCvAPwST87Tl3hqtjMljY3Yx8w/exec';
