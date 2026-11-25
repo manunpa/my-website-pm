@@ -638,6 +638,7 @@ function openShots() {
     if (!$('shot-dialog').open) {
         shotItems = [];
         shotKey = report.key;
+        $('shot-type').value = 'none';
         $('shot-state').textContent = '';
         drawShots();
         $('shot-dialog').showModal();
@@ -645,7 +646,19 @@ function openShots() {
     return true;
 }
 
+// เลือกสถานะของรถ ณ เวลานั้น (เลือกแล้วติ๊ก ✓ ค่าเริ่มต้นของสถานะนั้นให้)
+function typeSelect(label, value, onChange) {
+    const node = el('select', {}, ...Object.entries(TYPES).map(([key, t]) => el('option', { value: key, textContent: t.label })));
+    node.value = value;
+    node.setAttribute('aria-label', label);
+    node.onchange = () => onChange(node.value);
+    return node;
+}
+
+const tickNote = (type) => (TYPES[type].preset.length ? 'ติ๊กให้ ' + TYPES[type].preset.length + ' ข้อ' : '');
+
 function drawShots() {
+    $('shot-all').hidden = shotItems.length < 2;
     $('shot-list').replaceChildren(...shotItems.map((item) => {
         const use = el('input', { type: 'checkbox', checked: item.use });
         use.setAttribute('aria-label', 'เพิ่ม ' + item.v.scc);
@@ -656,10 +669,16 @@ function drawShots() {
         const place = el('input', { value: item.place, placeholder: 'สถานที่', className: 'grow' });
         place.setAttribute('aria-label', 'สถานที่ ' + item.v.scc);
         place.oninput = () => { item.place = place.value; };
+        const ticks = el('span', { className: 'mute', textContent: tickNote(item.type) });
+        const type = typeSelect('สถานะ ' + item.v.scc, item.type, (value) => {
+            item.type = value;
+            ticks.textContent = tickNote(value);
+        });
         return el('div', { className: 'shot' },
             el('label', { className: 'line' }, use, el('b', { textContent: item.v.scc }), ' ' + (item.v.driver || ''),
                 item.warn ? el('em', { textContent: item.warn }) : null),
-            el('div', { className: 'line' }, time, place));
+            el('div', { className: 'line' }, time, place),
+            el('div', { className: 'line' }, type, ticks));
     }));
     countShots();
 }
@@ -682,7 +701,7 @@ async function readShot(blob) {
         const already = x.v.rounds.some((r) => r.time === time);
         const warn = outside ? 'เวลาอยู่นอกกะนี้ (' + x.date.split('-').reverse().join('/') + ')'
             : already ? 'มีรอบเวลานี้แล้ว' : x.time ? '' : 'ในรูปไม่มีเวลา ใส่เวลาตอนนี้ให้';
-        shotItems.push({ v: x.v, time, place: x.place, use: !outside && !already, warn });
+        shotItems.push({ v: x.v, time, place: x.place, use: !outside && !already, warn, type: $('shot-type').value || 'none' });
     }
     const missing = working.filter((v) => !shotItems.some((i) => i.v === v)).map((v) => v.scc);
     $('shot-state').textContent = (found.length ? '✔ พบ ' + found.length + ' คันในรูปล่าสุด' : '⚠ ไม่พบรถที่มีงานในรูปล่าสุด') +
@@ -706,13 +725,18 @@ function addShots(files) {
 function applyShots() {
     if (shotKey !== report.key) return; // เปลี่ยนวันที่/ฟอร์มระหว่างเปิดอยู่ → ไม่เติมผิดรายงาน
     for (const item of shotItems.filter((x) => x.use)) {
-        item.v.rounds.push({ time: item.time, place: item.place.trim(), type: 'none', marks: {}, note: '' });
+        item.v.rounds.push({ time: item.time, place: item.place.trim(), type: item.type, marks: presetMarks(item.type), note: '' });
     }
     save();
     render();
 }
 
 function bindShots() {
+    $('shot-all').append(typeSelect('สถานะของทุกคัน', 'none', (value) => {
+        for (const item of shotItems) item.type = value;
+        drawShots();
+    }));
+    $('shot-all').lastElementChild.id = 'shot-type';
     $('shot-button').addEventListener('click', openShots);
     $('shot-file').addEventListener('change', () => { addShots($('shot-file').files); $('shot-file').value = ''; });
     // วางรูปที่คัดลอกไว้ได้จากทุกที่ในหน้า (ข้อความที่วางในช่องกรอกไม่ถูกแตะ)
