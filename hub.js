@@ -1,4 +1,4 @@
-import { requireLogin } from "./firebase-guard.js?v=20261122-cut";
+import { requireLogin, fetchProtectedText, PRESENCE_URL } from "./firebase-guard.js?v=20261122-cut";
 var initCards; // ตั้งค่าในฟังก์ชันด้านล่าง เรียกหลังรู้ว่าใครล็อกอิน
 (function () {
   var root = document.documentElement;
@@ -336,12 +336,25 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
   };
 })();
 
+// ปุ่มหน้า Active Users: ถาม Apps Script ว่าบัญชีนี้ดูได้ไหม แล้วจำคำตอบไว้ (สิทธิ์จริงตรวจที่ฝั่งนั้น)
+function showRoomButton(uid) {
+  var room = document.getElementById("room-btn");
+  room.onclick = function () { location.href = "./room.html"; };
+  try {
+    if (localStorage.getItem("hub-room") === uid) { room.hidden = false; return; }
+    if (sessionStorage.getItem("hub-room-no") === uid) return;
+  } catch (e) {}
+  fetchProtectedText(PRESENCE_URL, { action: "view" }).then(function () {
+    room.hidden = false;
+    try { localStorage.setItem("hub-room", uid); } catch (e) {}
+  }).catch(function () {
+    try { sessionStorage.setItem("hub-room-no", uid); } catch (e) {}
+  });
+}
+
 // ===== Firebase: ตรวจสิทธิ์ / Logout / ตัด Session (ดู firebase-guard.js) =====
 requireLogin((user) => {
   initCards(user.uid);
-  // ปุ่มหน้า Active Users: ขึ้นเฉพาะบัญชีที่เคยเข้าห้องได้บนเครื่องนี้ (สิทธิ์จริงตรวจที่ Apps Script)
-  var room = document.getElementById("room-btn");
-  try { room.hidden = localStorage.getItem("hub-room") !== user.uid; } catch (e) {}
-  room.onclick = function () { location.href = "./room.html"; };
+  showRoomButton(user.uid);
   if (window.hubStart) window.hubStart();
 });
