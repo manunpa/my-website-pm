@@ -1,6 +1,6 @@
 // อ่านไฟล์แผนงานจากหน่วยงาน ดึงเฉพาะ "วันที่ + กะ" ที่เลือกบนหน้าเว็บ (อ่านในเบราว์เซอร์ ไม่อัปโหลดไปไหน)
 // รองรับ 3 แบบ: 1.1 Daily Report LLK / Plan Operation (SHELL LLK) / Confirm fleet SRC
-import { openBook, els, colOf, rowNum } from './bbs-xlsx.js?v=5';
+import { openBook, els, colOf, rowNum } from './bbs-xlsx.js?v=7';
 
 const THAI_MONTHS = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
     'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];

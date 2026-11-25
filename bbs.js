@@ -1,6 +1,6 @@
 import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122-cut';
-import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=6';
-import { readPlans, vehicleNo } from './bbs-plan.js?v=4';
+import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=7';
+import { readPlans, vehicleNo } from './bbs-plan.js?v=5';
 import { readImage, parseShot, inShift } from './bbs-ocr.js?v=1';
 import { samePlace } from './bbs-match.js?v=1';
 import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
@@ -530,8 +530,9 @@ function vehiclePage(v) {
     return page;
 }
 
-// คันที่ต้องแสดง: มีงาน มีรอบตรวจ หรือเพิ่มเข้ามาเอง
-const hasWork = (v) => v.trips.length > 0 || v.rounds.length > 0 || !!v.pinned;
+// คันที่ต้องแสดง: มีงาน เพิ่มเข้ามาเอง หรือมีรอบตรวจที่ลงเอง
+// (รอบ quiet = ลงจากรูปให้รถที่ไม่มีงาน เก็บไว้ในรายงานแต่ไม่ดึงขึ้นหน้าทำงาน)
+const hasWork = (v) => v.trips.length > 0 || !!v.pinned || v.rounds.some((r) => !r.quiet);
 
 function render() {
     $('checker').value = report.checker || '';
@@ -714,6 +715,7 @@ function drawShots() {
         });
         return el('div', { className: 'shot' },
             el('label', { className: 'line' }, use, el('b', { textContent: item.v.scc }), ' ' + (item.v.driver || ''),
+                hasWork(item.v) ? null : el('span', { className: 'mute', textContent: 'ไม่มีงาน' }),
                 item.warn ? el('em', { textContent: item.warn }) : null),
             el('div', { className: 'line' }, time, place),
             el('div', { className: 'line' }, type, ticks));
@@ -730,7 +732,9 @@ function countShots() {
 async function readShot(blob) {
     $('shot-state').textContent = '⏳ กำลังอ่านรูป… (ครั้งแรกต้องโหลดตัวอ่านภาษาไทย อาจนานหน่อย)';
     const working = report.vehicles.filter(hasWork);
-    const found = parseShot(await readImage(blob), working);
+    // จับรถทุกคันในรายงาน คันที่ไม่มีงานก็เก็บข้อมูลไว้ เรียงคันมีงานขึ้นก่อน
+    const found = parseShot(await readImage(blob), report.vehicles)
+        .sort((a, b) => Number(!hasWork(a.v)) - Number(!hasWork(b.v)));
     const nowTime = new Date().toTimeString().slice(0, 8);
     for (const x of found) {
         const time = x.time || nowTime;
@@ -741,8 +745,11 @@ async function readShot(blob) {
             : already ? 'มีรอบเวลานี้แล้ว' : x.time ? '' : 'ในรูปไม่มีเวลา ใส่เวลาตอนนี้ให้';
         shotItems.push({ v: x.v, time, place: x.place, use: !outside && !already, warn, type: $('shot-type').value || 'none' });
     }
+    shotItems.sort((a, b) => Number(!hasWork(a.v)) - Number(!hasWork(b.v)));
     const missing = working.filter((v) => !shotItems.some((i) => i.v === v)).map((v) => v.scc);
-    $('shot-state').textContent = (found.length ? '✔ พบ ' + found.length + ' คันในรูปล่าสุด' : '⚠ ไม่พบรถที่มีงานในรูปล่าสุด') +
+    const idle = found.filter((x) => !hasWork(x.v)).length;
+    $('shot-state').textContent = (found.length ? '✔ พบ ' + found.length + ' คันในรูปล่าสุด' +
+        (idle ? ' (ไม่มีงาน ' + idle + ' คัน เก็บไว้แต่ไม่แสดงหน้าทำงาน)' : '') : '⚠ ไม่พบรถของรายงานนี้ในรูปล่าสุด') +
         (missing.length ? ' · รถมีงานที่ยังไม่เจอ: ' + missing.join(', ') : '');
     drawShots();
 }
@@ -762,8 +769,13 @@ function addShots(files) {
 
 function applyShots() {
     if (shotKey !== report.key) return; // เปลี่ยนวันที่/ฟอร์มระหว่างเปิดอยู่ → ไม่เติมผิดรายงาน
+    // ตัดสินว่ามีงานไหมก่อนเพิ่ม ไม่ให้รอบแรกที่เพิ่มเปลี่ยนผลของรอบถัดไป
+    const quiet = new Set(shotItems.filter((x) => !hasWork(x.v)).map((x) => x.v));
     for (const item of shotItems.filter((x) => x.use)) {
-        item.v.rounds.push({ time: item.time, place: item.place.trim(), type: item.type, marks: presetMarks(item.type), note: '' });
+        item.v.rounds.push({
+            time: item.time, place: item.place.trim(), type: item.type, marks: presetMarks(item.type), note: '',
+            ...(quiet.has(item.v) ? { quiet: true } : {})
+        });
     }
     save();
     render();
@@ -1057,7 +1069,12 @@ function bind() {
     $('export').addEventListener('click', async () => {
         $('export').disabled = true;
         try {
-            const blob = await buildReport(template.buffer, report);
+            // มีแผนแล้ว คันที่ไม่มีงานให้เขียนว่าไม่มีวิ่งงาน (ยังไม่อัปแผน = ยังไม่รู้ ไม่เขียน)
+            const planned = report.vehicles.some((v) => v.trips.some((t) => t.cust || t.ship));
+            const blob = await buildReport(template.buffer, {
+                ...report,
+                vehicles: report.vehicles.map((v) => (planned && !hasWork(v) ? { ...v, idle: true } : v))
+            });
             const [y, m, d] = report.date.split('-');
             const link = el('a', {
                 href: URL.createObjectURL(blob),

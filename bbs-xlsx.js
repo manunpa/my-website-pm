@@ -384,6 +384,7 @@ function fillReport(book, doc, report, style) {
         if (v.driver || v.rounds.length || v.trips.length) used++;
         setCell(doc, rows[0], 'C', v.gps || '');
         setCell(doc, rows[0], 'D', v.cctv || '');
+        if (v.idle) setCell(doc, rows[0], 'H', 'ไม่มีวิ่งงาน'); // ช่องชื่อลูกค้า
         // ช่องสถานะ GPS/CCTV ใช้ฟอนต์เดียวกับช่องข้อความอื่นในแถว
         for (const col of ['C', 'D']) style.sameFont(cellAt(rows[0], col), cellAt(rows[0], 'J'));
         setCell(doc, rows[0], 'E', v.driver || '');
