@@ -15,16 +15,16 @@ export function colName(n) {
 }
 const colNum = (s) => [...s].reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0);
 
-const els = (node, name) => Array.from(node.getElementsByTagNameNS(NS, name));
-const colOf = (cell) => cell.getAttribute('r').replace(/\d+$/, '');
-const rowNum = (row) => Number(row.getAttribute('r'));
+export const els = (node, name) => Array.from(node.getElementsByTagNameNS(NS, name));
+export const colOf = (cell) => cell.getAttribute('r').replace(/\d+$/, '');
+export const rowNum = (row) => Number(row.getAttribute('r'));
 const parseXml = (text) => new DOMParser().parseFromString(text, 'application/xml');
 const toXml = (doc) => {
     const s = new XMLSerializer().serializeToString(doc);
     return s.startsWith('<?xml') ? s : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + s;
 };
 
-async function openBook(buffer) {
+export async function openBook(buffer) {
     const zip = await window.JSZip.loadAsync(buffer);
     const read = async (path) => parseXml(await zip.file(path).async('string'));
     const wb = await read('xl/workbook.xml');
@@ -65,7 +65,7 @@ async function openBook(buffer) {
     return { zip, read, sheetPath, value, inputStyles };
 }
 
-const cellAt = (row, col) => els(row, 'c').find((c) => colOf(c) === col);
+export const cellAt = (row, col) => els(row, 'c').find((c) => colOf(c) === col);
 
 function ensureCell(doc, row, col) {
     let cell = cellAt(row, col);
@@ -102,7 +102,7 @@ function setCell(doc, row, col, val) {
 }
 
 // กลุ่มแถวของรถ 1 คัน = แถวติดกันที่คอลัมน์ C เป็นช่องกรอก
-function findBlocks(book, doc) {
+export function findBlocks(book, doc) {
     const blocks = [];
     let current = null;
     for (const row of els(doc, 'row')) {
