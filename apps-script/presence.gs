@@ -139,6 +139,59 @@ function view_() {
   if (day && day.date === Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd')) {
     result.today = { devices: day.devices.length, people: day.emails.length, peak: day.peak, at: day.at };
   }
+  result.stats = stats_();
+  return result;
+}
+
+// ข้อมูลกราฟ (จำไว้ 2 นาที): คนรายชั่วโมงของวันนี้, 7 วันล่าสุด, อันดับคนและหน้าใน 7 วัน
+function stats_() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('stats');
+  if (hit) return JSON.parse(hit);
+
+  const now = Date.now();
+  const HOUR = 3600000;
+  const local = function (t) { return t + 7 * HOUR; }; // เวลาไทย ไม่มีปรับฤดู
+  const today = Math.floor(local(now) / (24 * HOUR));
+  const hours = [];
+  for (let h = 0; h < 24; h++) hours.push({});
+  const users = {};
+  const pages = {};
+
+  const sheet = tab_('การเข้าใช้', SESSION_HEADERS);
+  const last = sheet.getLastRow();
+  const n = Math.min(last - 1, 3000);
+  const rows = n > 0 ? sheet.getRange(last - n + 1, 1, n, SESSION_HEADERS.length).getValues() : [];
+  rows.forEach(function (r) {
+    const start = new Date(r[0]).getTime();
+    const end = new Date(r[1]).getTime();
+    if (!(end >= now - 7 * 24 * HOUR)) return;
+    users[r[3]] = (users[r[3]] || 0) + Number(r[2]);
+    pages[r[4]] = (pages[r[4]] || 0) + Number(r[2]);
+    for (let h = Math.floor(local(start) / HOUR); h <= Math.floor(local(end) / HOUR); h++) {
+      if (Math.floor(h / 24) === today) hours[h % 24][r[8]] = true;
+    }
+  });
+  const top = function (map) {
+    return Object.keys(map).map(function (name) { return { name: name, minutes: map[name] }; })
+      .sort(function (a, b) { return b.minutes - a.minutes; }).slice(0, 5);
+  };
+
+  const daily = tab_('รายวัน', DAY_HEADERS);
+  const end = daily.getLastRow();
+  const count = Math.min(end - 1, 7);
+  const days = (count > 0 ? daily.getRange(end - count + 1, 1, count, 3).getValues() : []).map(function (r) {
+    const date = r[0] instanceof Date ? Utilities.formatDate(r[0], TZ, 'yyyy-MM-dd') : String(r[0]);
+    return { date: date, devices: Number(r[1]), people: Number(r[2]) };
+  });
+
+  const result = {
+    hours: hours.map(function (set) { return Object.keys(set).length; }),
+    days: days,
+    users: top(users),
+    pages: top(pages)
+  };
+  cache.put('stats', JSON.stringify(result), 120);
   return result;
 }
 
