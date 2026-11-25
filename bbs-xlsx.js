@@ -47,7 +47,9 @@ export async function openBook(buffer) {
         if (cell.getAttribute('t') === 'inlineStr') return els(cell, 't').map((t) => t.textContent).join('');
         const v = els(cell, 'v')[0];
         if (!v) return '';
-        return cell.getAttribute('t') === 's' ? strings[Number(v.textContent)] || '' : v.textContent;
+        if (cell.getAttribute('t') === 's') return strings[Number(v.textContent)] || '';
+        // บางโปรแกรม (เช่น บันทึกผ่าน Google) เก็บเลขจำนวนเต็มเป็น "1.0" — เบอร์รถและเลขลำดับต้องอ่านได้เหมือนกัน
+        return v.textContent.replace(/^(-?\d+)\.0+$/, '$1');
     };
 
     // สีพื้นและเส้นซ้ายของแต่ละ style ใช้ดูว่าแถวไหนอยู่ในตารางและแถวไหนคือแถวคั่น
@@ -376,7 +378,8 @@ function fillReport(book, doc, report, style) {
     let used = 0;
     for (const [scc, rows] of byScc) {
         const v = data.get(scc) || { trips: [], rounds: [] };
-        const need = Math.max(v.trips.length, v.rounds.length, 2);
+        const extra = v.extra || []; // แผนเปลี่ยน/ยกเลิกงาน ลงคอลัมน์รายละเอียดพฤติกรรม
+        const need = Math.max(v.trips.length, v.rounds.length, extra.length, 2);
         // ข้อมูลเกินแถวของฟอร์ม → แทรกแถวใหม่ (รูปแบบเดียวกัน) ก่อนแถวสุดท้ายของคันนั้น
         // คันที่มีแค่ 2 แถวต้องต่อท้าย ไม่งั้นทะเบียน (แถวที่ 2) จะถูกดันลงไปล่างสุด
         const append = rows.length < 3;
@@ -416,6 +419,9 @@ function fillReport(book, doc, report, style) {
                 if (MARKS[mark]) style.symbol(cellAt(rows[i], col));
             }
             setCell(doc, rows[i], 'AP', r.note || '');
+        });
+        extra.forEach((text, i) => {
+            setCell(doc, rows[i], 'AP', [v.rounds[i]?.note, text].filter(Boolean).join(' / '));
         });
     }
 

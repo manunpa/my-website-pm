@@ -1,6 +1,6 @@
 import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122-cut';
-import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=8';
-import { readPlans, vehicleNo } from './bbs-plan.js?v=6';
+import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=10';
+import { readPlans, vehicleNo } from './bbs-plan.js?v=8';
 import { readImage, parseShot, inShift } from './bbs-ocr.js?v=1';
 import { samePlace } from './bbs-match.js?v=1';
 import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
@@ -601,9 +601,9 @@ async function importPlans(files) {
     status('กำลังอ่านแผนงาน…');
     const { vehicles, notes } = await readPlans(files, date, shift);
     const mine = new Map(report.vehicles.map((v) => [vehicleNo(v.scc), v]));
-    // ฟอร์มกลาง (ไม่มีเบอร์รถ): รถทุกคันในแผนถูกสร้างใหม่ ทะเบียนค้นจากฟอร์มอื่นใน Drive
+    // รถในแผนที่ยังไม่มีในรายงาน (รถย้ายเข้าใหม่ หรือฟอร์มกลาง) สร้างเพิ่มให้ ทะเบียนค้นจากฟอร์มอื่นใน Drive
     const created = new Set();
-    if (!template.vehicles.length) {
+    if ([...vehicles.keys()].some((no) => !mine.has(no))) {
         status('กำลังค้นทะเบียนรถจากฟอร์มอื่น…');
         const known = await knownVehicles();
         for (const [no, item] of vehicles) {
@@ -623,20 +623,23 @@ async function importPlans(files) {
     planPreview = matched.filter((p) => p.fresh ? p.item.driver || p.item.trips.length : p.changes.length);
     for (const p of planPreview) p.created = created.has(p.v);
     const unchanged = matched.length - planPreview.length;
-    const missing = [...vehicles.keys()].filter((no) => !mine.has(no));
     status('');
     $('plan-title').textContent = 'แผนงาน ' + when + ': ' + (update
         ? 'เปลี่ยน ' + planPreview.length + ' คัน · เหมือนเดิม ' + unchanged + ' คัน'
         : 'ตรงกับฟอร์มนี้ ' + planPreview.length + ' คัน');
-    $('plan-list').replaceChildren(...planPreview.map(({ v, item, fresh, changes }) => el('li', {},
+    const added = template.vehicles.length ? planPreview.filter((p) => p.created).length : 0;
+    $('plan-list').replaceChildren(...planPreview.map((p) => { const { v, item, fresh, changes } = p; return el('li', {},
+        // รถที่ไม่มีในฟอร์มติ๊กออกได้ กันอัปแผนของหน่วยงานอื่นมา
+        p.created && template.vehicles.length ? el('input', { type: 'checkbox', checked: true, onchange: (e) => { p.skip = !e.target.checked; } }) : null,
         el('b', { textContent: v.scc }),
+        p.created && template.vehicles.length ? el('em', { textContent: ' รถใหม่ ไม่มีในฟอร์ม' }) : null,
         ' ' + (item.driver || v.driver || 'ไม่ระบุคนขับ'),
         fresh
             ? el('div', { className: 'mute', textContent: (update ? 'งานใหม่: ' : '') + destList(item.trips).map((d) => d.name).join(' | ') })
-            : el('ul', {}, ...changes.map((c) => el('li', { textContent: describe(c) }))))));
+            : el('ul', {}, ...changes.map((c) => el('li', { textContent: describe(c) })))); }));
     $('plan-notes').replaceChildren(...[
         ...notes,
-        ...(missing.length ? ['รถในแผนที่ไม่มีในฟอร์มนี้ (ไม่เติม): ' + missing.join(', ')] : [])
+        ...(added ? ['มีรถที่ไม่มีในฟอร์ม ' + added + ' คัน จะเติมต่อท้ายให้ (ติ๊กออกได้ถ้าไม่ใช่รถของหน่วยงานนี้)'] : [])
     ].map((text) => el('li', { textContent: text })));
     $('plan-ok').disabled = !planPreview.length;
     $('plan-ok').textContent = update ? 'อัปเดตเฉพาะที่เปลี่ยน' : 'เติมลงฟอร์ม';
@@ -649,7 +652,8 @@ function applyPlans() {
     // เปลี่ยนวันที่/ฟอร์มระหว่างเปิดสรุป → ไม่เติมผิดรายงาน
     if ($('plan-dialog').dataset.key !== (report.key || keyOf())) return;
     const at = new Date().toTimeString().slice(0, 5);
-    for (const { v, item, fresh, changes, created } of planPreview) {
+    for (const { v, item, fresh, changes, created, skip } of planPreview) {
+        if (skip) continue;
         if (created && !report.vehicles.some((x) => x.scc === v.scc)) report.vehicles.push(v);
         if (item.driver) v.driver = item.driver;
         if (item.risk) v.risk = item.risk;
@@ -1073,7 +1077,14 @@ function bind() {
             const planned = report.vehicles.some((v) => v.trips.some((t) => t.cust || t.ship));
             const blob = await buildReport(template.buffer, {
                 ...report,
-                vehicles: report.vehicles.map((v) => (planned && !hasWork(v) ? { ...v, idle: true } : v))
+                vehicles: report.vehicles.map((v) => ({
+                    ...v,
+                    idle: planned && !hasWork(v),
+                    extra: [
+                        ...(v.changes || []).map((c) => describe(c) + ' (อัปเดต ' + c.at + ' น.)'),
+                        ...destNames(v).filter((name) => v.dest?.[name] === 'cancel').map((name) => 'ยกเลิกงาน ' + name)
+                    ]
+                }))
             });
             const [y, m, d] = report.date.split('-');
             const link = el('a', {
