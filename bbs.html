@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="stylesheet" href="./pwa.css">
+<script src="./pwa.js" defer></script>
+<!-- ซ่อนหน้าไว้จนกว่า Firebase จะยืนยันตัวตนเสร็จ (firebase-guard.js จะใส่คลาส .ready) -->
+<style>html:not(.ready) body { visibility: hidden; }</style>
+<title>บันทึก BBS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{--bg:#f5f5f3;--panel:#fff;--line:#dcdcd7;--ink:#1a1a1a;--mute:#6f6f6a;--ok:#1b7f4c;--no:#c0362c}
+@media (prefers-color-scheme:dark){:root{--bg:#161616;--panel:#1f1f1f;--line:#333;--ink:#ececea;--mute:#9a9a95;--ok:#4cc38a;--no:#ff6b5e;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans Thai',system-ui,sans-serif;font-size:15px;line-height:1.5;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+.wrap{max-width:900px;margin:0 auto;padding:16px}
+header{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}
+h1{font-size:20px;margin:0}h3{font-size:13px;margin:14px 0 6px;color:var(--mute)}
+input,select,button{font:inherit;color:var(--ink)}
+input,select{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 9px;min-width:0}
+.btn{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer;text-decoration:none;color:var(--ink)}
+.btn.primary{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.btn:disabled{opacity:.45;cursor:default}
+.panel,.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px}
+.line{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+.grow{flex:1 1 200px}
+label{font-size:13px;color:var(--mute)}
+.mute{color:var(--mute);font-size:13px}
+.bad{color:var(--no)}
+#status{min-height:1.5em;margin:0 0 8px}
+.card>summary{cursor:pointer;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.card>summary span{flex:1}
+.card>summary em{font-style:normal;font-size:13px;color:var(--mute)}
+.card>summary em.bad{color:var(--no)}
+.body{margin-top:12px}
+.round{border-left:3px solid var(--line);padding-left:10px;margin-bottom:12px}
+.note{width:100%;margin-top:6px}
+.checks{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.chk{text-align:left;background:transparent;border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:13px;cursor:pointer}
+.chk.ok{border-color:var(--ok);color:var(--ok)}
+.chk.no{border-color:var(--no);color:var(--no);font-weight:600}
+summary{cursor:pointer}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>บันทึกพฤติกรรม พขร. (BBS)</h1>
+    <div class="line" style="margin:0">
+      <a class="btn" href="./Access-Hub.html">หน้าหลัก</a>
+      <button class="btn" id="logout-btn" type="button">ออกจากระบบ</button>
+    </div>
+  </header>
+
+  <div class="panel">
+    <div class="line">
+      <label class="btn" for="template">เลือกไฟล์ฟอร์มต้นแบบ (.xlsx)</label>
+      <input type="file" id="template" accept=".xlsx" hidden>
+      <span class="mute" id="template-name"></span>
+    </div>
+    <div class="line">
+      <input type="date" id="date" aria-label="วันที่รายงาน">
+      <select id="shift" aria-label="กะ"><option value="day">กะกลางวัน</option><option value="night">กะกลางคืน</option></select>
+      <input id="checker" class="grow" placeholder="ตรวจสอบโดย" aria-label="ตรวจสอบโดย">
+      <input id="monitor" class="grow" placeholder="Monitor" aria-label="Monitor">
+    </div>
+    <button class="btn primary" id="export" type="button" disabled>ส่งออกรายงาน Excel</button>
+    <p class="mute">ไฟล์ต้นแบบเก็บไว้ในเครื่องนี้เท่านั้น เลือกครั้งเดียว</p>
+  </div>
+
+  <p class="mute" id="status" role="status"></p>
+  <div class="line" id="tools" hidden>
+    <input id="search" class="grow" type="search" placeholder="ค้นหาเบอร์รถ / ทะเบียน / ชื่อ" aria-label="ค้นหา">
+    <button class="btn" id="add" type="button">+ เพิ่มรถ</button>
+  </div>
+  <div id="list"></div>
+</div>
+<script type="module" src="./bbs.js?v=1"></script>
+</body>
+</html>
