@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex">
 <style>html:not(.ready) body { visibility: hidden; }</style>
 <script>try { if (localStorage.getItem('hub-theme') === 'dark') document.documentElement.dataset.theme = 'dark'; } catch (e) {}</script>
-<title>ห้องดูการใช้งาน</title>
+<title>Active Users</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#f5f5f3;--panel:#fff;--line:#dcdcd7;--ink:#1a1a1a;--mute:#6f6f6a;--ok:#1b7f4c;--no:#c0362c}
@@ -30,7 +30,7 @@ small{display:block;color:var(--mute)}
 </head>
 <body>
 <div class="wrap">
-  <header><h1>ห้องดูการใช้งาน</h1><a href="./Access-Hub.html">หน้าหลัก</a></header>
+  <header><h1>Active Users</h1><a href="./Access-Hub.html">หน้าหลัก</a></header>
   <div class="panel total">อุปกรณ์ที่ใช้งานอยู่ตอนนี้<b id="total">–</b></div>
   <div class="panel"><table><tbody id="pages"></tbody></table></div>
   <p id="state" role="status">กำลังโหลด…</p>
@@ -56,10 +56,13 @@ function row(name, count, detail) {
   return tr;
 }
 
+let uid = '';
+
 async function refresh() {
   if (document.visibilityState !== 'visible') return;
   try {
     const data = JSON.parse(await fetchProtectedText(PRESENCE_URL, { action: 'view' }));
+    try { localStorage.setItem('hub-room', uid); } catch (e) {} // ให้หน้าหลักโชว์ปุ่มเข้าห้อง
     $('total').textContent = data.total;
     const list = Object.entries(data.pages).sort((a, b) => b[1].count - a[1].count);
     $('pages').replaceChildren(...(list.length
@@ -72,7 +75,8 @@ async function refresh() {
   }
 }
 
-requireLogin(() => {
+requireLogin((user) => {
+  uid = user.uid;
   if (!PRESENCE_URL) { say('ยังไม่ได้ติดตั้งตัวนับ (apps-script/presence.gs)', true); return; }
   refresh();
   setInterval(refresh, 30000);

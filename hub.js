@@ -339,5 +339,9 @@ var initCards; // ตั้งค่าในฟังก์ชันด้า�
 // ===== Firebase: ตรวจสิทธิ์ / Logout / ตัด Session (ดู firebase-guard.js) =====
 requireLogin((user) => {
   initCards(user.uid);
+  // ปุ่มหน้า Active Users: ขึ้นเฉพาะบัญชีที่เคยเข้าห้องได้บนเครื่องนี้ (สิทธิ์จริงตรวจที่ Apps Script)
+  var room = document.getElementById("room-btn");
+  try { room.hidden = localStorage.getItem("hub-room") !== user.uid; } catch (e) {}
+  room.onclick = function () { location.href = "./room.html"; };
   if (window.hubStart) window.hubStart();
 });
