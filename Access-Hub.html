@@ -42,6 +42,9 @@
     --dot: #d6d6d1;
     --spot: rgba(0,0,0,.055);
     --shadow: 0 8px 24px -10px rgba(0,0,0,.18);
+    --fiber-a: #8a8a84;
+    --fiber-b: #1a1a1a;
+    --fiber-alpha: .32;
   }
   :root[data-theme="dark"] {
     --bg: #161616;
@@ -54,6 +57,9 @@
     --dot: #2c2c2c;
     --spot: rgba(255,255,255,.07);
     --shadow: 0 8px 24px -10px rgba(0,0,0,.7);
+    --fiber-a: #8d8d88;
+    --fiber-b: #ffffff;
+    --fiber-alpha: .32;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -595,6 +601,8 @@
 <!-- เรียกใช้งานไฟล์ JavaScript ภายนอกที่แยกออกมา -->
 <script type="module" src="./hub.js?v=cut-20261122"></script>
 <!-- ลูกเล่นเทศกาลลอยกระทง (ชั่วคราว เปิด/ปิดเองตามวันที่ในไฟล์) -->
+<!-- พื้นหลังแถบเส้นใยจุดบิดพลิ้ว -->
+<script src="./ghost-fibers.js?v=2" defer></script>
 <script src="./festival-loykrathong.js" defer></script>
 <script src="./festival-atm.js" defer></script>
 <script src="./festival-ghostrun.js" defer></script>

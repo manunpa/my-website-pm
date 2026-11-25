@@ -1,4 +1,5 @@
-/* พื้นหลังแถบเส้นใยจุดบิดพลิ้ว (หน้าเข้าสู่ระบบ)
+/* พื้นหลังแถบเส้นใยจุดบิดพลิ้ว (หน้าเข้าสู่ระบบ + หน้า Access Hub)
+ * เปลี่ยนสีต่อหน้าได้ด้วย CSS: --fiber-a (สีหลัก) --fiber-b (ช่วงสว่าง) --fiber-alpha (ความเข้ม)
  * แนวคิดจาก reactbits.dev/backgrounds/ghost-fibers เขียนใหม่เป็น WebGL ล้วน ไม่พึ่ง React/ไลบรารี
  * เมาส์: มุมมองเอียงตาม + แถบใต้เคอร์เซอร์คมชัดขึ้น · คลิก: แสงวิ่งไปตามเส้นใย
  * ตั้งค่า "ลดการเคลื่อนไหว" จะวาดภาพนิ่ง
@@ -52,12 +53,13 @@
 
   var FRAG = [
     "precision mediump float;",
+    "uniform vec3 colA,colB;uniform float strength;",
     "varying float vA,vSoft,vHot;",
     "void main(){",
     "  float d=length(gl_PointCoord-.5)*2.;",
     "  float a=vA*(1.-smoothstep(mix(.6,0.,vSoft),1.,d));",
-    "  a=clamp(a,0.,1.);",
-    "  vec3 col=mix(vec3(.424,.698,0.),vec3(.18,.43,0.),vHot);",  // เขียวป้ายบางจาก -> เขียวเข้ม
+    "  a=clamp(a,0.,1.)*strength;",
+    "  vec3 col=mix(colA,colB,vHot);",
     "  gl_FragColor=vec4(col*a,a);}"
   ].join("\n");
 
@@ -93,7 +95,7 @@
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
   var U = {};
-  ["time", "aspect", "px", "intro", "hover", "mouse", "pulse"].forEach(function (k) { U[k] = gl.getUniformLocation(prog, k); });
+  ["time", "aspect", "px", "intro", "hover", "mouse", "pulse", "colA", "colB", "strength"].forEach(function (k) { U[k] = gl.getUniformLocation(prog, k); });
 
   var still = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
   var time = 0, age = still ? 9 : 0, last = 0;
@@ -103,6 +105,18 @@
   // จุดบนจอ -> พิกัดเดียวกับใน shader (ครึ่งความสูงจอ = 1)
   function point(e) {
     return [(e.clientX * 2 - innerWidth) / innerHeight, 1 - e.clientY * 2 / innerHeight];
+  }
+
+  // สีจาก CSS ของหน้า (ค่าเริ่มต้น: เขียวป้ายบางจาก -> เขียวเข้ม)
+  function theme() {
+    var css = getComputedStyle(document.documentElement);
+    function rgb(name, fallback) {
+      var hex = css.getPropertyValue(name).trim() || fallback;
+      return [1, 3, 5].map(function (i) { return parseInt(hex.slice(i, i + 2), 16) / 255; });
+    }
+    gl.uniform3fv(U.colA, rgb("--fiber-a", "#6cb200"));
+    gl.uniform3fv(U.colB, rgb("--fiber-b", "#2e6e00"));
+    gl.uniform1f(U.strength, parseFloat(css.getPropertyValue("--fiber-alpha")) || 1);
   }
 
   function draw() {
@@ -141,8 +155,12 @@
   }
 
   document.body.insertBefore(canvas, document.body.firstChild);
+  theme();
   resize();
   window.addEventListener("resize", resize);
+  // สลับธีมสว่าง/มืด -> อ่านสีใหม่
+  new MutationObserver(function () { theme(); draw(); })
+    .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   if (still) return;
 
