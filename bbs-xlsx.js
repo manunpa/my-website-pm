@@ -127,7 +127,9 @@ function findBlocks(book, doc) {
     for (const row of els(doc, 'row')) {
         if (rowNum(row) < 7) continue;
         const { fill, border } = book.look(cellAt(row, 'C'));
-        if (border && sccOf(book.value(cellAt(row, 'B')))) {
+        const b = book.value(cellAt(row, 'B')).trim();
+        const slot = !b && /^\d{1,3}$/.test(book.value(cellAt(row, 'A')).trim());
+        if (border && (sccOf(b) || slot)) {
             blocks.push(current = [row]);
             startFill = fill;
         } else if (current && border && (neutral(fill) || fill === startFill) &&
@@ -143,13 +145,14 @@ export async function readTemplate(buffer) {
     const book = await openBook(buffer);
     const doc = await book.read(book.sheetPath('ผ่าน_cctv'));
     const text = (row, col) => (row ? book.value(cellAt(row, col)).trim() : '');
-    const vehicles = findBlocks(book, doc).map((rows) => ({
+    const blocks = findBlocks(book, doc);
+    const vehicles = blocks.map((rows) => ({
         scc: sccOf(text(rows[0], 'B')),
         plate: text(rows[1], 'B'),
         driver: text(rows[0], 'E'),
         risk: text(rows[1], 'E')
-    }));
-    if (!vehicles.length) throw new Error('ไม่พบแถวรถในฟอร์ม (คอลัมน์ B ต้องเป็นเบอร์รถ)');
+    })).filter((v) => v.scc);
+    if (!blocks.length) throw new Error('ไม่พบแถวรถในฟอร์ม (คอลัมน์ B ต้องเป็นเบอร์รถ หรือมีเลขลำดับเป็นช่องว่าง)');
 
     const header = els(doc, 'row').find((r) => rowNum(r) === 6);
     const checks = {};
@@ -317,12 +320,26 @@ function fillReport(book, doc, report, style) {
     markGaps(doc);
     const sheetData = els(doc, 'sheetData')[0];
     let blocks = findBlocks(book, doc);
-    const byScc = new Map(blocks.map((rows) => [sccOf(book.value(cellAt(rows[0], 'B'))), rows]));
+    const byScc = new Map();
+    const slots = []; // ช่องว่างรอใส่รถ
+    for (const rows of blocks) {
+        const scc = sccOf(book.value(cellAt(rows[0], 'B')));
+        if (scc) byScc.set(scc, rows);
+        else slots.push(rows);
+    }
 
     // รถที่ไม่มีในฟอร์ม: คัดลอกแถวคั่น + ชุดแถวของคันสุดท้ายต่อท้าย
     let number = Math.max(0, ...blocks.map((rows) => Number(book.value(cellAt(rows[0], 'A'))) || 0));
     for (const v of report.vehicles) {
-        if (byScc.has(v.scc)) continue;
+        // รถที่ไม่มีในฟอร์มและไม่มีข้อมูลอะไร ไม่ต้องกินช่อง
+        if (byScc.has(v.scc) || !(v.driver || v.trips.length || v.rounds.length)) continue;
+        const slot = slots.shift();
+        if (slot) {
+            setCell(doc, slot[0], 'B', v.scc);
+            if (slot[1]) setCell(doc, slot[1], 'B', v.plate || '');
+            byScc.set(v.scc, slot);
+            continue;
+        }
         const last = blocks[blocks.length - 1];
         const separator = last[0].previousElementSibling;
         const after = last[last.length - 1].nextSibling;

@@ -1,6 +1,6 @@
 import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122-cut';
-import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=5';
-import { readPlans, vehicleNo } from './bbs-plan.js?v=3';
+import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=6';
+import { readPlans, vehicleNo } from './bbs-plan.js?v=4';
 import { readImage, parseShot, inShift } from './bbs-ocr.js?v=1';
 import { samePlace } from './bbs-match.js?v=1';
 import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
@@ -568,6 +568,29 @@ async function useTemplate(buffer, name) {
     template = { buffer, name, ...(await readTemplate(buffer)) };
 }
 
+// เบอร์รถ → ทะเบียน จากฟอร์มอื่นในโฟลเดอร์ (ใช้เติมตอนทำรายงานบนฟอร์มกลาง)
+async function knownVehicles() {
+    const found = new Map();
+    for (const f of forms) {
+        if (f.id === $('form').value) continue;
+        try {
+            let saved = await idb('readonly', (s) => s.get('form:' + f.id)).catch(() => null);
+            if (!saved || f.updated > saved.updated) {
+                const res = await call({ action: 'form', id: f.id });
+                saved = { buffer: fromBase64(res.data), name: res.name, updated: res.updated };
+                await idb('readwrite', (s) => s.put(saved, 'form:' + f.id)).catch(() => {});
+            }
+            for (const v of (await readTemplate(saved.buffer)).vehicles) {
+                const no = vehicleNo(v.scc);
+                if (v.plate && !found.has(no)) found.set(no, v);
+            }
+        } catch (err) {
+            console.warn('อ่านฟอร์ม ' + f.name + ' ไม่ได้', err);
+        }
+    }
+    return found;
+}
+
 // ===== อัปโหลดแผนงาน: ดึงเฉพาะวันที่ + กะ ที่เลือกอยู่ ให้ตรวจสรุปก่อนเติม =====
 let planPreview = []; // [{ v, item, changes, fresh }]
 
@@ -577,6 +600,19 @@ async function importPlans(files) {
     status('กำลังอ่านแผนงาน…');
     const { vehicles, notes } = await readPlans(files, date, shift);
     const mine = new Map(report.vehicles.map((v) => [vehicleNo(v.scc), v]));
+    // ฟอร์มกลาง (ไม่มีเบอร์รถ): รถทุกคันในแผนถูกสร้างใหม่ ทะเบียนค้นจากฟอร์มอื่นใน Drive
+    const created = new Set();
+    if (!template.vehicles.length) {
+        status('กำลังค้นทะเบียนรถจากฟอร์มอื่น…');
+        const known = await knownVehicles();
+        for (const [no, item] of vehicles) {
+            if (mine.has(no)) continue;
+            const info = known.get(no) || {};
+            const v = emptyVehicle({ scc: 'SCC' + no, plate: item.plate || info.plate || '', driver: '', risk: '' });
+            mine.set(no, v);
+            created.add(v);
+        }
+    }
     const matched = [...vehicles].filter(([no]) => mine.has(no)).map(([no, item]) => {
         const v = mine.get(no);
         const fresh = !v.trips.length; // ยังไม่เคยมีงาน = งานใหม่ ไม่นับเป็นการเปลี่ยน
@@ -584,6 +620,7 @@ async function importPlans(files) {
     });
     const update = report.vehicles.some((v) => v.trips.length); // เคยมีแผนแล้ว = โหมดอัปเดต
     planPreview = matched.filter((p) => p.fresh ? p.item.driver || p.item.trips.length : p.changes.length);
+    for (const p of planPreview) p.created = created.has(p.v);
     const unchanged = matched.length - planPreview.length;
     const missing = [...vehicles.keys()].filter((no) => !mine.has(no));
     status('');
@@ -611,7 +648,8 @@ function applyPlans() {
     // เปลี่ยนวันที่/ฟอร์มระหว่างเปิดสรุป → ไม่เติมผิดรายงาน
     if ($('plan-dialog').dataset.key !== (report.key || keyOf())) return;
     const at = new Date().toTimeString().slice(0, 5);
-    for (const { v, item, fresh, changes } of planPreview) {
+    for (const { v, item, fresh, changes, created } of planPreview) {
+        if (created && !report.vehicles.some((x) => x.scc === v.scc)) report.vehicles.push(v);
         if (item.driver) v.driver = item.driver;
         if (item.risk) v.risk = item.risk;
         else v.risk ||= item.riskIfEmpty;
@@ -884,7 +922,7 @@ function bindSummary() {
 }
 
 // ===== ข้อความแจ้งเหตุ: โยนเนื้อหา → จัดเข้าแพทเทิน → คัดลอกส่ง LINE =====
-const alertUnit = () => (API_URL ? shortName(template.name).replace(/^BBS\s*/i, '').replace(/\bWO[- ]*/i, '') : '');
+const alertUnit = () => (API_URL ? shortName(template.name).replace(/^BBS\s*/i, '').replace(/\bWO[- ]*/i, '').replace(/^ALL$/i, '') : '');
 
 function buildAlert() {
     const raw = $('alert-input').value;

@@ -117,6 +117,7 @@ function readConfirm(rows, header, shift, add) {
     const custs = cols(/^ลูกค้า/);
     const noms = cols(/^NOM/i);
     const [risk] = cols(/risk/i);
+    const [plate] = cols(/^ทะเบียน/);
     for (const row of rows.filter((r) => r.n > header.n)) {
         const no = vehicleNo(row.cells.get(scc));
         if (!no) continue;
@@ -126,6 +127,7 @@ function readConfirm(rows, header, shift, add) {
             const nom = row.cells.get(noms[i]) || '';
             if (!DRIVER.test(driver) && !names.length && !nom) return;
             add(no, {
+                plate: (row.cells.get(plate) || '').split('/')[0].trim(),
                 driver: DRIVER.test(driver) ? driver : '',
                 riskIfEmpty: (row.cells.get(risk) || '').charAt(0).toUpperCase(),
                 // NOM มี 1 เลขต่อแถว ใส่ที่งานแรก
@@ -147,6 +149,7 @@ export async function readPlans(files, date, shift) {
     const notes = [];
     const add = (no, item) => {
         const v = vehicles.get(no) || { driver: '', risk: '', riskIfEmpty: '', trips: [] };
+        v.plate ||= item.plate || '';
         v.driver ||= item.driver;
         v.risk ||= item.risk || '';
         v.riskIfEmpty ||= item.riskIfEmpty || '';
