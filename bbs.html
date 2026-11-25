@@ -80,6 +80,12 @@ section p{margin:0 0 8px}
   .log .place{grid-column:1/-1;order:3}
 }
 .vehicle .dest{border:1px solid var(--line);border-radius:8px;margin-bottom:10px}
+.zone{display:flex;flex-direction:column;align-items:center;text-align:center;gap:4px;border:2px dashed var(--line);border-radius:12px;padding:20px 12px;cursor:pointer}
+.zone b{color:var(--ink);font-size:15px}
+.zone.over,.zone:hover{border-color:var(--ink);background:var(--bg)}
+.shot{border-top:1px solid var(--line);padding-top:8px}
+.shot .line{margin-bottom:6px}
+.shot em{font-style:normal;color:#b07400;font-size:13px}
 .vehicle h3.title{font-size:18px;color:var(--ink);margin:12px 0 8px}
 body.detail #setup,body.detail .tools{display:none}
 .btn.wide{width:100%;padding:10px}
@@ -147,6 +153,7 @@ dialog em{font-style:normal;color:var(--no)}
       <input id="search" class="grow" type="search" placeholder="ค้นหารถ / ชื่อ" aria-label="ค้นหา" disabled>
       <button class="btn" id="plan-button" type="button" title="ดึงเฉพาะวันที่และกะที่เลือก" disabled>📄 แผนงาน</button>
       <input type="file" id="plan" accept=".xlsx" multiple hidden>
+      <button class="btn" id="shot-button" type="button" title="อ่านเวลาและสถานที่จากรูป" disabled>📷 รูป</button>
       <button class="btn" id="add" type="button" disabled>+ รถ</button>
     </div>
     <p class="mute tools" id="count"></p>
@@ -161,6 +168,21 @@ dialog em{font-style:normal;color:var(--no)}
     </div>
   </section>
 
+  <dialog id="shot-dialog" aria-labelledby="shot-title">
+    <h3 id="shot-title">ลงเวลาจากรูป</h3>
+    <label class="zone" id="shot-zone" for="shot-file">
+      <b>แตะเพื่อเลือกรูป</b>
+      <span>หรือกด Ctrl+V เพื่อวางรูปที่คัดลอกไว้ หรือลากรูปมาใส่ (หลายรูปได้)</span>
+    </label>
+    <input type="file" id="shot-file" accept="image/*" multiple hidden>
+    <p><button class="btn" id="shot-paste" type="button">📋 วางรูปที่คัดลอกไว้</button></p>
+    <p id="shot-state" role="status"></p>
+    <div id="shot-list"></div>
+    <div class="line" style="margin:0">
+      <button class="btn primary" id="shot-ok" type="button" disabled>เพิ่ม 0 รอบ</button>
+      <button class="btn" id="shot-cancel" type="button">ปิด</button>
+    </div>
+  </dialog>
   <dialog id="add-dialog" aria-labelledby="add-title">
     <form id="add-form">
       <h3 id="add-title">เพิ่มรถ / งาน</h3>
@@ -199,6 +221,6 @@ dialog em{font-style:normal;color:var(--no)}
   paint();
 })();
 </script>
-<script type="module" src="./bbs.js?v=16"></script>
+<script type="module" src="./bbs.js?v=17"></script>
 </body>
 </html>

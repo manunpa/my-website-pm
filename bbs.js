@@ -1,6 +1,7 @@
 import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122-cut';
 import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=5';
 import { readPlans, vehicleNo } from './bbs-plan.js?v=3';
+import { readImage, parseShot, inShift } from './bbs-ocr.js?v=1';
 
 // URL /exec ของ Apps Script (apps-script/bbs.gs) — ว่างไว้ = เก็บในเครื่องนี้อย่างเดียว
 const API_URL = 'https://script.google.com/macros/s/AKfycbxGlbuYTL5_K8DZ7EIPT9P0NO5gef1od1f4WXzRvBPLbCvAPwST87Tl3hqtjMljY3Yx8w/exec';
@@ -438,7 +439,7 @@ function render() {
         report.date.split('-').reverse().join('/'),
         report.shift === 'night' ? 'กลางคืน' : 'กลางวัน'
     ].filter(Boolean).join(' · ');
-    for (const id of ['export', 'plan-button', 'search', 'add']) $(id).disabled = !template;
+    for (const id of ['export', 'plan-button', 'shot-button', 'search', 'add']) $(id).disabled = !template;
     $('template-name').textContent = template ? template.name : '';
     $('template-name').hidden = !!API_URL || !template;
     if (open) { $('list').replaceChildren(vehiclePage(open)); return; }
@@ -505,6 +506,123 @@ function applyPlans() {
     render();
 }
 
+// ===== อ่านรูป: เลือกไฟล์ / วาง / ลากมาใส่ → ตรวจสรุป → เพิ่มเป็นรอบ "ลงเวลาอย่างเดียว" =====
+let shotItems = []; // [{ v, time, place, use, warn }]
+let shotKey = '';
+let shotQueue = Promise.resolve();
+let shotsLeft = 0; // รูปที่ยังอ่านไม่เสร็จ: ยังกดเพิ่มไม่ได้ กันตกหล่น
+
+function openShots() {
+    if (!template) return false;
+    if (!$('shot-dialog').open) {
+        shotItems = [];
+        shotKey = report.key;
+        $('shot-state').textContent = '';
+        drawShots();
+        $('shot-dialog').showModal();
+    }
+    return true;
+}
+
+function drawShots() {
+    $('shot-list').replaceChildren(...shotItems.map((item) => {
+        const use = el('input', { type: 'checkbox', checked: item.use });
+        use.setAttribute('aria-label', 'เพิ่ม ' + item.v.scc);
+        use.onchange = () => { item.use = use.checked; countShots(); };
+        const time = el('input', { type: 'time', step: '1', value: item.time });
+        time.setAttribute('aria-label', 'เวลา ' + item.v.scc);
+        time.oninput = () => { item.time = time.value; };
+        const place = el('input', { value: item.place, placeholder: 'สถานที่', className: 'grow' });
+        place.setAttribute('aria-label', 'สถานที่ ' + item.v.scc);
+        place.oninput = () => { item.place = place.value; };
+        return el('div', { className: 'shot' },
+            el('label', { className: 'line' }, use, el('b', { textContent: item.v.scc }), ' ' + (item.v.driver || ''),
+                item.warn ? el('em', { textContent: item.warn }) : null),
+            el('div', { className: 'line' }, time, place));
+    }));
+    countShots();
+}
+
+function countShots() {
+    const n = shotItems.filter((x) => x.use).length;
+    $('shot-ok').textContent = shotsLeft ? 'กำลังอ่านอีก ' + shotsLeft + ' รูป…' : 'เพิ่ม ' + n + ' รอบ';
+    $('shot-ok').disabled = !!shotsLeft || !n;
+}
+
+async function readShot(blob) {
+    $('shot-state').textContent = '⏳ กำลังอ่านรูป… (ครั้งแรกต้องโหลดตัวอ่านภาษาไทย อาจนานหน่อย)';
+    const working = report.vehicles.filter(hasWork);
+    const found = parseShot(await readImage(blob), working);
+    const nowTime = new Date().toTimeString().slice(0, 8);
+    for (const x of found) {
+        const time = x.time || nowTime;
+        if (shotItems.some((i) => i.v === x.v && i.time === time && i.place === x.place)) continue;
+        const outside = !inShift(x, report.date, report.shift);
+        const already = x.v.rounds.some((r) => r.time === time);
+        const warn = outside ? 'เวลาอยู่นอกกะนี้ (' + x.date.split('-').reverse().join('/') + ')'
+            : already ? 'มีรอบเวลานี้แล้ว' : x.time ? '' : 'ในรูปไม่มีเวลา ใส่เวลาตอนนี้ให้';
+        shotItems.push({ v: x.v, time, place: x.place, use: !outside && !already, warn });
+    }
+    const missing = working.filter((v) => !shotItems.some((i) => i.v === v)).map((v) => v.scc);
+    $('shot-state').textContent = (found.length ? '✔ พบ ' + found.length + ' คันในรูปล่าสุด' : '⚠ ไม่พบรถที่มีงานในรูปล่าสุด') +
+        (missing.length ? ' · รถมีงานที่ยังไม่เจอ: ' + missing.join(', ') : '');
+    drawShots();
+}
+
+function addShots(files) {
+    const images = [...files].filter((f) => f && f.type.startsWith('image/'));
+    if (!images.length || !openShots()) return;
+    for (const image of images) {
+        shotsLeft++;
+        shotQueue = shotQueue.then(() => readShot(image)).catch((err) => {
+            console.error(err);
+            $('shot-state').textContent = '⚠ อ่านรูปไม่ได้: ' + err.message;
+        }).then(() => { shotsLeft--; countShots(); });
+    }
+    countShots();
+}
+
+function applyShots() {
+    if (shotKey !== report.key) return; // เปลี่ยนวันที่/ฟอร์มระหว่างเปิดอยู่ → ไม่เติมผิดรายงาน
+    for (const item of shotItems.filter((x) => x.use)) {
+        item.v.rounds.push({ time: item.time, place: item.place.trim(), type: 'none', marks: {}, note: '' });
+    }
+    save();
+    render();
+}
+
+function bindShots() {
+    $('shot-button').addEventListener('click', openShots);
+    $('shot-file').addEventListener('change', () => { addShots($('shot-file').files); $('shot-file').value = ''; });
+    // วางรูปที่คัดลอกไว้ได้จากทุกที่ในหน้า (ข้อความที่วางในช่องกรอกไม่ถูกแตะ)
+    document.addEventListener('paste', (e) => {
+        const images = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'));
+        if (!images.length) return;
+        e.preventDefault();
+        addShots(images);
+    });
+    // ปุ่มวาง สำหรับมือถือที่ไม่มี Ctrl+V
+    $('shot-paste').addEventListener('click', async () => {
+        try {
+            const images = [];
+            for (const item of await navigator.clipboard.read()) {
+                const type = item.types.find((t) => t.startsWith('image/'));
+                if (type) images.push(await item.getType(type));
+            }
+            if (images.length) addShots(images);
+            else $('shot-state').textContent = '⚠ ยังไม่มีรูปในคลิปบอร์ด ให้คัดลอกรูปก่อน';
+        } catch {
+            $('shot-state').textContent = '⚠ เบราว์เซอร์ไม่ให้อ่านคลิปบอร์ด ใช้ Ctrl+V หรือเลือกรูปแทน';
+        }
+    });
+    const zone = $('shot-zone');
+    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('over'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('over'));
+    zone.addEventListener('drop', (e) => { e.preventDefault(); zone.classList.remove('over'); addShots(e.dataTransfer.files); });
+    $('shot-ok').addEventListener('click', () => { applyShots(); $('shot-dialog').close(); });
+    $('shot-cancel').addEventListener('click', () => $('shot-dialog').close());
+}
+
 // ชื่อไฟล์ส่งออกตามชื่อฟอร์ม โดยตัดคำว่า "วันที่/เดือน..." ท้ายชื่อออก
 function baseName() {
     const name = API_URL ? template.name.replace(/\.xlsx$/i, '').split('วันที่')[0].trim() : '';
@@ -512,6 +630,7 @@ function baseName() {
 }
 
 function bind() {
+    bindShots();
     $('template').addEventListener('change', async () => {
         const file = $('template').files[0];
         if (!file) return;
@@ -530,7 +649,7 @@ function bind() {
     for (const id of ['date', 'shift']) $(id).addEventListener('change', () => { if ($('date').value) load(); });
     $('form').addEventListener('change', async () => {
         $('list').replaceChildren();
-        for (const id of ['export', 'plan-button', 'search', 'add']) $(id).disabled = true;
+        for (const id of ['export', 'plan-button', 'shot-button', 'search', 'add']) $(id).disabled = true;
         try {
             await openForm($('form').value);
             localStorage.setItem('bbs-form', $('form').value);
