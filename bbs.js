@@ -349,29 +349,33 @@ function stamp(r) {
         [at.getHours(), at.getMinutes(), at.getSeconds()].map(two).join(':');
 }
 
-// 1 รอบตรวจ = 1 บรรทัด: วันเวลา สถานที่
+// 1 รอบตรวจ = 1 แถว 3 คอลัมน์ตรงกันทุกคัน: วันเวลา | สถานที่ | สถานะ
 const roundLine = (r) => el('span', { className: 'log' },
     el('span', { className: 'stamp', textContent: stamp(r) }),
-    el('span', { className: 'place' }, r.place || 'ยังไม่ใส่สถานที่',
-        el('small', {}, ' ' + typeName(r), badCount(r) ? el('em', { textContent: ' · ไม่ผ่าน ' + badCount(r) }) : null,
-            r.note ? ' · ' + r.note : '')));
+    el('span', { className: 'place' }, r.place || el('i', { textContent: 'ยังไม่ใส่สถานที่' }),
+        r.note ? el('small', { textContent: r.note }) : null),
+    el('span', { className: 'kind' }, typeName(r),
+        badCount(r) ? el('em', { textContent: 'ไม่ผ่าน ' + badCount(r) }) : null));
 
-// ปลายทางงานของคันนี้ (ไม่มีชื่อลูกค้าใช้เลข Shipment)
+// ปลายทางงาน บรรทัดละแห่ง (ในแผนคั่นหลายแห่งด้วย //) ไม่มีชื่อลูกค้าใช้เลข Shipment
 function destinations(v) {
-    const list = v.trips.map((t) => t.cust || t.ship).filter(Boolean);
+    const list = v.trips.flatMap((t) => String(t.cust || t.ship || '').split(/\/{2,}/))
+        .map((x) => x.trim()).filter(Boolean);
     if (!list.length) return null;
-    return el('span', { className: 'dest' }, el('span', { textContent: 'ส่ง ' }),
-        list.map((name, i) => (list.length > 1 ? (i + 1) + '. ' : '') + name).join('  '));
+    return el('span', { className: 'dest' }, el('span', { className: 'label', textContent: 'ส่งที่' }),
+        el('span', { className: 'names' }, ...list.map((name, i) =>
+            el('span', { textContent: (list.length > 1 ? (i + 1) + '. ' : '') + name }))));
 }
 
-// ===== หน้ารวม: ทุกคันพร้อมทุกรอบที่ตรวจแล้ว =====
+// ===== หน้ารวม: รถละกล่อง หัว (รถ/คนขับ) → ปลายทาง → รอบที่ตรวจ =====
 function vehicleRow(v) {
-    return el('button', { type: 'button', className: 'row', onclick: () => openVehicle(v.scc) },
+    return el('button', { type: 'button', className: 'row' + (v.rounds.length ? '' : ' none'), onclick: () => openVehicle(v.scc) },
         el('span', { className: 'car' },
-            el('span', {}, el('b', { textContent: v.scc }), ' ' + (v.driver || 'ไม่มีคนขับ')),
-            destinations(v)),
-        ...(v.rounds.length ? byTime(v.rounds).map(roundLine)
-            : [el('span', { className: 'unchecked', textContent: 'ยังไม่ตรวจ' })]));
+            el('b', { textContent: v.scc }),
+            el('span', { className: 'who', textContent: v.driver || 'ไม่มีคนขับ' }),
+            el('span', { className: 'tally', textContent: v.rounds.length ? 'ตรวจ ' + v.rounds.length + ' รอบ' : 'ยังไม่ตรวจ' })),
+        destinations(v),
+        v.rounds.length ? el('span', { className: 'logs' }, ...byTime(v.rounds).map(roundLine)) : null);
 }
 
 // ===== หน้ารายคัน =====
@@ -406,7 +410,7 @@ function vehiclePage(v) {
         page.replaceChildren(
             button('← กลับหน้ารวม', closeVehicle),
             el('h3', { className: 'title', textContent: v.scc + ' ' + (v.driver || '') }),
-            el('p', {}, destinations(v)),
+            destinations(v),
             button('+ ตรวจรอบใหม่', () => {
                 const time = new Date().toTimeString().slice(0, 8);
                 v.rounds.push({ time, place: '', type: 'driving', marks: presetMarks('driving'), note: '' });

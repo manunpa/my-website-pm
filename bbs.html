@@ -16,8 +16,8 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
-:root{--bg:#f5f5f3;--panel:#fff;--line:#dcdcd7;--ink:#1a1a1a;--mute:#6f6f6a;--ok:#1b7f4c;--no:#c0362c}
-:root[data-theme=dark]{--bg:#161616;--panel:#1f1f1f;--line:#333;--ink:#ececea;--mute:#9a9a95;--ok:#4cc38a;--no:#ff6b5e;color-scheme:dark}
+:root{--head:#e6ecf3;--bg:#f5f5f3;--panel:#fff;--line:#dcdcd7;--ink:#1a1a1a;--mute:#6f6f6a;--ok:#1b7f4c;--no:#c0362c}
+:root[data-theme=dark]{--head:#2a313a;--bg:#161616;--panel:#1f1f1f;--line:#333;--ink:#ececea;--mute:#9a9a95;--ok:#4cc38a;--no:#ff6b5e;color-scheme:dark}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans Thai',system-ui,sans-serif;font-size:15px;line-height:1.5;
   padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
@@ -53,17 +53,33 @@ section p{margin:0 0 8px}
 .card{background:var(--bg)}
 #setup>summary{cursor:pointer;display:flex;justify-content:space-between;gap:8px}
 #setup[open]>summary{margin-bottom:10px}
-.row,.entry{display:block;width:100%;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--line);cursor:pointer}
-.row{padding:12px 2px}.entry{padding:9px 2px}
-.car{display:flex;gap:4px 14px;flex-wrap:wrap;align-items:baseline;margin-bottom:4px}
-.dest{display:block;flex:1 1 220px;font-size:14px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 8px;overflow-wrap:anywhere}
-.dest>span{color:var(--mute)}
-.log{display:flex;gap:4px 14px;flex-wrap:wrap;padding:2px 0}
-.stamp{font-variant-numeric:tabular-nums;white-space:nowrap}
-.place{flex:1 1 200px;overflow-wrap:anywhere}
-.log small{color:var(--mute);font-size:13px}
-.log em{font-style:normal;color:var(--no)}
-.unchecked{display:block;color:var(--no);font-weight:600}
+.row,.entry{display:block;width:100%;text-align:left;background:var(--panel);cursor:pointer;padding:0}
+.row{border:1px solid var(--line);border-radius:10px;margin-bottom:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.row:hover{border-color:var(--ink)}
+.row.none{border-left:6px solid var(--no)}
+.entry{border:0;border-bottom:1px solid var(--line)}
+.car{display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;background:var(--head);padding:8px 12px}
+.car b{font-size:17px}
+.who{flex:1}
+.tally{font-size:13px;color:var(--mute)}
+.row.none .tally{color:var(--no);font-weight:600}
+.dest{display:flex;gap:12px;padding:7px 12px;font-size:14px}
+.dest .label{color:var(--mute);flex:none;width:40px}
+.names{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere}
+.logs{display:block;border-top:1px solid var(--line)}
+.log{display:grid;grid-template-columns:160px minmax(0,1fr) 110px;gap:12px;padding:6px 12px;font-size:14px;align-items:start}
+.logs .log:nth-child(even){background:var(--bg)}
+.stamp{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600}
+.place{overflow-wrap:anywhere}
+.place i{color:var(--mute);font-style:normal}
+.place small{display:block;color:var(--mute);font-size:13px}
+.kind{color:var(--mute);text-align:right;font-size:13px}
+.kind em{display:block;font-style:normal;color:var(--no);font-weight:600}
+@media(max-width:560px){
+  .log{grid-template-columns:minmax(0,1fr) auto;gap:2px 10px}
+  .log .place{grid-column:1/-1;order:3}
+}
+.vehicle .dest{border:1px solid var(--line);border-radius:8px;margin-bottom:10px}
 .vehicle h3.title{font-size:18px;color:var(--ink);margin:12px 0 8px}
 body.detail #setup,body.detail .tools{display:none}
 .btn.wide{width:100%;padding:10px}
@@ -183,6 +199,6 @@ dialog em{font-style:normal;color:var(--no)}
   paint();
 })();
 </script>
-<script type="module" src="./bbs.js?v=15"></script>
+<script type="module" src="./bbs.js?v=16"></script>
 </body>
 </html>
