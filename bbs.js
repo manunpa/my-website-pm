@@ -23,6 +23,7 @@ let report = null;
 // ===== เก็บไฟล์ต้นแบบในเครื่อง (IndexedDB) — ไม่อัปโหลดไปไหน =====
 function idb(mode, run) {
     return new Promise((resolve, reject) => {
+        setTimeout(() => reject(new Error('ที่เก็บข้อมูลของเบราว์เซอร์ไม่ตอบสนอง')), 4000);
         const open = indexedDB.open('bbs', 1);
         open.onupgradeneeded = () => open.result.createObjectStore('kv');
         open.onerror = () => reject(open.error);
@@ -33,6 +34,32 @@ function idb(mode, run) {
             tx.onerror = () => { open.result.close(); reject(tx.error); };
         };
     });
+}
+
+// ===== กล่องบอกสถานะการโหลด: ทุกช่วงที่รอต้องเห็นว่ากำลังทำอะไร นานแค่ไหน หรือพังตรงไหน =====
+let stateTimer;
+function busy(text) {
+    clearInterval(stateTimer);
+    $('state').hidden = !text;
+    $('state').classList.remove('bad');
+    $('retry').hidden = true;
+    if (!text) return;
+    const started = Date.now();
+    const paint = () => {
+        const sec = Math.round((Date.now() - started) / 1000);
+        $('state-text').textContent = text + (sec >= 3 ? ' (' + sec + ' วินาที)' : '');
+        if (sec >= 40) $('retry').hidden = false;
+    };
+    paint();
+    stateTimer = setInterval(paint, 1000);
+}
+
+function fail(text) {
+    clearInterval(stateTimer);
+    $('state').hidden = false;
+    $('state').classList.add('bad');
+    $('state-text').textContent = text;
+    $('retry').hidden = false;
 }
 
 // ===== ฟอร์มต้นแบบจากโฟลเดอร์ Google Drive =====
@@ -47,30 +74,38 @@ async function openForm(id) {
     const info = forms.find((f) => f.id === id);
     let saved = await idb('readonly', (s) => s.get('form:' + id)).catch(() => null);
     if (!saved || (info && info.updated > saved.updated)) {
-        status('กำลังโหลดฟอร์มจาก Google Drive…');
+        busy('กำลังดึงฟอร์มจาก Google Drive');
         const res = await call({ action: 'form', id });
         saved = { buffer: fromBase64(res.data), name: res.name, updated: res.updated };
         await idb('readwrite', (s) => s.put(saved, 'form:' + id)).catch(() => {});
     }
+    busy('กำลังอ่านรายชื่อรถจากฟอร์ม');
     await useTemplate(saved.buffer, saved.name);
+    busy('');
 }
 
 async function loadForms() {
+    busy('กำลังดึงรายชื่อหน่วยงานจาก Google Drive');
+    let problem = null;
     try {
         forms = (await call({ action: 'forms' })).forms;
         localStorage.setItem('bbs-forms', JSON.stringify(forms));
     } catch (err) {
-        status('โหลดรายชื่อฟอร์มจาก Google Drive ไม่ได้: ' + err.message, true);
+        problem = err;
         try { forms = JSON.parse(localStorage.getItem('bbs-forms')) || []; } catch { forms = []; }
     }
-    $('form').replaceChildren(...forms.map((f) => el('option', { value: f.id, textContent: f.name.replace(/\.xlsx$/i, '') })));
+    $('form').replaceChildren(...forms.map((f) => el('option', { value: f.id, textContent: shortName(f.name) })));
     $('form').hidden = false;
     $('pick-file').hidden = true;
-    if (!forms.length) throw new Error('ไม่พบไฟล์ฟอร์ม .xlsx ในโฟลเดอร์ Drive');
+    if (!forms.length) throw problem || new Error('ไม่พบไฟล์ฟอร์ม .xlsx ในโฟลเดอร์ Drive');
     const last = localStorage.getItem('bbs-form');
     if (forms.some((f) => f.id === last)) $('form').value = last;
     await openForm($('form').value);
 }
+
+// "รายงาน…พขร. BBS BFPL WO-LLK วันที่/เดือน/ปี.xlsx" → "BBS BFPL WO-LLK"
+const shortName = (name) => name.replace(/\.xlsx$/i, '').split('วันที่')[0]
+    .replace(/^รายงานติดตามพฤติกรรมพขร\.?\s*/, '').trim() || name;
 
 // ===== ข้อมูลรายงานต่อ 1 ฟอร์ม/วัน/กะ =====
 const keyOf = () => (API_URL ? $('form').value + '_' : '') + $('date').value + '_' + $('shift').value;
@@ -313,9 +348,11 @@ function render() {
     $('list').replaceChildren(...report.vehicles
         .filter((v) => !q || [v.scc, v.plate, v.driver].join(' ').toLowerCase().includes(q))
         .map(vehicleCard));
-    $('tools').hidden = !template;
-    $('export').disabled = !template;
-    $('template-name').textContent = template ? template.name : 'ยังไม่ได้เลือกไฟล์ต้นแบบ';
+    for (const id of ['export', 'plan-button', 'search', 'add']) $(id).disabled = !template;
+    $('count').textContent = template ? 'รถทั้งหมด ' + report.vehicles.length + ' คัน · ตรวจแล้ว ' +
+        report.vehicles.filter((v) => v.rounds.length).length + ' คัน' : 'ยังไม่มีรายชื่อรถ';
+    $('template-name').textContent = template ? template.name : '';
+    $('template-name').hidden = !!API_URL || !template;
 }
 
 async function useTemplate(buffer, name) {
@@ -389,19 +426,20 @@ function bind() {
     for (const id of ['date', 'shift']) $(id).addEventListener('change', () => { if ($('date').value) load(); });
     $('form').addEventListener('change', async () => {
         $('list').replaceChildren();
-        $('export').disabled = true;
+        for (const id of ['export', 'plan-button', 'search', 'add']) $(id).disabled = true;
         try {
             await openForm($('form').value);
             localStorage.setItem('bbs-form', $('form').value);
             status('');
         } catch (err) {
-            status('เปิดฟอร์มไม่ได้: ' + err.message, true);
+            fail('เปิดฟอร์มไม่ได้: ' + err.message);
         }
         await load();
     });
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && pending.size) flush(); });
     for (const id of ['checker', 'monitor']) $(id).addEventListener('input', () => { report[id] = $(id).value; save(); });
     $('search').addEventListener('input', render);
+    $('plan-button').addEventListener('click', () => $('plan').click());
     $('plan').addEventListener('change', async () => {
         const files = [...$('plan').files];
         $('plan').value = '';
@@ -455,6 +493,8 @@ requireLogin(async () => {
         $('checker').value = names.checker || '';
         $('monitor').value = names.monitor || '';
     } catch { /* ไม่มีชื่อเดิม */ }
+    $('retry').addEventListener('click', () => location.reload());
+    for (const id of ['form', 'date', 'shift']) $(id).disabled = true;
     try {
         if (API_URL) await loadForms();
         else {
@@ -462,8 +502,10 @@ requireLogin(async () => {
             if (saved) await useTemplate(saved.buffer, saved.name);
         }
     } catch (err) {
-        status('เปิดฟอร์มไม่ได้: ' + err.message, true);
+        console.error(err);
+        fail('เปิดฟอร์มไม่ได้: ' + err.message);
     }
+    for (const id of ['form', 'date', 'shift']) $(id).disabled = false;
     bind();
     await load();
 });

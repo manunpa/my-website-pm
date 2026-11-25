@@ -36,7 +36,23 @@ label{font-size:13px;color:var(--mute)}
 [hidden]{display:none !important}
 .mute{color:var(--mute);font-size:13px}
 .bad{color:var(--no)}
-#status{min-height:1.5em;margin:0 0 8px}
+h2{font-size:15px;margin:0 0 8px;display:flex;gap:8px;align-items:center}
+h2 b{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--ink);color:var(--bg);font-size:13px}
+h2 small{font-weight:400;color:var(--mute)}
+section p{margin:0 0 8px}
+.field{display:flex;flex-direction:column;gap:3px}
+.field input,.field select{color:var(--ink);font-size:15px}
+#pick-file label{cursor:pointer;color:var(--ink)}
+.state{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:2px solid var(--ink);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--panel);font-weight:600}
+.state.bad{border-color:var(--no)}
+.spin{width:18px;height:18px;flex:none;border-radius:50%;border:3px solid var(--line);border-top-color:var(--ink);animation:spin .8s linear infinite}
+.state.bad .spin{display:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.finish{position:sticky;bottom:0;z-index:2;box-shadow:0 -6px 16px rgba(0,0,0,.12)}
+.finish h2{margin-bottom:6px}
+.card{background:var(--bg)}
+.card>summary::before{content:"▸";color:var(--mute)}
+.card[open]>summary::before{content:"▾"}
 .card>summary{cursor:pointer;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
 .card>summary span{flex:1}
 .card>summary em{font-style:normal;font-size:13px;color:var(--mute)}
@@ -67,31 +83,56 @@ dialog em{font-style:normal;color:var(--no)}
     </div>
   </header>
 
-  <div class="panel">
+  <section class="panel">
+    <h2><b>1</b> เลือกหน่วยงาน วันที่ และกะ</h2>
     <div class="line">
-      <select id="form" class="grow" aria-label="ฟอร์ม" hidden></select>
-      <label class="btn" id="pick-file" for="template">เลือกไฟล์ฟอร์มต้นแบบ (.xlsx)</label>
-      <input type="file" id="template" accept=".xlsx" hidden>
-      <span class="mute" id="template-name"></span>
+      <label class="field grow">หน่วยงาน (ฟอร์ม)
+        <select id="form" aria-label="ฟอร์ม" hidden></select>
+        <span class="btn" id="pick-file"><label for="template">เลือกไฟล์ฟอร์มต้นแบบ (.xlsx)</label></span>
+      </label>
+      <label class="field">วันที่<input type="date" id="date"></label>
+      <label class="field">กะ<select id="shift"><option value="day">กลางวัน 08–20 น.</option><option value="night">กลางคืน 20–08 น.</option></select></label>
     </div>
-    <div class="line">
-      <input type="date" id="date" aria-label="วันที่รายงาน">
-      <select id="shift" aria-label="กะ"><option value="day">กะกลางวัน</option><option value="night">กะกลางคืน</option></select>
-      <input id="checker" class="grow" placeholder="ตรวจสอบโดย" aria-label="ตรวจสอบโดย">
-      <input id="monitor" class="grow" placeholder="Monitor" aria-label="Monitor">
+    <input type="file" id="template" accept=".xlsx" hidden>
+    <span class="mute" id="template-name" hidden></span>
+    <div class="line" style="margin:0">
+      <label class="field grow">ตรวจสอบโดย<input id="checker" placeholder="ชื่อผู้ตรวจสอบ"></label>
+      <label class="field grow">Monitor<input id="monitor" placeholder="ชื่อ Monitor"></label>
     </div>
-    <button class="btn primary" id="export" type="button" disabled>ส่งออกรายงาน Excel</button>
-    
+  </section>
+
+  <div class="state" id="state" role="status" hidden>
+    <span class="spin" aria-hidden="true"></span>
+    <span id="state-text"></span>
+    <button class="btn" id="retry" type="button" hidden>ลองใหม่</button>
   </div>
 
-  <p class="mute" id="status" role="status"></p>
-  <div class="line" id="tools" hidden>
-    <input id="search" class="grow" type="search" placeholder="ค้นหาเบอร์รถ / ทะเบียน / ชื่อ" aria-label="ค้นหา">
-    <label class="btn" for="plan" title="ดึงเฉพาะวันที่และกะที่เลือกด้านบน">📄 อัปโหลดแผนงาน</label>
+  <section class="panel">
+    <h2><b>2</b> ใส่แผนงาน <small>(ไม่บังคับ)</small></h2>
+    <p class="mute">เลือกไฟล์แผนจากหน่วยงาน ระบบเติมชื่อคนขับและงานให้ เฉพาะวันที่และกะที่เลือกไว้ในข้อ 1</p>
+    <button class="btn" id="plan-button" type="button" disabled>📄 อัปโหลดแผนงาน</button>
     <input type="file" id="plan" accept=".xlsx" multiple hidden>
-    <button class="btn" id="add" type="button">+ เพิ่มรถ</button>
-  </div>
-  <div id="list"></div>
+  </section>
+
+  <section class="panel">
+    <h2><b>3</b> บันทึกการตรวจ</h2>
+    <p class="mute">แตะที่รถ → กด “+ เพิ่มรอบตรวจ” → ใส่สถานที่และติ๊กหัวข้อ ระบบบันทึกให้เอง</p>
+    <div class="line">
+      <input id="search" class="grow" type="search" placeholder="ค้นหาเบอร์รถ / ทะเบียน / ชื่อ" aria-label="ค้นหา" disabled>
+      <button class="btn" id="add" type="button" disabled>+ เพิ่มรถ</button>
+    </div>
+    <p class="mute" id="count"></p>
+    <div id="list"></div>
+  </section>
+
+  <section class="panel finish">
+    <h2><b>4</b> จบกะ ส่งออกรายงาน</h2>
+    <div class="line" style="margin:0">
+      <button class="btn primary" id="export" type="button" disabled>⬇ ส่งออกรายงาน Excel</button>
+      <span class="mute grow" id="status" role="status"></span>
+    </div>
+  </section>
+
   <dialog id="plan-dialog" aria-labelledby="plan-title">
     <h3 id="plan-title"></h3>
     <ul id="plan-notes" class="bad"></ul>
@@ -116,6 +157,6 @@ dialog em{font-style:normal;color:var(--no)}
   paint();
 })();
 </script>
-<script type="module" src="./bbs.js?v=6"></script>
+<script type="module" src="./bbs.js?v=7"></script>
 </body>
 </html>
