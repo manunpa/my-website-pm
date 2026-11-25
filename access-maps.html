@@ -249,6 +249,18 @@ a.iconbtn{text-decoration:none}
 .brandmark{flex:none}
 /* มือถือ: ปุ่ม Hub เหลือแค่ลูกศร ซ่อนโลโก้เล็กแทน เพื่อให้ชื่อ Access Maps ไม่ถูกบีบ */
 @media(max-width:470px){.hubbtn span{display:none}.brandmark{display:none}.brand h1{overflow:hidden;text-overflow:ellipsis}}
+/* พื้นหลังเส้นใย (ghost-fibers.js) เห็นผ่านแถบบนและแถบข้าง ส่วนแผนที่ทึบเหมือนเดิม
+   พื้นรายชื่อทับอีกชั้นให้ตัวหนังสืออ่านง่าย · มือถือแถบข้างลอยทับแผนที่ จึงคงพื้นทึบไว้ */
+:root{--fiber-a:#4776ff;--fiber-b:#6d3fe0;--fiber-alpha:1}
+body.dark{--fiber-a:#6d91ff;--fiber-b:#d6c4ff;--fiber-alpha:.85}
+body{position:relative;isolation:isolate}
+.topbar{background:color-mix(in srgb,var(--panel) 35%,transparent);backdrop-filter:none}
+@media(min-width:851px){
+  .sidebar{background:color-mix(in srgb,var(--panel) 35%,transparent)}
+  .pointlist{background:color-mix(in srgb,var(--panel) 72%,transparent)}
+  .chip:not(.active){background:var(--panel)}
+  .sidefoot{background:color-mix(in srgb,var(--panel) 72%,transparent)}
+}
 </style>
 </head>
 <body>
@@ -304,6 +316,7 @@ a.iconbtn{text-decoration:none}
   </main>
 </div>
 
+<script src="./ghost-fibers.js?v=3" defer></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 

@@ -1,4 +1,4 @@
-/* พื้นหลังแถบเส้นใยจุดบิดพลิ้ว (หน้าเข้าสู่ระบบ + หน้า Access Hub)
+/* พื้นหลังแถบเส้นใยจุดบิดพลิ้ว (หน้าเข้าสู่ระบบ, Access Hub, Access Maps)
  * เปลี่ยนสีต่อหน้าได้ด้วย CSS: --fiber-a (สีหลัก) --fiber-b (ช่วงสว่าง) --fiber-alpha (ความเข้ม)
  * แนวคิดจาก reactbits.dev/backgrounds/ghost-fibers เขียนใหม่เป็น WebGL ล้วน ไม่พึ่ง React/ไลบรารี
  * เมาส์: มุมมองเอียงตาม + แถบใต้เคอร์เซอร์คมชัดขึ้น · คลิก: แสงวิ่งไปตามเส้นใย
@@ -109,7 +109,7 @@
 
   // สีจาก CSS ของหน้า (ค่าเริ่มต้น: เขียวป้ายบางจาก -> เขียวเข้ม)
   function theme() {
-    var css = getComputedStyle(document.documentElement);
+    var css = getComputedStyle(document.body);
     function rgb(name, fallback) {
       var hex = css.getPropertyValue(name).trim() || fallback;
       return [1, 3, 5].map(function (i) { return parseInt(hex.slice(i, i + 2), 16) / 255; });
@@ -159,8 +159,10 @@
   resize();
   window.addEventListener("resize", resize);
   // สลับธีมสว่าง/มืด -> อ่านสีใหม่
-  new MutationObserver(function () { theme(); draw(); })
-    .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  var watch = new MutationObserver(function () { theme(); draw(); });
+  [document.documentElement, document.body].forEach(function (el) {
+    watch.observe(el, { attributes: true, attributeFilter: ["data-theme", "class"] });
+  });
 
   if (still) return;
 
