@@ -119,7 +119,7 @@ button.blip.picked{outline:2px solid #fff;outline-offset:4px;animation:none}
 </head>
 <body>
 <div class="wrap">
-  <header><h1>Active Users</h1><span class="live" id="live"><i></i>LIVE</span><span class="space"></span><button class="tool" id="sound" type="button" aria-pressed="false">เสียง ปิด</button><button class="tool" id="full" type="button">เต็มจอ</button><a href="./Access-Hub.html">หน้าหลัก</a></header>
+  <header><h1>Active Users</h1><span class="live" id="live"><i></i>LIVE</span><span class="space"></span><button class="tool" id="history" type="button" title="ป้ายประวัติพฤติกรรม พขร. ในหน้าบันทึก BBS (มีผลทุกคน)" hidden></button><button class="tool" id="sound" type="button" aria-pressed="false">เสียง ปิด</button><button class="tool" id="full" type="button">เต็มจอ</button><a href="./Access-Hub.html">หน้าหลัก</a></header>
   <div class="grid">
     <div class="col">
       <section class="scope" aria-label="อุปกรณ์ที่ใช้งานอยู่ตอนนี้">
@@ -300,6 +300,27 @@ $('full').hidden = !document.documentElement.requestFullscreen; // iPhone ไม
 $('full').onclick = () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen());
 document.addEventListener('fullscreenchange', () => { $('full').textContent = document.fullscreenElement ? 'ออกจากเต็มจอ' : 'เต็มจอ'; });
 
+// ===== สวิตช์ป้ายประวัติพฤติกรรม พขร. ในหน้า BBS =====
+function drawHistorySwitch(on) {
+  if (typeof on !== 'boolean') return; // สคริปต์ยังเป็นเวอร์ชันเก่า ไม่แสดงปุ่ม
+  $('history').hidden = false;
+  $('history').setAttribute('aria-pressed', on);
+  $('history').textContent = 'ประวัติ พขร. ' + (on ? 'เปิด' : 'ปิด');
+}
+$('history').onclick = async () => {
+  const show = $('history').getAttribute('aria-pressed') !== 'true';
+  if (!confirm((show ? 'เปิด' : 'ปิด') + 'การแสดงประวัติพฤติกรรม พขร. ในหน้า BBS สำหรับทุกคน?')) return;
+  $('history').disabled = true;
+  try {
+    const data = JSON.parse(await fetchProtectedText(PRESENCE_URL, { action: 'setHistory', show }));
+    drawHistorySwitch(data.showHistory);
+    say((data.showHistory ? 'เปิด' : 'ปิด') + 'ประวัติ พขร. แล้ว หน้า BBS ที่เปิดอยู่จะเปลี่ยนภายใน 1 นาที');
+  } catch (err) {
+    say(err.message, true);
+  }
+  $('history').disabled = false;
+};
+
 // ===== กราฟ =====
 function columns(id, items) {
   const max = Math.max(1, ...items.map((x) => x.value));
@@ -366,6 +387,7 @@ async function refresh() {
     if (data.people) drawFeed(data.people);
     drawPeople(data.people || []);
     drawCharts(data.stats);
+    if (!$('history').disabled) drawHistorySwitch(data.showHistory);
     say('อัปเดต ' + new Date().toTimeString().slice(0, 8) + ' น.');
   } catch (err) {
     say(err.message, true);

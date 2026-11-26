@@ -5,6 +5,7 @@
  * - แท็บ "history": จำนวนเครื่องต่อหน้าทุก 5 นาที เก็บ 90 วัน
  * - แท็บ "สรุป": สูตรรวมตามคน หน้า ชั่วโมง และชนิดเครื่อง
  * - เครื่องที่ไม่ส่งสัญญาณเกิน 150 วินาทีถูกตัดออก กลับมาใหม่นับเป็นรอบใหม่
+ * - สวิตช์เปิด/ปิดป้ายประวัติพฤติกรรม พขร. ในหน้า BBS: ทุกคนที่ล็อกอินอ่านได้ เปลี่ยนได้เฉพาะ ADMIN_EMAIL
  * - ส่งสัญญาณได้เฉพาะคนที่ล็อกอินเว็บแล้ว (อีเมลมาจากการตรวจ token) ดูได้เฉพาะ ADMIN_EMAIL
  *
  * วิธีติดตั้ง: โครงการ Apps Script ใหม่ (หรือเปิดจาก Google ชีต) → วางโค้ดนี้ทับ → ใส่อีเมลที่ใช้ล็อกอินเว็บใน ADMIN_EMAIL
@@ -37,11 +38,14 @@ function doPost(e) {
   if (!user) {
     return json_({ status: 'error', error: 'unauthorized', message: 'เซสชันหมดอายุหรือไม่มีสิทธิ์ กรุณาล็อกอินใหม่' });
   }
-  if (body.action === 'view') {
+  if (body.action === 'flags') return json_({ status: 'success', showHistory: showHistory_() });
+  if (body.action === 'view' || body.action === 'setHistory') {
     if (!ADMIN_EMAIL || user.email !== ADMIN_EMAIL.trim().toLowerCase()) {
       return json_({ status: 'error', error: 'forbidden', message: 'บัญชีนี้ไม่มีสิทธิ์ดูหน้านี้' });
     }
-    return json_(view_());
+    if (body.action === 'view') return json_(view_());
+    PropertiesService.getScriptProperties().setProperty('showHistory', body.show === true ? 'on' : 'off');
+    return json_({ status: 'success', showHistory: showHistory_() });
   }
   ping_(String(body.device || ''), String(body.page || ''), String(body.kind || ''),
     String(body.os || ''), String(body.browser || ''), user.email);
@@ -50,6 +54,11 @@ function doPost(e) {
 
 function doGet() {
   return json_({ status: 'error', error: 'unauthorized', message: 'ต้องเข้าสู่ระบบผ่านเว็บก่อน' });
+}
+
+// ยังไม่เคยกด = เปิด
+function showHistory_() {
+  return PropertiesService.getScriptProperties().getProperty('showHistory') !== 'off';
 }
 
 function read_() {
@@ -140,6 +149,7 @@ function view_() {
     result.today = { devices: day.devices.length, people: day.emails.length, peak: day.peak, at: day.at };
   }
   result.stats = stats_();
+  result.showHistory = showHistory_();
   return result;
 }
 

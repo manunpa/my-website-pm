@@ -1,4 +1,4 @@
-import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122-cut';
+import { requireLogin, fetchProtectedText, PRESENCE_URL } from './firebase-guard.js?v=20261122-cut';
 import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=10';
 import { readPlans, vehicleNo, sccName } from './bbs-plan.js?v=10';
 import { readHourly, buildHourly } from './bbs-hourly.js?v=4';
@@ -504,15 +504,38 @@ function destinations(v, redraw) {
 // ===== ป้ายประวัติพฤติกรรมข้างชื่อ พขร. (ดูอย่างเดียว) =====
 let behaviorLog = new Map();
 
+// เปิด/ปิดได้จากหน้า Active Users (apps-script/presence.gs) เช็กซ้ำทุกนาที
+let historyLoaded = false;
+
+async function historyAllowed() {
+    if (!PRESENCE_URL) return true;
+    const { showHistory } = JSON.parse(await fetchProtectedText(PRESENCE_URL, { action: 'flags' }));
+    return showHistory !== false;
+}
+
+function setHistory(map) {
+    behaviorLog = map;
+    if (!map.size && $('history-dialog').open) $('history-dialog').close();
+    if (report && !busyEditing()) render();
+}
+
 async function loadHistory() {
+    if (document.visibilityState !== 'visible') return;
     try {
+        if (!(await historyAllowed())) {
+            $('history-note').hidden = true;
+            if (historyLoaded) { historyLoaded = false; setHistory(new Map()); }
+            return;
+        }
+        if (historyLoaded) return;
         const { history: rows } = JSON.parse(await fetchProtectedText(HISTORY_URL));
         if (!Array.isArray(rows)) throw new Error('สคริปต์ยังเป็นเวอร์ชันเก่า');
-        behaviorLog = indexHistory(rows);
-        if (report && !busyEditing()) render();
+        historyLoaded = true;
+        $('history-note').hidden = true;
+        setHistory(indexHistory(rows));
     } catch (err) {
         console.warn('history', err);
-        $('history-note').hidden = false;
+        if (!historyLoaded) $('history-note').hidden = false;
     }
 }
 
@@ -1365,5 +1388,7 @@ requireLogin(async () => {
     for (const id of ['form', 'date', 'shift']) $(id).disabled = false;
     bind();
     loadHistory(); // ไม่ต้องรอ ประวัติมาช้าไม่ขวางการทำงาน
+    setInterval(loadHistory, 60000);
+    document.addEventListener('visibilitychange', loadHistory);
     await load();
 });
