@@ -79,17 +79,21 @@ let data = { title: 'กำลังโหลด...', days: [], week: [], people
 let rounds = []; // ใหม่สุดอยู่บน
 let changes = [];
 
-const dayLabel = (i) => `${data.week[i]} ${data.days[i]}${i < data.days.indexOf(1) ? ' (เดือนก่อน)' : ''}`;
+const dayLabel = (i) => `${data.week[i]} ${data.days[i]}`;
+// ไฟล์มีคอลัมน์วันของเดือนก่อน (มักถูกซ่อนไว้ใน Excel) หน้าเว็บแสดงตั้งแต่วันที่ 1 เท่านั้น
+const monthStart = () => Math.max(0, data.days.indexOf(1));
+const inMonth = (i) => i === undefined || i >= monthStart();
+let shownRounds = [];
 const chip = (c) => `<span class="chip ${CLS[c] || ''}">${esc(c)}</span>`;
 const delta = ([a, b]) => (a === b ? String(b) : `<span class="${b < a ? 'low' : ''}">${a} → ${b}</span>`);
 
 const stamp = (t) => new Date(t).toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
 function renderLog() {
-  if (!rounds.length) { $('log').innerHTML = '<div class="mute">ยังไม่มีการเปลี่ยนแปลง</div>'; return; }
-  const stats = [[rounds.length, 'ครั้งที่แก้'], [changes.length, 'รายการที่เปลี่ยน'], [new Set(changes.map((c) => c.id)).size, 'คนที่โดนเปลี่ยน'], [new Set(changes.filter((c) => c.i !== undefined).map((c) => c.i)).size, 'วันที่กระทบ']];
+  if (!shownRounds.length) { $('log').innerHTML = '<div class="mute">ยังไม่มีการเปลี่ยนแปลง</div>'; return; }
+  const stats = [[shownRounds.length, 'ครั้งที่แก้'], [changes.length, 'รายการที่เปลี่ยน'], [new Set(changes.map((c) => c.id)).size, 'คนที่โดนเปลี่ยน'], [new Set(changes.filter((c) => c.i !== undefined).map((c) => c.i)).size, 'วันที่กระทบ']];
   let html = '<div class="stats">' + stats.map(([v, t]) => `<div><b>${v}</b>${t}</div>`).join('') + '</div>';
-  for (const r of rounds) {
+  for (const r of shownRounds) {
     html += `<div class="round">แก้เมื่อ ${esc(typeof r.when === 'number' ? stamp(r.when) : r.when)} · ${r.list.length} รายการ</div>`;
     html += '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;overflow:auto">';
     html += '<table class="log"><tr><th>ชื่อ</th><th>วันที่</th><th>เดิม → ใหม่</th></tr>' + r.list.map((c) => `<tr><td>${esc(c.name)}</td>` + (c.i === undefined ? `<td colspan="2">${esc(c.text)}</td>` : `<td>${esc(dayLabel(c.i))}</td><td>${chip(c.from)} → ${chip(c.to)}</td>`) + '</tr>').join('') + '</table>';
@@ -115,21 +119,27 @@ const spot = (e) => {
 };
 
 function render() {
-  changes = rounds.flatMap((r) => r.list);
+  shownRounds = rounds
+    .map((r) => ({ ...r, list: r.list.filter((c) => inMonth(c.i)), impact: r.impact.filter((x) => inMonth(x.i)) }))
+    .filter((r) => r.list.length);
+  changes = shownRounds.flatMap((r) => r.list);
+  const from = monthStart();
+  const days = data.days.slice(from);
   const q = $('q').value.trim().toLowerCase();
   const shown = data.people.filter((p) => (p.name + p.group).toLowerCase().includes(q));
   const count = (list, code) => list.filter((c) => c === code).length;
   const we = (i) => (/^(ส|อา)$/.test(data.week[i]) ? ' class="we"' : '');
-  let html = '<thead><tr><th class="name">ชื่อ - สกุล</th><th>กลุ่ม</th>' + data.days.map((d) => `<th>${d}</th>`).join('') + '<th>D</th><th>N</th><th>DO</th><th>AL</th></tr>';
-  html += '<tr><th class="name"></th><th></th>' + data.week.map((w, i) => `<th${we(i)}>${esc(w)}</th>`).join('') + '<th></th><th></th><th></th><th></th></tr></thead><tbody>';
+  let html = '<thead><tr><th class="name">ชื่อ - สกุล</th><th>กลุ่ม</th>' + days.map((d) => `<th>${d}</th>`).join('') + '<th>D</th><th>N</th><th>DO</th><th>AL</th></tr>';
+  html += '<tr><th class="name"></th><th></th>' + days.map((_, i) => `<th${we(i + from)}>${esc(data.week[i + from])}</th>`).join('') + '<th></th><th></th><th></th><th></th></tr></thead><tbody>';
   for (const p of shown) {
-    html += `<tr><td class="name">${esc(p.name)}</td><td>${esc(p.group)}</td>` + p.codes.map((c, i) => {
+    html += `<tr><td class="name">${esc(p.name)}</td><td>${esc(p.group)}</td>` + p.codes.slice(from).map((c, n) => {
+      const i = n + from;
       const k = changes.findIndex((x) => x.id === p.id && x.i === i);
       return `<td class="${CLS[c] || ''}${k >= 0 ? ' chg' : ''}"${k >= 0 ? ` data-k="${k}" title="เดิม ${esc(changes[k].from)}"` : ''}>${esc(c)}</td>`;
-    }).join('') + ['D', 'N', 'DO', 'AL'].map((c) => `<td>${count(p.codes, c)}</td>`).join('') + '</tr>';
+    }).join('') + ['D', 'N', 'DO', 'AL'].map((c) => `<td>${count(p.codes.slice(from), c)}</td>`).join('') + '</tr>';
   }
   for (const [code, label] of [['D', 'กะเช้า'], ['N', 'กะดึก'], ['DO', 'วันหยุด']]) {
-    html += `<tr class="sum"><td class="name">รวม${label}</td><td></td>` + data.days.map((_, i) => `<td>${count(data.people.map((p) => p.codes[i]), code)}</td>`).join('') + '<td></td><td></td><td></td><td></td></tr>';
+    html += `<tr class="sum"><td class="name">รวม${label}</td><td></td>` + days.map((_, i) => `<td>${count(data.people.map((p) => p.codes[i + from]), code)}</td>`).join('') + '<td></td><td></td><td></td><td></td></tr>';
   }
   $('t').innerHTML = html + '</tbody>';
   lock = hover = null; // ตารางถูกวาดใหม่ ตำแหน่งเดิมอาจเป็นคนอื่นแล้ว
