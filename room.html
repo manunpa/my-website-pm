@@ -9,8 +9,8 @@
 <title>Active Users</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#eef0ee;--panel:#fff;--line:#dde0dc;--ink:#14181a;--mute:#667068;--accent:#12805a;--track:#e6eae7;--no:#c0362c;--shadow:0 6px 24px rgba(20,40,30,.07)}
-:root[data-theme=dark]{--bg:#0b0f0e;--panel:#141a19;--line:#25302d;--ink:#e9efec;--mute:#8d9a94;--accent:#3ddc97;--track:#202927;--no:#ff6b5e;--shadow:none;color-scheme:dark}
+:root{--bg:#eef0ee;--panel:#fff;--line:#dde0dc;--ink:#14181a;--mute:#667068;--accent:#12805a;--track:#e6eae7;--no:#c0362c;--shadow:0 6px 24px rgba(20,40,30,.07);--fiber-a:#8a8a84;--fiber-b:#1a1a1a;--fiber-alpha:.32}
+:root[data-theme=dark]{--bg:#0b0f0e;--panel:#141a19;--line:#25302d;--ink:#e9efec;--mute:#8d9a94;--accent:#3ddc97;--track:#202927;--no:#ff6b5e;--shadow:none;--fiber-a:#8d8d88;--fiber-b:#ffffff;color-scheme:dark}
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans Thai',system-ui,sans-serif;line-height:1.5;
   padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
@@ -526,5 +526,6 @@ requireLogin((user) => {
   document.addEventListener('visibilitychange', refresh);
 });
 </script>
+<script src="./ghost-fibers.js?v=3" defer></script>
 </body>
 </html>
