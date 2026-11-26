@@ -907,13 +907,12 @@ function render() {
     if (open) { $('list').replaceChildren(template?.hourly ? hourlyPage(open) : vehiclePage(open)); return; }
 
     const q = $('search').value.trim().toLowerCase();
-    // ยังไม่ตรวจอยู่บนสุด ตามด้วยคันที่ตรวจนานแล้ว
-    const lastAt = (v) => roundDate(byTime(v.rounds).at(-1))?.getTime() || 0;
+    // เรียงตามเบอร์รถ (คันที่มีงานก่อน)
     const shown = report.vehicles.filter((v) => (q
         ? [v.scc, v.plate, v.driver].join(' ').toLowerCase().includes(q)
         : $('show-all').checked || hasWork(v)))
         .sort((x, y) => Number(!hasWork(x)) - Number(!hasWork(y)) ||
-            (template?.hourly ? x.scc.localeCompare(y.scc) : lastAt(x) - lastAt(y)));
+            x.scc.localeCompare(y.scc, undefined, { numeric: true }));
     $('list').replaceChildren(...(shown.length
         ? shown.map(template?.hourly ? hourlyRow : vehicleRow)
         : template ? [el('p', { className: 'empty', textContent: q ? 'ไม่พบรถที่ค้นหา' : 'ยังไม่มีรถที่มีงาน กด “แผนงาน” หรือ “+ รถ”' })] : []));
