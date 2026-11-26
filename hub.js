@@ -361,7 +361,7 @@ function addShiftCard(owner) {
   card.querySelector(".icon").textContent = "📅";
   card.querySelector("strong").textContent = "ตารางวันทำงาน";
   card.querySelector(".label span").textContent = "อัปเดตข้อมูลทุก 06:00:00";
-  grid.appendChild(card);
+  grid.querySelector('a.btn[href="bbs.html"]').after(card); // อยู่ถัดจากบันทึก BBS
   function unlock() {
     card.href = "shifts.html";
     card.classList.remove("locked");
