@@ -4,7 +4,7 @@
  * - แท็บ "รายวัน": จำนวนเครื่อง จำนวนคน และช่วงพีคของแต่ละวัน
  * - แท็บ "history": จำนวนเครื่องต่อหน้าทุก 5 นาที เก็บ 90 วัน
  * - แท็บ "สรุป": สูตรรวมตามคน หน้า ชั่วโมง และชนิดเครื่อง
- * - แท็บ "ประวัติการกระทำ": 1 แถวต่อ 1 การกระทำในหน้า BBS (ตัวหนังสือ ส่งออก/คัดลอก = เขียว, ลบ/ล้าง = แดง) ไม่ลบอัตโนมัติ
+ * - แท็บ "ประวัติการกระทำ": 1 แถวต่อ 1 การกระทำในหน้า BBS (ตัวหนังสือ ส่งออก/คัดลอก = เขียว, ลบ/ล้าง = แดง) เก็บ 30 วัน
  * - เครื่องที่ไม่ส่งสัญญาณเกิน 150 วินาทีถูกตัดออก กลับมาใหม่นับเป็นรอบใหม่
  * - สวิตช์เปิด/ปิดป้ายประวัติพฤติกรรม พขร. ในหน้า BBS: ทุกคนที่ล็อกอินอ่านได้ เปลี่ยนได้เฉพาะ ADMIN_EMAIL
  * - ส่งสัญญาณได้เฉพาะคนที่ล็อกอินเว็บแล้ว (อีเมลมาจากการตรวจ token) ดูได้เฉพาะ ADMIN_EMAIL
@@ -21,6 +21,7 @@ const ADMIN_EMAIL = '';
 const ALIVE_MS = 150000;
 const SNAPSHOT_MS = 5 * 60000;
 const KEEP_DAYS = 90;
+const LOG_KEEP_DAYS = 30; // แท็บ "ประวัติการกระทำ"
 const HEADERS = ['เวลา', 'หน้า', 'จำนวนเครื่อง', 'คอม', 'มือถือ', 'แท็บเล็ต'];
 const SESSION_HEADERS = ['เริ่ม', 'ล่าสุด', 'นาที', 'อีเมล', 'หน้า', 'ชนิดเครื่อง', 'ระบบ', 'บราวเซอร์', 'รหัสเครื่อง'];
 const DAY_HEADERS = ['วันที่', 'จำนวนเครื่อง', 'จำนวนคน', 'พีค (เครื่อง)', 'เวลาพีค'];
@@ -231,7 +232,7 @@ function activity_() {
 
   const sheet = tab_(LOG_TAB, LOG_HEADERS);
   const last = sheet.getLastRow();
-  const n = Math.min(last - 1, 10000);
+  const n = Math.min(last - 1, 50000); // ต้องครอบคลุม 7 วัน (ใช้ทั้งวันราว 5,000 แถวต่อวัน)
   const rows = n > 0 ? sheet.getRange(last - n + 1, 1, n, 5).getDisplayValues() : [];
   const recent = [];
   rows.forEach(function (r) {
@@ -288,8 +289,16 @@ function tab_(name, headers) {
     sheet = book.insertSheet(name);
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.setFrozenRows(1);
+    trim_(sheet, headers.length);
   }
   return sheet;
+}
+
+// ตัดคอลัมน์ว่างท้ายแท็บ (ชีตนับช่องว่างรวมในเพดาน 10 ล้านช่อง) คอลัมน์ที่มีข้อมูลไม่ถูกตัด
+function trim_(sheet, width) {
+  const keep = Math.max(width, sheet.getLastColumn());
+  const extra = sheet.getMaxColumns() - keep;
+  if (extra > 0) sheet.deleteColumns(keep + 1, extra);
 }
 
 // จดจำนวนลงชีตไม่เกินทุก 5 นาที (เรียกขณะถือ lock อยู่)
@@ -318,6 +327,19 @@ function prune_(map, now, props) {
   dropOld_(tab_('history', HEADERS), limit);
   const removed = dropOld_(tab_('การเข้าใช้', SESSION_HEADERS), limit);
   if (removed) Object.keys(map).forEach(function (key) { if (map[key].row) map[key].row -= removed; });
+  dropOldLog_(now);
+}
+
+// ประวัติการกระทำ: คอลัมน์ A เป็นข้อความ yyyy-MM-dd HH:mm:ss จึงเทียบเป็นข้อความได้
+function dropOldLog_(now) {
+  const sheet = tab_(LOG_TAB, LOG_HEADERS);
+  const last = sheet.getLastRow();
+  if (last < 3) return;
+  const limit = Utilities.formatDate(new Date(now - LOG_KEEP_DAYS * 86400000), TZ, 'yyyy-MM-dd HH:mm:ss');
+  const times = sheet.getRange(2, 1, last - 1, 1).getDisplayValues();
+  let old = 0;
+  while (old < times.length - 1 && times[old][0] < limit) old++;
+  if (old) sheet.deleteRows(2, old);
 }
 
 function dropOld_(sheet, limit) {
@@ -343,7 +365,7 @@ function summary_(map) {
   return { status: 'success', total: Object.keys(devices).length, pages: pages };
 }
 
-// ===== ประวัติการใช้งาน (เพิ่มต่อท้ายอย่างเดียว ไม่แก้ ไม่ลบของเดิม) =====
+// ===== ประวัติการใช้งาน (เพิ่มต่อท้ายอย่างเดียว ไม่แก้ของเดิม ของเกิน 30 วันลบใน prune_) =====
 const LOG_TAB = 'ประวัติการกระทำ';
 const LOG_HEADERS = ['เวลาที่ทำ', 'ผู้ใช้', 'กลุ่ม', 'การกระทำ', 'ฟอร์ม', 'วันที่', 'กะ', 'เบอร์รถ', 'รายละเอียด', 'id'];
 const LOG_COLORS = { 'ส่งออก': '#188038', 'ลบ': '#d93025' }; // สีตัวหนังสือ
@@ -448,6 +470,12 @@ function authorize() {
   tab_('การเข้าใช้', SESSION_HEADERS).getRange('A:B').setNumberFormat(TIME_FORMAT);
   tab_('รายวัน', DAY_HEADERS).getRange('A:A').setNumberFormat('dd/mm/yyyy');
   summaryTab_(book);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    [['history', HEADERS], ['การเข้าใช้', SESSION_HEADERS], ['รายวัน', DAY_HEADERS], [LOG_TAB, LOG_HEADERS]]
+      .forEach(function (t) { trim_(tab_(t[0], t[1]), t[1].length); });
+  } finally { lock.releaseLock(); }
   Logger.log('ข้อมูลเก็บที่: ' + book.getUrl());
   Logger.log(ADMIN_EMAIL ? 'ผู้ดูได้: ' + ADMIN_EMAIL : 'ยังไม่ได้ใส่ ADMIN_EMAIL');
 }
