@@ -33,6 +33,7 @@ td.DO,.chip.DO,.key .DO{background:var(--DO);color:var(--DOt)}
 td.AL,.chip.AL,.key .AL{background:var(--AL);color:var(--ALt)}
 td.V,.chip.V,.key .V{background:var(--V);color:var(--Vt)}
 td.L,.chip.L,.key .L{background:var(--L);color:var(--Lt)}
+td.off{background:#d6d6dc}
 td.chg{box-shadow:inset 0 0 0 2px #e5484d;font-weight:600;cursor:pointer}
 #t{cursor:crosshair;user-select:none}
 #t .x{background-image:linear-gradient(rgba(59,130,246,.13),rgba(59,130,246,.13))}
@@ -146,7 +147,7 @@ function render() {
     html += `<tr><td class="name">${esc(p.name)}</td><td>${esc(p.group)}</td>` + cols.map(({ i }) => {
       const c = p.codes[i] || '';
       const k = changes.findIndex((x) => x.id === p.id && x.i === i);
-      return `<td class="${CLS[c] || ''}${k >= 0 ? ' chg' : ''}"${k >= 0 ? ` data-k="${k}" title="เดิม ${esc(changes[k].from)}"` : ''}>${esc(c)}</td>`;
+      return `<td class="${CLS[c] || (!c && i >= 0 ? 'off' : '')}${k >= 0 ? ' chg' : ''}"${k >= 0 ? ` data-k="${k}" title="เดิม ${esc(changes[k].from)}"` : ''}>${esc(c)}</td>`;
     }).join('') + ['D', 'N', 'DO', 'AL'].map((c) => `<td>${count(cols.map(({ i }) => p.codes[i]), c)}</td>`).join('') + '</tr>';
   }
   for (const [code, label] of [['D', 'กะเช้า'], ['N', 'กะดึก'], ['DO', 'วันหยุด']]) {
