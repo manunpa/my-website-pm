@@ -4,7 +4,7 @@
  * - แท็บ "รายวัน": จำนวนเครื่อง จำนวนคน และช่วงพีคของแต่ละวัน
  * - แท็บ "history": จำนวนเครื่องต่อหน้าทุก 5 นาที เก็บ 90 วัน
  * - แท็บ "สรุป": สูตรรวมตามคน หน้า ชั่วโมง และชนิดเครื่อง
- * - แท็บ "ประวัติการกระทำ": 1 แถวต่อ 1 การกระทำในหน้า BBS (ส่งออก/คัดลอก = เขียว, ลบ/ล้าง = แดง) ไม่ลบอัตโนมัติ
+ * - แท็บ "ประวัติการกระทำ": 1 แถวต่อ 1 การกระทำในหน้า BBS (ตัวหนังสือ ส่งออก/คัดลอก = เขียว, ลบ/ล้าง = แดง) ไม่ลบอัตโนมัติ
  * - เครื่องที่ไม่ส่งสัญญาณเกิน 150 วินาทีถูกตัดออก กลับมาใหม่นับเป็นรอบใหม่
  * - สวิตช์เปิด/ปิดป้ายประวัติพฤติกรรม พขร. ในหน้า BBS: ทุกคนที่ล็อกอินอ่านได้ เปลี่ยนได้เฉพาะ ADMIN_EMAIL
  * - ส่งสัญญาณได้เฉพาะคนที่ล็อกอินเว็บแล้ว (อีเมลมาจากการตรวจ token) ดูได้เฉพาะ ADMIN_EMAIL
@@ -346,7 +346,7 @@ function summary_(map) {
 // ===== ประวัติการใช้งาน (เพิ่มต่อท้ายอย่างเดียว ไม่แก้ ไม่ลบของเดิม) =====
 const LOG_TAB = 'ประวัติการกระทำ';
 const LOG_HEADERS = ['เวลาที่ทำ', 'ผู้ใช้', 'กลุ่ม', 'การกระทำ', 'ฟอร์ม', 'วันที่', 'กะ', 'เบอร์รถ', 'รายละเอียด', 'id'];
-const LOG_COLORS = { 'ส่งออก': '#d9ead3', 'ลบ': '#f4cccc' };
+const LOG_COLORS = { 'ส่งออก': '#188038', 'ลบ': '#d93025' }; // สีตัวหนังสือ
 
 function log_(entries, email) {
   if (!Array.isArray(entries) || !entries.length) return;
@@ -371,9 +371,23 @@ function log_(entries, email) {
   if (missing > 0) sheet.insertRowsAfter(sheet.getMaxRows(), missing);
   const range = sheet.getRange(start, 1, rows.length, LOG_HEADERS.length);
   range.setNumberFormat('@').setValues(rows);
-  range.setBackgrounds(rows.map(function (r) {
-    return LOG_HEADERS.map(function () { return LOG_COLORS[r[2]] || '#ffffff'; });
+  paint_(range, rows.map(function (r) { return r[2]; }));
+}
+
+function paint_(range, groups) {
+  range.setFontColors(groups.map(function (group) {
+    return LOG_HEADERS.map(function () { return LOG_COLORS[group] || '#000000'; });
   }));
+}
+
+// เรียกครั้งเดียวจากหน้า Apps Script: เปลี่ยนแถวเก่าที่เคยลงสีพื้นเป็นสีตัวหนังสือ
+function recolorLog() {
+  const sheet = tab_(LOG_TAB, LOG_HEADERS);
+  const n = sheet.getLastRow() - 1;
+  if (n < 1) return;
+  const range = sheet.getRange(2, 1, n, LOG_HEADERS.length);
+  range.setBackground(null);
+  paint_(range, sheet.getRange(2, 3, n, 1).getDisplayValues().map(function (r) { return r[0]; }));
 }
 
 // ข้อความที่ขึ้นต้นเหมือนสูตรต้องเก็บเป็นข้อความ
