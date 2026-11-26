@@ -156,6 +156,7 @@ function view_() {
     result.today = { devices: day.devices.length, people: day.emails.length, peak: day.peak, at: day.at };
   }
   result.stats = stats_();
+  result.activity = activity_();
   result.showHistory = showHistory_();
   return result;
 }
@@ -209,6 +210,62 @@ function stats_() {
     pages: top(pages)
   };
   cache.put('stats', JSON.stringify(result), 120);
+  return result;
+}
+
+// สรุปแท็บ "ประวัติการกระทำ" ให้แดชบอร์ด (จำไว้ 1 นาที): วันนี้, 7 วัน และ 30 รายการล่าสุด
+const LOG_GROUPS = ['ส่งออก', 'ลบ', 'นำเข้า', 'แก้ไข', 'ดู']; // ลำดับของตัวเลขใน counts ทุกชุด
+
+function activity_() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('activity');
+  if (hit) return JSON.parse(hit);
+
+  const date = function (back) { return Utilities.formatDate(new Date(Date.now() - back * 86400000), TZ, 'yyyy-MM-dd'); };
+  const zero = function () { return LOG_GROUPS.map(function () { return 0; }); };
+  const days = [6, 5, 4, 3, 2, 1, 0].map(function (back) { return { date: date(back), counts: zero() }; });
+  const today = days[6].date;
+  const range = function () { return { counts: zero(), users: {}, forms: {}, hours: [] }; };
+  const ranges = { today: range(), week: range() };
+  Object.keys(ranges).forEach(function (key) { for (let h = 0; h < 24; h++) ranges[key].hours.push(0); });
+
+  const sheet = tab_(LOG_TAB, LOG_HEADERS);
+  const last = sheet.getLastRow();
+  const n = Math.min(last - 1, 10000);
+  const rows = n > 0 ? sheet.getRange(last - n + 1, 1, n, 5).getDisplayValues() : [];
+  const recent = [];
+  rows.forEach(function (r) {
+    const day = days.filter(function (d) { return d.date === r[0].slice(0, 10); })[0];
+    const g = LOG_GROUPS.indexOf(r[2]);
+    if (!day || g < 0) return;
+    day.counts[g]++;
+    recent.push(r);
+    (day.date === today ? [ranges.today, ranges.week] : [ranges.week]).forEach(function (to) {
+      to.counts[g]++;
+      to.hours[Number(r[0].slice(11, 13)) || 0]++;
+      [[to.users, r[1]], [to.forms, r[4] || '(ไม่ระบุ)']].forEach(function (pair) {
+        const map = pair[0];
+        const name = '=' + pair[1]; // กันชื่อชนกับคุณสมบัติของ object
+        if (!map[name]) map[name] = zero();
+        map[name][g]++;
+      });
+    });
+  });
+
+  const total = function (counts) { return counts.reduce(function (a, b) { return a + b; }, 0); };
+  const list = function (map) {
+    return Object.keys(map).map(function (name) { return { name: name.slice(1), counts: map[name] }; })
+      .sort(function (a, b) { return total(b.counts) - total(a.counts); }).slice(0, 10);
+  };
+  Object.keys(ranges).forEach(function (key) {
+    ranges[key].users = list(ranges[key].users);
+    ranges[key].forms = list(ranges[key].forms);
+  });
+  // แถวต่อท้ายตามเวลาที่ส่งถึง ไม่ใช่เวลาที่ทำ (เครื่องที่ส่งช้า) จึงเรียงใหม่
+  recent.sort(function (a, b) { return a[0] < b[0] ? 1 : a[0] > b[0] ? -1 : 0; });
+
+  const result = { today: today, days: days, ranges: ranges, latest: recent.slice(0, 30) };
+  try { cache.put('activity', JSON.stringify(result), 60); } catch (err) {}
   return result;
 }
 

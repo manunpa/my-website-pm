@@ -109,6 +109,28 @@ button.blip.picked{outline:2px solid #fff;outline-offset:4px;animation:none}
 .rank .bar b{font-weight:500;font-size:13px;white-space:nowrap}
 .rank .bar span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
+.log-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin:22px 0 12px}
+.log-head h2{margin:0;font-size:16px;color:var(--ink)}
+.cards{display:grid;gap:10px;grid-template-columns:repeat(5,minmax(0,1fr))}
+@media (max-width:520px){.cards{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.g0{--g:#10b981;--g2:#6ee7b7}.g1{--g:#f43f5e;--g2:#fda4af}.g2{--g:#3b82f6;--g2:#93c5fd}.g3{--g:#f59e0b;--g2:#fcd34d}.g4{--g:#8b5cf6;--g2:#c4b5fd}
+.cards .stat{position:relative;overflow:hidden;background:linear-gradient(160deg,color-mix(in srgb,var(--g) 18%,var(--panel)),var(--panel) 70%);border-color:color-mix(in srgb,var(--g) 35%,var(--line))}
+.cards .stat::before{content:'';position:absolute;left:0;right:0;top:0;height:4px;background:linear-gradient(90deg,var(--g),var(--g2))}
+.cards .stat b{color:var(--g)}
+.keys{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--mute);margin-bottom:8px}
+.keys i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;background:linear-gradient(135deg,var(--g2),var(--g))}
+.colbar s{display:flex;flex-direction:column-reverse;gap:2px;width:100%;max-width:38px;text-decoration:none;border-radius:8px 8px 3px 3px;overflow:hidden;transform-origin:bottom;animation:grow .7s cubic-bezier(.2,.8,.2,1) both}
+.colbar s b{display:block;flex:none;background:linear-gradient(90deg,var(--g),var(--g2))}
+.colbar:hover s{filter:brightness(1.12) saturate(1.15)}
+#activity .cols{background:repeating-linear-gradient(to top,var(--line) 0 1px,transparent 1px 36px) 0 -18px}
+#logHours .colbar i{background:linear-gradient(180deg,#22d3ee,#3b82f6 60%,#8b5cf6);border-radius:8px 8px 3px 3px}
+.scroll{overflow-x:auto}
+.table{width:100%;border-collapse:collapse;font-size:13px}
+.table th{text-align:left;font-weight:600;color:var(--mute)}
+.table th,.table td{padding:6px 8px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.table tr.g0,.table tr.g1{background:color-mix(in srgb,var(--g) 18%,transparent)}
+
+@keyframes grow{from{transform:scaleY(0)}}
 @keyframes spin{to{transform:rotate(1turn)}}
 @keyframes blink{0%,100%{opacity:1;scale:1.35}35%,85%{opacity:.55;scale:1}}
 @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,currentColor 70%,transparent)}100%{box-shadow:0 0 0 8px transparent}}
@@ -148,6 +170,19 @@ button.blip.picked{outline:2px solid #fff;outline-offset:4px;animation:none}
     <section class="panel wide"><h2>7 วันล่าสุด (จำนวนเครื่อง)</h2><div class="cols" id="days"></div><p class="tip" id="daysTip"></p></section>
     <section class="panel rank"><h2>คนใช้นานสุด (7 วัน)</h2><div id="topUsers"></div></section>
     <section class="panel rank"><h2>หน้ายอดนิยม (7 วัน)</h2><div id="topPages"></div></section>
+  </div>
+  <div id="activity" hidden>
+    <div class="log-head"><h2>ประวัติการกระทำหน้า BBS</h2><span>
+      <button class="tool" type="button" data-range="today" aria-pressed="true">วันนี้</button>
+      <button class="tool" type="button" data-range="week" aria-pressed="false">7 วัน</button></span></div>
+    <div class="cards" id="logCards"></div>
+    <div class="charts">
+      <section class="panel wide"><h2>การกระทำรายวัน (7 วันล่าสุด)</h2><div class="keys" id="logKeys"></div><div class="cols" id="logDays"></div><p class="tip" id="logDaysTip"></p></section>
+      <section class="panel wide"><h2>ช่วงเวลาที่ใช้งาน (ครั้ง)</h2><div class="cols" id="logHours"></div><p class="tip" id="logHoursTip"></p></section>
+      <section class="panel wide"><h2>สรุปรายผู้ใช้</h2><div class="scroll" id="logUsers"></div></section>
+      <section class="panel wide"><h2>สรุปรายฟอร์ม</h2><div class="scroll" id="logForms"></div></section>
+      <section class="panel wide"><h2>รายการล่าสุด</h2><div class="scroll" id="logLatest"></div></section>
+    </div>
   </div>
   <footer><p id="state" role="status">กำลังโหลด…</p><span class="next" id="next"></span></footer>
 </div>
@@ -365,6 +400,69 @@ function drawCharts(stats) {
   ranking('topPages', stats.pages, (name) => NAMES[name] || name);
 }
 
+// ===== ประวัติการกระทำหน้า BBS =====
+const GROUPS = ['ส่งออก', 'ลบ', 'นำเข้า', 'แก้ไข', 'ดู']; // ลำดับเดียวกับ LOG_GROUPS ใน presence.gs
+let activity = null;
+let span = 'today';
+const sum = (list) => list.reduce((a, b) => a + b, 0);
+const shortDay = (date) => date.slice(8) + '/' + date.slice(5, 7);
+
+function table(id, head, rows) {
+  if (!rows.length) { $(id).replaceChildren(el('p', { className: 'empty', textContent: 'ยังไม่มีข้อมูล' })); return; }
+  const line = (cells, tag, cls = '') => el('tr', { className: cls }, ...cells.map((x) => el(tag, { textContent: x })));
+  $(id).replaceChildren(el('table', { className: 'table' },
+    el('thead', {}, line(head, 'th')), el('tbody', {}, ...rows.map((r) => line(r.cells, 'td', r.cls)))));
+}
+
+// แท่งซ้อนแยกสีตามกลุ่ม
+function stacked(days) {
+  const max = Math.max(1, ...days.map((d) => sum(d.counts)));
+  const tip = $('logDaysTip');
+  const drawn = !!$('logDays').firstChild;
+  $('logDays').replaceChildren(...days.map((d) => {
+    const text = shortDay(d.date) + ' · ' + GROUPS.map((g, i) => g + ' ' + d.counts[i]).join(' · ');
+    const stack = el('s', {}, ...d.counts.map((n, i) => {
+      const part = el('b', { className: 'g' + i });
+      part.style.height = (n / max) * 100 + 'px';
+      return part;
+    }));
+    if (drawn) stack.style.animation = 'none';
+    const col = el('div', { className: 'colbar', title: text },
+      el('em', { textContent: sum(d.counts) || '' }), stack, el('u', { textContent: shortDay(d.date) }));
+    col.onclick = col.onmouseenter = () => { tip.textContent = text; };
+    return col;
+  }));
+  if (!tip.textContent) tip.textContent = 'ชี้หรือแตะแท่งเพื่อดูตัวเลข';
+}
+
+function drawActivity() {
+  $('activity').hidden = !activity; // สคริปต์ยังเป็นเวอร์ชันเก่า ไม่แสดงส่วนนี้
+  if (!activity) return;
+  const data = activity.ranges[span];
+  $('logCards').replaceChildren(...GROUPS.map((g, i) => el('div', { className: 'stat g' + i },
+    el('b', { textContent: data.counts[i] }), el('span', { textContent: g }))));
+  $('logKeys').replaceChildren(...GROUPS.map((g, i) => el('span', { className: 'g' + i }, el('i'), g)));
+  stacked(activity.days);
+  columns('logHours', data.hours.map((value, h) => ({ value, label: h % 3 ? '' : String(h), tip: h + ':00–' + h + ':59 น. · ' + value + ' ครั้ง' })));
+  const counted = (list, label) => list.map((x) => ({ cells: [label(x.name), ...x.counts, sum(x.counts)] }));
+  table('logUsers', ['ผู้ใช้', ...GROUPS, 'รวม'], counted(data.users, (name) => name.split('@')[0]));
+  table('logForms', ['ฟอร์ม', ...GROUPS, 'รวม'], counted(data.forms, (name) => name));
+  table('logLatest', ['เวลา', 'ผู้ใช้', 'กลุ่ม', 'การกระทำ', 'ฟอร์ม'], activity.latest
+    .filter((r) => span === 'week' || r[0].startsWith(activity.today))
+    .map((r) => ({
+      cls: 'g' + GROUPS.indexOf(r[2]),
+      cells: [(span === 'week' ? shortDay(r[0].slice(0, 10)) + ' ' : '') + r[0].slice(11, 16), r[1].split('@')[0], r[2], r[3], r[4]]
+    })));
+}
+
+for (const node of document.querySelectorAll('[data-range]')) {
+  node.onclick = () => {
+    span = node.dataset.range;
+    for (const other of document.querySelectorAll('[data-range]')) other.setAttribute('aria-pressed', other === node);
+    drawActivity();
+  };
+}
+
 let uid = '';
 
 async function refresh() {
@@ -387,6 +485,8 @@ async function refresh() {
     if (data.people) drawFeed(data.people);
     drawPeople(data.people || []);
     drawCharts(data.stats);
+    activity = data.activity || null;
+    drawActivity();
     if (!$('history').disabled) drawHistorySwitch(data.showHistory);
     say('อัปเดต ' + new Date().toTimeString().slice(0, 8) + ' น.');
   } catch (err) {
