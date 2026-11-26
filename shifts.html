@@ -84,6 +84,18 @@ const dayLabel = (i) => `${data.week[i]} ${data.days[i]}`;
 const monthStart = () => Math.max(0, data.days.indexOf(1));
 const inMonth = (i) => i === undefined || i >= monthStart();
 let shownRounds = [];
+const WEEKDAYS = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+// คอลัมน์ยึดตามปฏิทินของเดือนที่เลือก (m2569-11 = 30 วัน) วันที่ไฟล์ไม่มีจะเป็นช่องว่าง (i = -1)
+function columns() {
+  const from = monthStart();
+  const key = $('month').value.match(/^m(\d{4})-(\d\d)$/);
+  if (!key) return data.days.slice(from).map((d, n) => ({ d, i: n + from, w: data.week[n + from] }));
+  const year = key[1] - 543;
+  const month = key[2] - 1;
+  return Array.from({ length: new Date(year, month + 1, 0).getDate() }, (_, n) => ({
+    d: n + 1, i: data.days.indexOf(n + 1, from), w: WEEKDAYS[new Date(year, month, n + 1).getDay()],
+  }));
+}
 const chip = (c) => `<span class="chip ${CLS[c] || ''}">${esc(c)}</span>`;
 const delta = ([a, b]) => (a === b ? String(b) : `<span class="${b < a ? 'low' : ''}">${a} → ${b}</span>`);
 
@@ -123,23 +135,22 @@ function render() {
     .map((r) => ({ ...r, list: r.list.filter((c) => inMonth(c.i)), impact: r.impact.filter((x) => inMonth(x.i)) }))
     .filter((r) => r.list.length);
   changes = shownRounds.flatMap((r) => r.list);
-  const from = monthStart();
-  const days = data.days.slice(from);
+  const cols = columns();
   const q = $('q').value.trim().toLowerCase();
   const shown = data.people.filter((p) => (p.name + p.group).toLowerCase().includes(q));
   const count = (list, code) => list.filter((c) => c === code).length;
-  const we = (i) => (/^(ส|อา)$/.test(data.week[i]) ? ' class="we"' : '');
-  let html = '<thead><tr><th class="name">ชื่อ - สกุล</th><th>กลุ่ม</th>' + days.map((d) => `<th>${d}</th>`).join('') + '<th>D</th><th>N</th><th>DO</th><th>AL</th></tr>';
-  html += '<tr><th class="name"></th><th></th>' + days.map((_, i) => `<th${we(i + from)}>${esc(data.week[i + from])}</th>`).join('') + '<th></th><th></th><th></th><th></th></tr></thead><tbody>';
+  const we = (w) => (/^(ส|อา)$/.test(w) ? ' class="we"' : '');
+  let html = '<thead><tr><th class="name">ชื่อ - สกุล</th><th>กลุ่ม</th>' + cols.map((c) => `<th>${c.d}</th>`).join('') + '<th>D</th><th>N</th><th>DO</th><th>AL</th></tr>';
+  html += '<tr><th class="name"></th><th></th>' + cols.map((c) => `<th${we(c.w)}>${esc(c.w)}</th>`).join('') + '<th></th><th></th><th></th><th></th></tr></thead><tbody>';
   for (const p of shown) {
-    html += `<tr><td class="name">${esc(p.name)}</td><td>${esc(p.group)}</td>` + p.codes.slice(from).map((c, n) => {
-      const i = n + from;
+    html += `<tr><td class="name">${esc(p.name)}</td><td>${esc(p.group)}</td>` + cols.map(({ i }) => {
+      const c = p.codes[i] || '';
       const k = changes.findIndex((x) => x.id === p.id && x.i === i);
       return `<td class="${CLS[c] || ''}${k >= 0 ? ' chg' : ''}"${k >= 0 ? ` data-k="${k}" title="เดิม ${esc(changes[k].from)}"` : ''}>${esc(c)}</td>`;
-    }).join('') + ['D', 'N', 'DO', 'AL'].map((c) => `<td>${count(p.codes.slice(from), c)}</td>`).join('') + '</tr>';
+    }).join('') + ['D', 'N', 'DO', 'AL'].map((c) => `<td>${count(cols.map(({ i }) => p.codes[i]), c)}</td>`).join('') + '</tr>';
   }
   for (const [code, label] of [['D', 'กะเช้า'], ['N', 'กะดึก'], ['DO', 'วันหยุด']]) {
-    html += `<tr class="sum"><td class="name">รวม${label}</td><td></td>` + days.map((_, i) => `<td>${count(data.people.map((p) => p.codes[i + from]), code)}</td>`).join('') + '<td></td><td></td><td></td><td></td></tr>';
+    html += `<tr class="sum"><td class="name">รวม${label}</td><td></td>` + cols.map(({ i }) => `<td>${i < 0 ? '' : count(data.people.map((p) => p.codes[i]), code)}</td>`).join('') + '<td></td><td></td><td></td><td></td></tr>';
   }
   $('t').innerHTML = html + '</tbody>';
   lock = hover = null; // ตารางถูกวาดใหม่ ตำแหน่งเดิมอาจเป็นคนอื่นแล้ว
