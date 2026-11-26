@@ -361,16 +361,17 @@ function addShiftCard(owner) {
   card.querySelector(".icon").textContent = "📅";
   card.querySelector("strong").textContent = "ตารางวันทำงาน";
   card.querySelector(".label span").textContent = "อัปเดตข้อมูลทุก 06:00:00";
-  card.classList.remove("beta"); // ก๊อปมาจากการ์ด BBS ที่ติดป้ายกำลังพัฒนา
   grid.appendChild(card);
   function unlock() {
     card.href = "shifts.html";
     card.classList.remove("locked");
+    card.classList.add("running");
     card.removeAttribute("aria-disabled");
     card.querySelector(".icon").textContent = "📅";
   }
   if (owner) { unlock(); return; }
   card.removeAttribute("href");
+  card.classList.remove("running"); // ล็อกอยู่ยังไม่ขึ้นป้าย Active
   card.classList.add("locked");
   card.setAttribute("aria-disabled", "true");
   card.querySelector(".icon").textContent = "🔒";

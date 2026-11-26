@@ -295,7 +295,14 @@
   }
   .label span { display: block; font-size: .82rem; color: var(--muted); font-weight: 300; }
   /* ป้าย "กำลังพัฒนา"/"เร็ว ๆ นี้" ห้ามถูกตัด: ถ้าที่ไม่พอให้ป้ายขึ้นบรรทัดใหม่ทั้งป้าย */
-  .btn.beta .label strong, .btn.soon .label strong { white-space: normal; overflow: visible; }
+  .btn.beta .label strong, .btn.soon .label strong, .btn.running .label strong { white-space: normal; overflow: visible; }
+  /* หน้าที่ใช้งานอยู่: ป้าย "Active" สีเขียว จุดกระจายวง กรอบป้ายเรืองเป็นจังหวะ */
+  .btn.running .label strong::after { content: "Active"; display: inline-block; position: relative; margin-left: 6px; padding: 1px 8px 1px 20px; border-radius: 999px; font-size: 10px; font-weight: 600; line-height: 1.5; white-space: nowrap; color: #15803d; border: 1px solid #22c55e; vertical-align: 1px;
+    background: radial-gradient(circle at 11px 50%, #22c55e 3px, transparent 3.5px); animation: run-glow 1.8s ease-in-out infinite; }
+  .btn.running .label strong { position: relative; }
+  :root[data-theme="dark"] .btn.running .label strong::after { color: #4ade80; }
+  @keyframes run-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,.55); } 70% { box-shadow: 0 0 0 5px rgba(34,197,94,0); } }
+  @media (prefers-reduced-motion: reduce) { .btn.running .label strong::after { animation: none; } }
   .btn.beta .label strong::after, .btn.soon .label strong::after { display: inline-block; white-space: nowrap; line-height: 1.5; }
 
   /* ลูกศรเลื่อนเข้ามาตอน hover */
@@ -396,14 +403,9 @@
         <div class="label"><strong>Mileage Analysis</strong><span>ทดสอบการดึงข้อมูลรายงาน</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn beta" data-cat="tool" data-kw="bbs พฤติกรรม คนขับ พขร cctv บันทึก รายงาน ฟอร์ม" href="bbs.html">
+      <a class="btn running" data-cat="tool" data-kw="bbs พฤติกรรม คนขับ พขร cctv บันทึก รายงาน ฟอร์ม" href="bbs.html">
         <div class="icon">📝</div>
         <div class="label"><strong>บันทึก BBS</strong><span>ติดตามพฤติกรรม พขร.</span></div>
-        <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
-      </a>
-      <a class="btn soon" data-cat="tool" data-kw="sos ฉุกเฉิน รายงาน" aria-disabled="true" title="ยังไม่เปิดใช้งาน" data-soon="sos-dashboard.html">
-        <div class="icon">📑</div>
-        <div class="label"><strong>Test SOS</strong><span>ทดสอบการดึงข้อมูลรายงาน</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
       <a class="btn beta" data-cat="tool" data-kw="จำลอง simulator มุมอับ ขับรถ เกม รถบรรทุก หัวลาก รถพ่วง กำลังพัฒนา" href="truck_blind_spot_simulator.html" title="เวอร์ชันทดลอง กำลังพัฒนา">
@@ -607,7 +609,7 @@
 </div>
 
 <!-- เรียกใช้งานไฟล์ JavaScript ภายนอกที่แยกออกมา -->
-<script type="module" src="./hub.js?v=shifts-lock1"></script>
+<script type="module" src="./hub.js?v=shifts-active1"></script>
 <!-- ลูกเล่นเทศกาลลอยกระทง (ชั่วคราว เปิด/ปิดเองตามวันที่ในไฟล์) -->
 <!-- พื้นหลังแถบเส้นใยจุดบิดพลิ้ว -->
 <script src="./ghost-fibers.js?v=3" defer></script>
