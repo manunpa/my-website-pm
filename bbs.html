@@ -51,6 +51,10 @@ section p{margin:0 0 8px}
 .finish{position:sticky;bottom:0;z-index:2;display:flex;gap:14px;align-items:center;justify-content:space-between;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px 10px 18px;box-shadow:0 -4px 14px rgba(0,0,0,.07)}
 .finish .actions{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
 .finish .btn{flex:none;padding:9px 16px}
+.reset{flex:none;background:none;border:0;padding:6px 0;font-size:12px;color:var(--mute);text-decoration:underline;cursor:pointer}
+.reset:hover{color:var(--no)}
+.reset:disabled{opacity:.45;cursor:default}
+@media(max-width:560px){.finish{flex-wrap:wrap;row-gap:8px}.finish .actions{width:100%}.reset{flex-basis:100%;text-align:left}}
 #summary-note{margin:0 0 6px}
 #alert-input,#alert-output,#summary-extra,#summary-text{width:100%;font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;resize:vertical}
 .card{background:var(--bg)}
@@ -212,12 +216,12 @@ dialog em{font-style:normal;color:var(--no)}
   </section>
 
   <section class="finish">
+    <button class="reset" id="reset-button" type="button" title="ล้างแผนงานและผลตรวจของวันและกะที่เลือก" disabled>ล้างแล้วเริ่มใหม่</button>
     <div class="save-state" id="status" role="status" hidden>
       <span class="dot" aria-hidden="true"></span>
       <span><b id="status-title"></b><small id="status-detail"></small></span>
     </div>
     <span class="actions">
-      <button class="btn" id="reset-button" type="button" style="color:var(--no);border-color:var(--no)"title="ล้างแผนงานและผลตรวจของวันและกะที่เลือก" disabled>ล้างแล้วเริ่มใหม่</button>
       <button class="btn" id="summary-button" type="button" disabled>คัดลอกสรุป</button>
       <button class="btn primary" id="export" type="button" disabled>ส่งออกรายงาน Excel</button>
     </span>
