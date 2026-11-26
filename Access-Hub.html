@@ -303,6 +303,15 @@
   :root[data-theme="dark"] .btn.running .label strong::after { color: #4ade80; }
   @keyframes run-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,.55); } 70% { box-shadow: 0 0 0 5px rgba(34,197,94,0); } }
   @media (prefers-reduced-motion: reduce) { .btn.running .label strong::after { animation: none; } }
+  /* AFDD2027: ป้ายแบบ Active แต่เป็นชื่อผู้พัฒนา + แสงกวาดผ่านป้าย */
+  .btn.running.nithi .label strong::after { content: "ติดต่อคุณนิธิ"; color: #1d4ed8; border-color: #3b82f6;
+    background: radial-gradient(circle at 11px 50%, #3b82f6 3px, transparent 3.5px),
+      linear-gradient(110deg, transparent 35%, rgba(59,130,246,.35) 50%, transparent 65%) 0 0 / 250% 100%;
+    animation: nithi-glow 1.8s ease-in-out infinite, nithi-shine 2.4s linear infinite; }
+  :root[data-theme="dark"] .btn.running.nithi .label strong::after { color: #60a5fa; }
+  @keyframes nithi-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,.55); } 70% { box-shadow: 0 0 0 5px rgba(59,130,246,0); } }
+  @keyframes nithi-shine { from { background-position: 0 0, 100% 0; } to { background-position: 0 0, -66% 0; } }
+  @media (prefers-reduced-motion: reduce) { .btn.running.nithi .label strong::after { animation: none; } }
   .btn.beta .label strong::after, .btn.soon .label strong::after { display: inline-block; white-space: nowrap; line-height: 1.5; }
 
   /* ลูกศรเลื่อนเข้ามาตอน hover */
@@ -408,7 +417,7 @@
         <div class="label"><strong>Mileage Analysis</strong><span>ทดสอบการดึงข้อมูลรายงาน</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
       </a>
-      <a class="btn" data-cat="tool" data-kw="afdd afdd2027 alarm response แจ้งเตือน สัญญาณเตือน นิธิ" href="https://22-pcs001.tail8b0d5b.ts.net/login.html" target="_blank" rel="noopener">
+      <a class="btn running nithi" data-cat="tool" data-kw="afdd afdd2027 alarm response แจ้งเตือน สัญญาณเตือน นิธิ" href="https://22-pcs001.tail8b0d5b.ts.net/login.html" target="_blank" rel="noopener">
         <div class="icon">🚨</div>
         <div class="label"><strong>AFDD2027</strong><span>Alarm Response System · พัฒนาโดยคุณนิธิ อภิบาลสมุทร</span></div>
         <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
