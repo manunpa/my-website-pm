@@ -3,7 +3,7 @@
 // - รอบที่ลบ: จดไว้ใน report.gone ไม่ให้เครื่องอื่นเอากลับมา
 // - ข้อมูลรถ (คนขับ งาน สถานะ): เอาของที่แก้ล่าสุดทั้งชุดของคันนั้น
 
-const INFO = ['plate', 'driver', 'risk', 'gps', 'cctv', 'trips', 'dest', 'changes', 'pinned'];
+const INFO = ['plate', 'driver', 'risk', 'gps', 'cctv', 'trips', 'dest', 'changes', 'pinned', 'driver2', 'remark'];
 
 // เรียง key ก่อนเทียบ ข้อมูลเดียวกันแต่ลำดับต่างต้องถือว่าเท่ากัน
 const stable = (value) => JSON.stringify(value, (key, v) => (v && typeof v === 'object' && !Array.isArray(v)

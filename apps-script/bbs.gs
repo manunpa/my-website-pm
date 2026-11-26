@@ -4,6 +4,7 @@
  * ฟอร์มต้นแบบ : ไฟล์ .xlsx ในโฟลเดอร์ Drive ตาม FOLDER_PATH (อ่านอย่างเดียว ไม่แก้ไฟล์)
  * แท็บ reports : 1 แถวต่อ ฟอร์ม/วัน/กะ (ข้อมูลทั้งรายงาน ใช้โหลดกลับขึ้นเว็บ)
  * แท็บ rounds  : 1 แถวต่อ 1 รอบตรวจ (อ่าน/กรอง/ทำสถิติได้ในชีต)
+ * แท็บ rounds NPM : 1 แถวต่อ 1 ชั่วโมงที่ตรวจ ของฟอร์มรายชั่วโมง
  * ทั้งสองแท็บสร้างให้เองครั้งแรกที่บันทึก
  *
  * วิธีติดตั้ง: สร้าง Google ชีตใหม่ → ส่วนขยาย → Apps Script → วางโค้ดนี้ทับ → บันทึก
@@ -108,6 +109,8 @@ function getForm_(id) {
 const CHUNK = 45000; // 1 ช่องในชีตเก็บได้ไม่เกิน 50,000 ตัวอักษร
 const ROUND_HEADERS = ['key', 'ฟอร์ม', 'วันที่', 'กะ', 'SCC', 'ทะเบียน', 'พขร.', 'เวลา', 'สถานที่', 'ผ่าน', 'ไม่ผ่าน', 'หมายเหตุ'];
 
+const HOURLY_HEADERS = ['key', 'ฟอร์ม', 'วันที่', 'กะ', 'ทะเบียน', 'พขร.', 'ชั่วโมง', 'เวลาที่ดู', 'ผล', 'หมายเหตุ'];
+
 function tab_(name, headers) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(name);
@@ -152,9 +155,19 @@ function save_(key, doc, email) {
 
 // แก้เฉพาะแถวของ ฟอร์ม/วัน/กะ นี้ ไม่แตะข้อมูลอื่น
 function writeRounds_(key, report) {
-  const sheet = tab_('rounds', ROUND_HEADERS);
+  // ฟอร์มรายชั่วโมง (NPM) แยกแท็บของตัวเองในชีตไฟล์เดียวกัน
+  const hourly = report.layout === 'hourly';
+  const headers = hourly ? HOURLY_HEADERS : ROUND_HEADERS;
+  const sheet = tab_(hourly ? 'rounds NPM' : 'rounds', headers);
   const rows = [];
   report.vehicles.forEach(function (v) {
+    if (hourly) {
+      v.rounds.forEach(function (r) {
+        rows.push([key, report.formName || '', report.date, report.shift, v.scc,
+          r.who === 2 ? v.driver2 : v.driver, r.hour, r.time, r.place, r.note || ''].map(safe_));
+      });
+      return;
+    }
     v.rounds.forEach(function (r) {
       const marks = Object.keys(r.marks || {});
       rows.push([key, report.formName || '', report.date, report.shift, v.scc, v.plate, v.driver, r.time, r.place,
@@ -177,7 +190,7 @@ function writeRounds_(key, report) {
   const from = sheet.getLastRow() + 1;
   const missing = from + rows.length - 1 - sheet.getMaxRows();
   if (missing > 0) sheet.insertRowsAfter(sheet.getMaxRows(), missing);
-  sheet.getRange(from, 1, rows.length, ROUND_HEADERS.length).setNumberFormat('@').setValues(rows);
+  sheet.getRange(from, 1, rows.length, headers.length).setNumberFormat('@').setValues(rows);
 }
 
 // ข้อความที่ขึ้นต้นเหมือนสูตรต้องเก็บเป็นข้อความ

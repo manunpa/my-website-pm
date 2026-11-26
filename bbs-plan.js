@@ -11,7 +11,13 @@ const SCC = /^(SCC)?\s*(\d{3,4})(\s*S)?$/i;
 const SHIPMENTS = /^\d{8,}(\s*\/+\s*\d{8,})*$/;
 
 /** เลขรถสำหรับจับคู่: "SCC7803 S" และ "7803" คือคันเดียวกัน */
-export const vehicleNo = (text) => SCC.exec(String(text || '').trim())?.[2] || '';
+// NPM ใช้ทะเบียน (60-1041) เป็นเลขรถ
+const PLATE = /^\d{2}-\d{4}$/;
+export const vehicleNo = (text) => {
+    const s = String(text || '').trim();
+    return PLATE.test(s) ? s : SCC.exec(s)?.[2] || '';
+};
+export const sccName = (no) => (PLATE.test(no) ? no : 'SCC' + no);
 
 const iso = (y, m, d) => [y > 2400 ? y - 543 : y, m, d].map((n) => String(n).padStart(2, '0')).join('-');
 
@@ -19,7 +25,7 @@ const iso = (y, m, d) => [y > 2400 ? y - 543 : y, m, d].map((n) => String(n).pad
 function headerDate(rows) {
     const texts = rows.filter((r) => r.n <= 3).flatMap((r) => [...r.cells.values()]);
     for (const text of texts) {
-        let m = /(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})/.exec(text);
+        let m = /(\d{1,2})\s*[/\-.]\s*(\d{1,2})\s*[/\-.]\s*(\d{4})/.exec(text);
         if (m) return iso(Number(m[3]), Number(m[2]), Number(m[1]));
         m = new RegExp('(\\d{1,2})\\s*(' + THAI_MONTHS.join('|') + ')\\s*(?:พ\\.ศ\\.)?\\s*(\\d{4})').exec(text);
         if (m) return iso(Number(m[3]), THAI_MONTHS.indexOf(m[2]) + 1, Number(m[1]));
@@ -108,6 +114,25 @@ function readShell(rows, header, shift, add) {
     }
 }
 
+// ===== PLAN NPM: Reg.Truck | Driver Name | Trips 1-6 | Remark (ไม่แยกกะ) =====
+function readNpm(rows, header, add) {
+    const col = (re) => [...header.cells].find(([, t]) => re.test(t))?.[0];
+    const cols = { truck: col(/^Reg/i), driver: col(/^Driver/i), remark: col(/^Remark/i) };
+    const trips = [...header.cells].filter(([, t]) => /^Trips?\s*\d/i.test(t)).map(([c]) => c);
+    for (const row of rows.filter((r) => r.n > header.n)) {
+        const no = vehicleNo(row.cells.get(cols.truck));
+        if (!no) continue;
+        const driver = row.cells.get(cols.driver) || '';
+        add(no, {
+            replace: true,
+            driver: DRIVER.test(driver) ? driver : '',
+            remark: row.cells.get(cols.remark) || '',
+            // เที่ยวชื่อซ้ำคือวิ่งหลายรอบจริง เก็บทุกเที่ยว
+            trips: trips.map((c) => row.cells.get(c)).filter(Boolean).map((cust) => ({ ship: '', custId: '', cust }))
+        });
+    }
+}
+
 // ===== Confirm fleet SRC (งานเย็น = กะกลางคืน): กลุ่มคอลัมน์ พขร./ลูกค้า/NOM มี 2 ชุด =====
 function readConfirm(rows, header, shift, add) {
     if (shift !== 'night') return 'เป็นแผนงานเย็น ใช้กับกะกลางคืนเท่านั้น';
@@ -150,6 +175,13 @@ export async function readPlans(files, date, shift) {
     const add = (no, item) => {
         const v = vehicles.get(no) || { driver: '', risk: '', riskIfEmpty: '', trips: [] };
         v.plate ||= item.plate || '';
+        if (item.replace) { // แผน NPM: ไฟล์หลังคือฉบับแก้ ใช้ทับของเดิม
+            v.driver = item.driver || v.driver;
+            v.remark = item.remark;
+            if (item.trips.length) v.trips = item.trips;
+            vehicles.set(no, v);
+            return;
+        }
         v.driver ||= item.driver;
         v.risk ||= item.risk || '';
         v.riskIfEmpty ||= item.riskIfEmpty || '';
@@ -172,15 +204,16 @@ export async function readPlans(files, date, shift) {
                 continue;
             }
             const has = (row, re) => [...row.cells.values()].some((t) => re.test(t));
-            const header = rows.slice(0, 8).find((r) => has(r, /^SCC$/) || has(r, /^เบอร์รถ$/));
+            const header = rows.slice(0, 8).find((r) => has(r, /^SCC$/) || has(r, /^เบอร์รถ$/) || has(r, /^Reg\.?\s*Truck$/i));
             if (!header) { say('ไม่รู้จักรูปแบบแผนงานนี้'); continue; }
             const before = vehicles.size;
             let problem = '';
-            if (has(header, /^SCC$/)) readDaily(rows, header, shift, add);
+            if (has(header, /^Reg\.?\s*Truck$/i)) readNpm(rows, header, add);
+            else if (has(header, /^SCC$/)) readDaily(rows, header, shift, add);
             else if (has(header, /ชื่อพขร/)) problem = readConfirm(rows, header, shift, add);
             else readShell(rows, header, shift, add);
             if (problem) say(problem);
-            else if (vehicles.size === before) say('ไม่พบรถใหม่ของกะนี้');
+            else if (vehicles.size === before && !has(header, /^Reg/i)) say('ไม่พบรถใหม่ของกะนี้');
         } catch (err) {
             console.error(err);
             say('อ่านไม่ได้ (' + err.message + ')');

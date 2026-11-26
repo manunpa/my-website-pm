@@ -132,6 +132,24 @@ details>.line{margin:6px 0 0}
 .chk.ok{border-color:var(--ok);color:var(--ok)}
 .chk.no{border-color:var(--no);color:var(--no);font-weight:600}
 summary{cursor:pointer}
+.row.plain{cursor:default}
+.row.plain:hover{border-color:var(--line)}
+button.car{width:100%;border:0;text-align:left;cursor:pointer}
+.jobs{padding:5px 12px;font-size:13px;overflow-wrap:anywhere}
+.jobs em{font-style:normal;color:#a56f00}
+.second{padding:0 12px}
+.hours{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:3px;padding:6px 8px}
+@media(max-width:700px){.hours{grid-template-columns:repeat(6,minmax(0,1fr))}}
+.hour{display:flex;flex-direction:column;align-items:center;min-height:52px;padding:3px 0;background:var(--panel);border:1px solid var(--line);border-radius:6px;cursor:pointer;overflow:hidden;line-height:1.25}
+.hour small{font-size:11px;color:var(--mute);min-height:14px}
+.hour b{font-size:13px;white-space:nowrap}
+.hour.ok{border-color:var(--ok)}.hour.ok b{color:var(--ok)}
+.hour.no{border-color:var(--no);background:color-mix(in srgb,var(--no) 14%,var(--panel))}.hour.no b{color:var(--no)}
+.hour.at{background:var(--head)}
+.hour.noted{border-style:dashed}
+.results{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-bottom:10px}
+.result{display:flex;flex-direction:column;align-items:center}
+.result small{font-size:12px}
 dialog{width:min(640px,94vw);max-height:85vh;overflow:auto;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:16px}
 dialog::backdrop{background:rgba(0,0,0,.45)}
 dialog ul{padding-left:18px;margin:0 0 12px}
@@ -201,6 +219,17 @@ dialog em{font-style:normal;color:var(--no)}
     </span>
   </section>
 
+  <dialog id="hour-dialog" aria-labelledby="hour-title">
+    <h3 id="hour-title"></h3>
+    <div class="line"><label class="field">เวลาที่ดู<input type="time" id="hour-time"></label>
+      <label class="field grow">หมายเหตุ (ใส่ก่อนเลือกผล)<input id="hour-note" placeholder="พฤติกรรมเสี่ยง / ชมเชย"></label></div>
+    <div class="results" id="hour-results"></div>
+    <div class="line"><input id="hour-other" class="grow" placeholder="ผลอื่น เช่น GS, ACS" aria-label="ผลอื่น"><button class="btn" id="hour-other-ok" type="button">ใช้</button></div>
+    <div class="line" style="margin:0">
+      <button class="btn" id="hour-clear" type="button">ลบช่องนี้</button>
+      <button class="btn" id="hour-close" type="button">ปิด</button>
+    </div>
+  </dialog>
   <dialog id="alert-dialog" aria-labelledby="alert-title">
     <h3 id="alert-title">ข้อความแจ้งเหตุ</h3>
     <label class="field">โยนเนื้อหาลงที่นี่ (พิมพ์ วางข้อความ หรือ Ctrl+V วางรูป)<textarea id="alert-input" rows="5" placeholder="เช่น 6715 02.12 หาว ตาปรือ โทรคุยจนถึงจุดพัก"></textarea></label>
@@ -274,6 +303,6 @@ dialog em{font-style:normal;color:var(--no)}
   });
 })();
 </script>
-<script type="module" src="./bbs.js?v=32"></script>
+<script type="module" src="./bbs.js?v=33"></script>
 </body>
 </html>
