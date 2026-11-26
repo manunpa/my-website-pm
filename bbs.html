@@ -70,6 +70,9 @@ section p{margin:0 0 8px}
 .who{flex:1}
 .history{display:inline-block;margin-left:6px;padding:0 7px;font-size:12px;font-weight:600;color:var(--no);border:1px solid var(--no);border-radius:99px;cursor:pointer;white-space:nowrap}
 .tally{font-size:13px;color:var(--mute)}
+.hide{align-self:center;display:inline-flex;padding:3px;color:var(--mute);cursor:pointer;border-radius:5px}
+.hide:hover{color:var(--ink)}
+.hide svg{width:15px;height:15px}
 .row.none .tally{color:var(--no);font-weight:600}
 .logs{display:block;border-top:1px solid var(--line)}
 .log{display:grid;grid-template-columns:160px minmax(0,1fr) 110px;gap:12px;padding:6px 12px;font-size:14px;align-items:start}
@@ -212,7 +215,7 @@ dialog em{font-style:normal;color:var(--no)}
     <p class="mute tools" id="count"></p>
     <p class="mute tools" id="history-note" hidden>โหลดประวัติพฤติกรรม พขร. ไม่ได้ (ป้าย ⚠ จะไม่แสดง)</p>
     <div id="list"></div>
-    <p class="tools"><label><input type="checkbox" id="show-all"> แสดงรถที่ไม่มีงาน (<span id="hidden-count">0</span>)</label></p>
+    <p class="tools"><label><input type="checkbox" id="show-all"> แสดงรถที่ไม่มีงาน / ซ่อนไว้ (<span id="hidden-count">0</span>)</label></p>
   </section>
 
   <section class="finish">
@@ -316,6 +319,6 @@ dialog em{font-style:normal;color:var(--no)}
   });
 })();
 </script>
-<script type="module" src="./bbs.js?v=41"></script>
+<script type="module" src="./bbs.js?v=43"></script>
 </body>
 </html>

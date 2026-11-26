@@ -5,7 +5,7 @@ import { readHourly, buildHourly } from './bbs-hourly.js?v=4';
 import { readImage, parseShot, inShift } from './bbs-ocr.js?v=1';
 import { samePlace } from './bbs-match.js?v=1';
 import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
-import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=3';
+import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=4';
 import { destList, diffPlan, mergeChanges, describe } from './bbs-diff.js?v=1';
 import { HISTORY_URL, nameKey, indexHistory, thaiDate } from './bbs-history.js?v=1';
 import { createLog } from './bbs-log.js?v=1';
@@ -493,6 +493,8 @@ const destNames = (v) => destList(v.trips).map((d) => d.name);
 function destState(v, name) {
     const manual = v.dest?.[name];
     if (manual === 'cancel' || manual === 'open') return { state: manual };
+    // ฟอร์มรายชั่วโมงช่องเก็บแค่รหัสผล ไม่มีชื่อปลายทาง จึงใช้ที่เลือกเองเท่านั้น
+    if (template?.hourly) return { state: manual === 'done' ? 'done' : 'open' };
     const names = destNames(v);
     const round = byTime(v.rounds).find((r) => r.type !== 'loading' && samePlace(r.place, name, names));
     if (manual === 'done') return { state: 'done', round };
@@ -503,13 +505,16 @@ const STATE_TEXT = { open: 'รอส่ง', done: 'ส่งแล้ว', can
 
 // เลือกสถานะเอง (หน้ารายคัน)
 function destSelect(v, name, redraw) {
-    const node = el('select', {}, ...[['', 'อัตโนมัติ'], ['done', 'ส่งแล้ว'], ['open', 'รอส่ง'], ['cancel', 'ยกเลิก']]
+    const node = el('select', {}, ...(template?.hourly
+        ? [['', 'รอส่ง'], ['done', 'ส่งแล้ว'], ['cancel', 'ยกเลิก']]
+        : [['', 'อัตโนมัติ'], ['done', 'ส่งแล้ว'], ['open', 'รอส่ง'], ['cancel', 'ยกเลิก']])
         .map(([value, text]) => el('option', { value, textContent: text })));
     node.value = v.dest?.[name] || '';
     node.setAttribute('aria-label', 'สถานะงาน ' + name);
     node.onchange = () => {
         v.dest ||= {};
-        edited('สถานะงาน ' + name, STATE_TEXT[v.dest[name]] || 'อัตโนมัติ', STATE_TEXT[node.value] || 'อัตโนมัติ', v.scc);
+        const unset = template?.hourly ? 'รอส่ง' : 'อัตโนมัติ';
+        edited('สถานะงาน ' + name, STATE_TEXT[v.dest[name]] || unset, STATE_TEXT[node.value] || unset, v.scc);
         if (node.value) v.dest[name] = node.value; else delete v.dest[name];
         save();
         redraw();
@@ -619,6 +624,31 @@ function titleOf(v, withPlate) {
     return { node, paint };
 }
 
+// ไอคอนตาท้ายหัวการ์ด: ซ่อน / เอากลับ (ข้อมูลยังอยู่ครบ)
+const EYE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/>';
+
+function hideToggle(v) {
+    const label = (v.hidden ? 'เอารถกลับ ' : 'ซ่อนรถ ') + v.scc;
+    const toggle = (e) => {
+        // ไอคอนอยู่ในปุ่มของรถ ไม่ให้เปิดหน้ารถตามไปด้วย
+        e.preventDefault();
+        e.stopPropagation();
+        note('แก้ไข', v.hidden ? 'เอารถกลับ' : 'ซ่อนรถ', { scc: v.scc });
+        if (v.hidden) { delete v.hidden; v.pinned = true; } else v.hidden = true;
+        save();
+        render();
+    };
+    const node = el('span', {
+        className: 'hide', tabIndex: 0, title: label, onclick: toggle,
+        onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') toggle(e); }
+    });
+    // ตาขีดฆ่า = กดเพื่อซ่อน, ตาเปิด = กดเพื่อเอากลับ
+    node.innerHTML = EYE + (v.hidden ? '' : '<path d="M4 4l16 16"/>') + '</svg>';
+    node.setAttribute('role', 'button');
+    node.setAttribute('aria-label', label);
+    return node;
+}
+
 // ===== หน้ารวม: รถละกล่อง หัว (รถ/คนขับ) → ปลายทาง → รอบที่ตรวจ =====
 function vehicleRow(v) {
     return el('button', { type: 'button', className: 'row' + (v.rounds.length ? '' : ' none'), onclick: () => openVehicle(v.scc) },
@@ -627,7 +657,8 @@ function vehicleRow(v) {
             v.plate ? el('span', { className: 'plate', textContent: v.plate }) : null,
             who(v.driver),
             v.changes?.length ? el('span', { className: 'changed', textContent: 'แผนเปลี่ยน' }) : null,
-            el('span', { className: 'tally', textContent: v.rounds.length ? 'ตรวจ ' + v.rounds.length + ' รอบ' : 'ยังไม่ตรวจ' })),
+            el('span', { className: 'tally', textContent: v.rounds.length ? 'ตรวจ ' + v.rounds.length + ' รอบ' : 'ยังไม่ตรวจ' }),
+            hideToggle(v)),
         destinations(v),
         v.rounds.length ? el('span', { className: 'logs' }, ...byTime(v.rounds).map(roundLine)) : null);
 }
@@ -656,15 +687,15 @@ const hourGrids = (v) => [hourGrid(v, 1), ...(v.driver2
     ? [el('div', { className: 'mute second' }, 'พขร.2 ' + v.driver2, historyBadge(v.driver2)), hourGrid(v, 2)] : [])];
 
 function hourlyRow(v) {
-    const trips = v.trips.map((t) => t.cust || t.ship).filter(Boolean);
     return el('div', { className: 'row plain' + (v.rounds.length ? '' : ' none') },
         el('button', { type: 'button', className: 'car', onclick: () => openVehicle(v.scc) },
             el('b', { textContent: v.scc }),
             who(v.driver),
             v.changes?.length ? el('span', { className: 'changed', textContent: 'แผนเปลี่ยน' }) : null,
-            el('span', { className: 'tally', textContent: v.rounds.length ? 'ตรวจ ' + v.rounds.length + ' ช่อง' : 'ยังไม่ตรวจ' })),
-        trips.length || v.remark ? el('div', { className: 'jobs' }, trips.join(' → '),
-            v.remark ? el('em', { textContent: ' ' + v.remark }) : null) : null,
+            el('span', { className: 'tally', textContent: v.rounds.length ? 'ตรวจ ' + v.rounds.length + ' ช่อง' : 'ยังไม่ตรวจ' }),
+            hideToggle(v)),
+        v.remark ? el('div', { className: 'jobs' }, el('em', { textContent: v.remark })) : null,
+        destinations(v),
         ...hourGrids(v));
 }
 
@@ -682,10 +713,10 @@ function hourlyPage(v) {
             el('label', {}, 'GPS ', select(v, 'gps', 'สถานะ GPS', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']])),
             el('label', {}, 'CCTV ', select(v, 'cctv', 'สถานะ CCTV', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']])),
             input(v, 'remark', 'หมายเหตุแผน', { className: 'grow' })),
-        ...(v.changes || []).map(changeNote),
+        destinations(v, redraw),
         el('h3', { textContent: 'งานตามแผน' }),
         ...v.trips.map((t, i) => el('div', { className: 'line' },
-            input(t, 'cust', 'Trips ' + (i + 1), { className: 'grow' }),
+            input(t, 'cust', 'Trips ' + (i + 1), { className: 'grow', onchange: () => redraw() }),
             button('ลบ', () => { noteTripDelete(v, t); v.trips.splice(i, 1); save(); redraw(); }))),
         button('+ เพิ่มงาน', () => { note('นำเข้า', 'เพิ่มงาน', { scc: v.scc }); v.trips.push({ ship: '', custId: '', cust: '' }); save(); redraw(); })
     ]);
@@ -746,6 +777,10 @@ function hourlySummary() {
         }
     }
     const unchecked = working.filter((v) => !v.rounds.length).map((v) => v.scc);
+    const jobs = working.flatMap((v) => destNames(v).map((name) => ({ scc: v.scc, name, state: destState(v, name).state })));
+    const count = (state) => jobs.filter((j) => j.state === state).length;
+    const waiting = working.map((v) => [v.scc, jobs.filter((j) => j.scc === v.scc && j.state === 'open').map((j) => j.name)])
+        .filter(([, names]) => names.length).map(([scc, names]) => '- ' + scc + ': ' + names.join(', '));
     const section = (title, lines) => (lines.length ? ['', '[' + title + ']', ...lines] : []);
     return [
         'สรุป BBS ' + (unit()?.name || shortName(template.name)),
@@ -753,8 +788,11 @@ function hourlySummary() {
             ' (ณ ' + new Date().toTimeString().slice(0, 5) + ' น.)',
         '',
         'ตรวจแล้ว ' + (working.length - unchecked.length) + '/' + working.length + ' คัน',
+        ...(jobs.length ? ['ส่งแล้ว ' + count('done') + '/' + (jobs.length - count('cancel')) + ' งาน' +
+            (count('cancel') ? ', ยกเลิก ' + count('cancel') : '')] : []),
         ...section('พบผิดปกติ (NG)', bad),
         ...section('ยังไม่ตรวจ', unchecked.length ? ['- ' + unchecked.join(', ')] : []),
+        ...section('งานค้างส่ง', waiting),
         ...section('หมายเหตุ', notes)
     ].join('\n');
 }
@@ -810,7 +848,8 @@ function vehiclePage(v) {
 
 // คันที่ต้องแสดง: มีงาน เพิ่มเข้ามาเอง หรือมีรอบตรวจที่ลงเอง
 // (รอบ quiet = ลงจากรูปให้รถที่ไม่มีงาน เก็บไว้ในรายงานแต่ไม่ดึงขึ้นหน้าทำงาน)
-const hasWork = (v) => v.trips.length > 0 || !!v.pinned || v.rounds.some((r) => !r.quiet);
+// กดซ่อนเอง (เช่น แผนใส่ข้อความอื่นมาแทนงาน) ไม่นับว่ามีงาน
+const hasWork = (v) => !v.hidden && (v.trips.length > 0 || !!v.pinned || v.rounds.some((r) => !r.quiet));
 
 function render() {
     $('checker').value = report.checker || '';
@@ -959,6 +998,7 @@ function applyPlans() {
         if (item.trips.length && jobsChanged) {
             const ids = new Map(v.trips.map((t) => [t.cust, t.custId]));
             v.trips = item.trips.map((t) => ({ ...t, custId: t.custId || ids.get(t.cust) || '' }));
+            delete v.hidden; // งานเปลี่ยน ต้องกลับมาให้เห็น
         }
         if (!fresh) v.changes = mergeChanges(v.changes, changes, v.trips, at);
         if (v.driver) { v.gps ||= 'ปกติ'; v.cctv ||= 'ปกติ'; }
@@ -1391,6 +1431,7 @@ function bind() {
             report.vehicles.push(v);
         }
         v.pinned = true;
+        delete v.hidden;
         note('นำเข้า', 'เพิ่มรถ/งาน', { scc: v.scc });
         if (!v.trips.length) v.trips.push({ ship: '', custId: '', cust: '' });
         $('search').value = '';
@@ -1408,7 +1449,7 @@ function bind() {
                 ...report,
                 vehicles: report.vehicles.map((v) => ({
                     ...v,
-                    idle: planned && !hasWork(v),
+                    idle: planned && !hasWork(v) && !(v.hidden && v.rounds.length),
                     extra: [
                         ...(v.changes || []).map((c) => describe(c) + ' (อัปเดต ' + c.at + ' น.)'),
                         ...destNames(v).filter((name) => v.dest?.[name] === 'cancel').map((name) => 'ยกเลิกงาน ' + name)
