@@ -58,7 +58,7 @@ function Get-Cell($rows, $r, $c) {
     if ($rows.ContainsKey($r) -and $rows[$r].ContainsKey($c)) { $rows[$r][$c].Trim() } else { '' }
 }
 
-# ต้องให้ผลเหมือน parse() ใน shifts.html ไม่งั้นอัปมือกับสคริปต์จะเห็นเป็นการเปลี่ยนแปลง
+# อ่านชีตล่าสุดที่ไม่ได้ซ่อนและมีหัว "ลำดับ"
 function Read-Schedule($file) {
     # เปิดแบบยอมให้คนอื่นแก้ไฟล์ต่อได้ แล้วอ่านเข้าหน่วยความจำ
     $stream = [IO.File]::Open($file, 'Open', 'Read', 'ReadWrite, Delete')

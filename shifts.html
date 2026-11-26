@@ -7,7 +7,6 @@
 <style>html:not(.owner) body{visibility:hidden}</style>
 <title>ตารางวันทำงาน</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
 :root{--bg:#f5f5f3;--panel:#fff;--line:#c9c9c3;--ink:#1a1a1a;--mute:#6f6f6a}
 *{box-sizing:border-box}
@@ -18,7 +17,6 @@ h1{font-size:20px;margin:0}
 .btn{font:inherit;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer}
 .mute{color:var(--mute);font-size:13px}
 .scroll{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px}
-body.drag .scroll{outline:3px dashed #378add}
 table{border-collapse:separate;border-spacing:0;font-size:12px;text-align:center;white-space:nowrap;min-width:100%}
 th,td{border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:3px 4px;min-width:28px;background:var(--panel)}
 thead th{position:sticky;top:0;background:#d9d9d6;z-index:2}
@@ -46,12 +44,11 @@ tr.sum td{font-weight:500}
 </head>
 <body>
 <header>
-  <div><h1>ตารางวันทำงาน <span class="mute" id="mode">ข้อมูลตัวอย่าง</span></h1><div id="title"></div></div>
+  <div><h1>ตารางวันทำงาน</h1><div id="title"></div></div>
   <div class="line">
     <a class="btn" href="Access-Hub.html" style="color:inherit;text-decoration:none">กลับหน้าหลัก</a>
     <select id="month" class="btn" hidden></select>
     <input id="q" class="btn" placeholder="ค้นหาชื่อ / กลุ่ม">
-    <label class="btn">อัปไฟล์ตาราง (.xlsx)<input id="file" type="file" accept=".xlsx,.xls" hidden></label>
   </div>
 </header>
 <div id="note" class="mute line"></div>
@@ -66,82 +63,10 @@ tr.sum td{font-weight:500}
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const CLS = { D: 'D', N: 'N', DO: 'DO', AL: 'AL', 'พร': 'V', 'ป': 'L', 'ก': 'L', 'ข': 'L' };
-const WD = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 
-// ข้อมูลสมมติ ใช้โชว์หน้าตาก่อนอัปไฟล์จริง
-function sample() {
-  const days = [25, 26, 27, 28, 29, 30, ...Array.from({ length: 31 }, (_, i) => i + 1)];
-  const cycle = 'D D D D D DO DO N N N N N DO DO'.split(' ');
-  const groups = ['OR', 'SHELL', 'SCA', 'ATLAS', 'BFPL', 'MARINE'];
-  const people = Array.from({ length: 12 }, (_, p) => ({
-    id: 'p' + p, name: 'พนักงาน ' + String.fromCharCode(65 + p), group: groups[p % groups.length],
-    codes: days.map((_, i) => (i === 11 + p % 5 ? 'AL' : cycle[(i + p * 3) % cycle.length])),
-  }));
-  return { title: 'ธันวาคม 2569 (ข้อมูลสมมติ)', days, week: days.map((_, i) => WD[(3 + i) % 7]), people };
-}
-
-function parse(wb) {
-  const meta = (wb.Workbook && wb.Workbook.Sheets) || [];
-  const names = wb.SheetNames.filter((_, i) => !(meta[i] && meta[i].Hidden));
-  for (const sheet of names.reverse()) {
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { header: 1, defval: '', raw: true });
-    const h = rows.findIndex((r) => String(r[0]).trim() === 'ลำดับ');
-    if (h < 0) continue;
-    const end = rows[h].findIndex((c) => String(c).includes('จำนวนวันทำงาน'));
-    const cols = [];
-    rows[h].forEach((c, i) => { if (i > 3 && (end < 0 || i < end) && Number(c) >= 1 && Number(c) <= 31) cols.push(i); });
-    if (!cols.length) continue;
-    const people = [];
-    for (const r of rows.slice(h + 2)) {
-      if (String(r[0]).trim() === 'D') break;
-      const name = String(r[2]).trim();
-      if (!name) continue;
-      people.push({
-        id: String(r[1]).trim() || name, name, group: String(r[3]).trim(),
-        codes: cols.map((i) => String(r[i]).trim()),
-      });
-    }
-    const title = rows.slice(0, h).flat().find((c) => String(c).includes('ตาราง')) || sheet;
-    return { title: String(title).trim(), days: cols.map((i) => Number(rows[h][i])), week: cols.map((i) => String(rows[h + 1][i]).trim()), people };
-  }
-  throw new Error('ไม่พบหัวตาราง "ลำดับ" ในไฟล์นี้');
-}
-
-function diff(before, after) {
-  const out = [];
-  for (const p of after.people) {
-    const old = before.people.find((o) => o.id === p.id);
-    if (!old) { out.push({ id: p.id, name: p.name, text: 'เพิ่มชื่อใหม่' }); continue; }
-    p.codes.forEach((code, i) => {
-      if (code !== (old.codes[i] || '')) out.push({ id: p.id, name: p.name, i, from: old.codes[i] || 'ว่าง', to: code || 'ว่าง', text: `วันที่ ${after.days[i]}: ${old.codes[i] || 'ว่าง'} → ${code || 'ว่าง'}` });
-    });
-  }
-  for (const o of before.people) if (!after.people.some((p) => p.id === o.id)) out.push({ id: o.id, name: o.name, text: 'ถูกนำออกจากตาราง' });
-  return out;
-}
-
-// หนึ่งรอบ = การอัปไฟล์หนึ่งครั้ง จดยอดคนเช้า/ดึกของวันที่โดนแก้ ก่อนและหลังไว้ด้วย
-function makeRound(when, before, after) {
-  const list = diff(before, after);
-  const n = (d, i, code) => d.people.filter((p) => p.codes[i] === code).length;
-  const impact = [...new Set(list.filter((c) => c.i !== undefined).map((c) => c.i))].sort((a, b) => a - b)
-    .map((i) => ({ i, d: [n(before, i, 'D'), n(after, i, 'D')], n: [n(before, i, 'N'), n(after, i, 'N')] }));
-  return { when, list, impact };
-}
-
-let data = sample();
+// ตารางมาจาก shift-sync/sync.ps1 → apps-script/shifts.gs หน้านี้ดูอย่างเดียว
+let data = { title: 'กำลังโหลด...', days: [], week: [], people: [] };
 let rounds = []; // ใหม่สุดอยู่บน
-// จำลองการแก้ตาราง 3 ครั้ง
-for (const [when, edits] of [
-  ['20 พ.ย. 09:15', [[0, 8, 'N'], [1, 8, 'D'], [4, 14, 'พร']]],
-  ['24 พ.ย. 16:40', [[2, 11, 'N'], [3, 11, 'D'], [7, 20, 'ป']]],
-  ['26 พ.ย. 14:10', [[5, 13, 'ก'], [8, 13, 'D'], [9, 25, 'N'], [10, 25, 'DO']]],
-]) {
-  const before = structuredClone(data);
-  edits.forEach(([p, i, v]) => { data.people[p].codes[i] = v; });
-  const round = makeRound(when, before, data);
-  if (round.list.length) rounds.unshift(round);
-}
 let changes = [];
 
 const dayLabel = (i) => `${data.week[i]} ${data.days[i]}${i < data.days.indexOf(1) ? ' (เดือนก่อน)' : ''}`;
@@ -184,63 +109,29 @@ function render() {
   $('t').innerHTML = html + '</tbody>';
   $('title').textContent = data.title;
   renderLog();
-  $('note').textContent = `${data.people.length} คน · เปลี่ยน ${changes.length} รายการ (ช่องกรอบหนา กดดูของเดิม) · ลากไฟล์มาวางบนหน้านี้ได้`;
+  $('note').textContent = `${data.people.length} คน · เปลี่ยน ${changes.length} รายการ (ช่องกรอบหนา กดดูของเดิม)`;
 }
 
-let loaded = false;
-let store = null; // ต่อที่เก็บจริงแล้วจะถูกตั้งจากสคริปต์ด้านล่าง
-async function load(file) {
-  if (!file) return;
-  try {
-    const next = parse(XLSX.read(await file.arrayBuffer()));
-    if (store) { await store(next); return; }
-    // เทียบเฉพาะไฟล์เดือนเดียวกันกับรอบก่อน
-    if (!loaded || next.title !== data.title) rounds = [];
-    else {
-      const round = makeRound(new Date().toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), data, next);
-      if (round.list.length) rounds.unshift(round);
-    }
-    data = next;
-    loaded = true;
-    $('info').textContent = '';
-    render();
-  } catch (e) {
-    $('info').textContent = 'ไม่สำเร็จ: ' + e.message;
-  }
-}
-
-$('file').onchange = (e) => { load(e.target.files[0]); e.target.value = ''; };
 $('q').oninput = render;
 $('t').onclick = (e) => {
   const k = e.target.dataset.k;
   if (k !== undefined) $('info').textContent = `${changes[k].name} · ${changes[k].text}`;
 };
-addEventListener('dragover', (e) => { e.preventDefault(); document.body.classList.add('drag'); });
-addEventListener('dragleave', (e) => { if (!e.relatedTarget) document.body.classList.remove('drag'); });
-addEventListener('drop', (e) => { e.preventDefault(); document.body.classList.remove('drag'); load(e.dataTransfer.files[0]); });
 render();
 </script>
 <script type="module">
 import { requireLogin, fetchProtectedText, HUB_URL } from "./firebase-guard.js?v=20261122-cut";
 import { isOwner } from "./owner.js";
 
-// URL /exec ของ apps-script/shifts.gs — เว้นว่าง = โหมดข้อมูลตัวอย่าง ไม่บันทึกอะไร
+// URL /exec ของ apps-script/shifts.gs
 const SHIFTS_URL = "https://script.google.com/macros/s/AKfycbzbv4mvsrhJuQrKXJoknD1WKC8xdLCi-K0J4i12kLoeKsAVaAYgtd5b3YDl8ermmC9MDQ/exec";
 
 const MONTHS = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
 const call = async (body) => JSON.parse(await fetchProtectedText(SHIFTS_URL, body));
 const label = (key) => `${MONTHS[Number(key.slice(6)) - 1]} ${key.slice(1, 5)}`;
 
-// ชื่อตาราง เช่น "...ประจำเดือน ธันวาคม 2569 ..." → m2569-12
-function keyOf(title) {
-  const m = MONTHS.findIndex((name) => title.includes(name));
-  const year = m < 0 ? null : title.match(new RegExp(MONTHS[m] + "\\s*(?:25)?(\\d\\d)(?!\\d)"));
-  if (m < 0 || !year) throw new Error("หัวตารางไม่บอกเดือนและปี: " + title);
-  return `m25${year[1]}-${String(m + 1).padStart(2, "0")}`;
-}
-
 function show(res) {
-  data = res.data || { title: "ยังไม่มีตาราง กรุณาอัปไฟล์", days: [], week: [], people: [] };
+  data = res.data || { title: "ยังไม่มีตาราง", days: [], week: [], people: [] };
   rounds = res.rounds;
   render();
   $("info").textContent = res.version ? "บันทึกล่าสุด " + stamp(res.version) : "";
@@ -252,25 +143,7 @@ function fillMonths(keys, selected) {
   $("month").hidden = !keys.length;
 }
 
-async function save(next) {
-  const key = keyOf(next.title);
-  $("info").textContent = "กำลังบันทึก...";
-  const old = await call({ action: "get", key });
-  const same = old.data && JSON.stringify(old.data) === JSON.stringify(next);
-  const round = old.data ? makeRound(Date.now(), old.data, next) : null;
-  const res = same ? old : await call({ action: "save", key, data: next, round, version: old.version });
-  const { months } = await call({ action: "months" });
-  fillMonths(months, key);
-  show(res);
-  if (same) $("info").textContent = "ตารางเหมือนเดิม ไม่มีอะไรเปลี่ยน";
-}
-
 async function start() {
-  store = save;
-  data = { title: "กำลังโหลด...", days: [], week: [], people: [] };
-  rounds = [];
-  render();
-  $("mode").textContent = "";
   try {
     const { months } = await call({ action: "months" });
     // เปิดเดือนปัจจุบันก่อน ไม่มีก็เดือนล่าสุด
@@ -294,7 +167,7 @@ $("month").onchange = async (e) => {
 requireLogin(async (user) => {
   if (!(await isOwner(user))) return location.replace(HUB_URL);
   document.documentElement.classList.add("owner");
-  if (SHIFTS_URL) start();
+  start();
 });
 </script>
 </body>

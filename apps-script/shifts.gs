@@ -76,7 +76,7 @@ function sync_(body) {
   }
 }
 
-// ต้องให้ผลแบบเดียวกับ diff() / makeRound() ใน shifts.html
+// รายการช่องที่เปลี่ยน และยอดคนเช้า/ดึกของวันที่โดนแก้ (shifts.html เอาไปแสดง)
 function makeRound_(before, after) {
   const list = [];
   const byId = function (data, id) { return data.people.filter(function (p) { return p.id === id; })[0]; };
@@ -164,6 +164,12 @@ function get_(key) {
   return { status: 'success', data: month ? JSON.parse(month.data) : null, version: month ? month.time : 0, rounds: rounds };
 }
 
+// เดือนปัจจุบันตามเวลาไทย รูปแบบเดียวกับ key เช่น m2569-11
+function thisMonth_() {
+  const now = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM').split('-');
+  return 'm' + (Number(now[0]) + 543) + '-' + now[1];
+}
+
 // version = เวลาของตารางที่หน้าเว็บใช้เทียบ ถ้ามีคนอัปแทรกระหว่างนั้นจะไม่บันทึกทับ
 function save_(key, body, email) {
   const month = find_(key);
@@ -171,7 +177,8 @@ function save_(key, body, email) {
   if (!body.data || !Array.isArray(body.data.people) || !body.data.people.length) throw new Error('ไม่มีข้อมูลตาราง');
   const now = Date.now();
   write_('months', month ? month.row : 0, key, now, email, JSON.stringify(body.data));
-  if (body.round && body.round.list.length) write_('rounds', 0, key, now, email, JSON.stringify(body.round));
+  // เดือนที่ยังมาไม่ถึงแก้กันบ่อย อัปเดตตารางอย่างเดียว ไม่เก็บประวัติ
+  if (body.round && body.round.list.length && key <= thisMonth_()) write_('rounds', 0, key, now, email, JSON.stringify(body.round));
   return get_(key);
 }
 

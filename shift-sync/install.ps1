@@ -1,23 +1,22 @@
-# Registers the "ShiftSync" task: daily 08:00 + 5 minutes after every restart, even with nobody logged on.
-# Run through install.cmd. Windows asks for this account's password and stores it itself.
+# Registers the "ShiftSync" task: daily 07:30 + 5 minutes after Windows signs in (also after a restart).
+# For PCs that open straight to the desktop without a password. Run through install.cmd.
 $ErrorActionPreference = 'Stop'
 
 $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-$cred = Get-Credential -UserName $user -Message 'Windows password of this account (needed to run after a restart)'
-if (-not $cred) { throw 'Cancelled.' }
-
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$PSScriptRoot\sync.ps1`""
-$daily = New-ScheduledTaskTrigger -Daily -At '08:00'
-$boot = New-ScheduledTaskTrigger -AtStartup
-$boot.Delay = 'PT5M'   # wait for the network
-# StartWhenAvailable: run a missed 08:00 as soon as the PC is back. Retry if the share is not reachable yet.
+    -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PSScriptRoot\sync.ps1`""
+$daily = New-ScheduledTaskTrigger -Daily -At '07:30'
+$logon = New-ScheduledTaskTrigger -AtLogOn -User $user
+$logon.Delay = 'PT5M'   # wait for the network
+# Runs as the signed-in user, so no password is stored and the shared drive is reachable.
+$principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive
+# StartWhenAvailable: run a missed 07:30 as soon as possible. Retry if the share is not reachable yet.
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 3 `
     -RestartInterval (New-TimeSpan -Minutes 10) -ExecutionTimeLimit (New-TimeSpan -Minutes 30) `
     -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 
-Register-ScheduledTask -TaskName 'ShiftSync' -Action $action -Trigger $daily, $boot -Settings $settings `
-    -User $cred.UserName -Password $cred.GetNetworkCredential().Password -Force | Out-Null
+Register-ScheduledTask -TaskName 'ShiftSync' -Action $action -Trigger $daily, $logon `
+    -Principal $principal -Settings $settings -Force | Out-Null
 
 Write-Host 'Installed. Running once now...'
 Start-ScheduledTask -TaskName 'ShiftSync'
