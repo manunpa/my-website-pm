@@ -151,12 +151,15 @@ const shortName = (name) => name.replace(/^(นางสาว|นาย|นา�
 const monthKey = (date) => `m${date.getFullYear() + 543}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
 // รหัสกะของแต่ละคนในวันนั้น: id -> { name, code } คนที่ช่องว่าง (ออก/ฝึกงานจบ) ไม่นับ
+// หัวหน้า (กลุ่ม HOD ในไฟล์) ยังอยู่ในตาราง แต่ไม่นับเป็นกำลังพล
+const counted = (p) => p.group.trim().toUpperCase() !== 'HOD';
+
 function dayCodes(month, date) {
   const out = new Map();
   if (!month) return out;
   const i = month.days.indexOf(date.getDate(), Math.max(0, month.days.indexOf(1)));
   if (i < 0) return out;
-  for (const p of month.people) if (p.codes[i]) out.set(p.id, { name: p.name, code: p.codes[i] });
+  for (const p of month.people.filter(counted)) if (p.codes[i]) out.set(p.id, { name: p.name, code: p.codes[i] });
   return out;
 }
 
@@ -225,13 +228,13 @@ function render() {
     }).join('') + ['D', 'N', 'DO', 'AL'].map((c) => `<td>${count(cols.map(({ i }) => p.codes[i]), c)}</td>`).join('') + '</tr>';
   }
   for (const [code, label] of [['D', 'กะเช้า'], ['N', 'กะดึก'], ['DO', 'วันหยุด']]) {
-    html += `<tr class="sum"><td class="name">รวม${label}</td><td></td>` + cols.map(({ i }) => `<td>${i < 0 ? '' : count(data.people.map((p) => p.codes[i]), code)}</td>`).join('') + '<td></td><td></td><td></td><td></td></tr>';
+    html += `<tr class="sum"><td class="name">รวม${label}</td><td></td>` + cols.map(({ i }) => `<td>${i < 0 ? '' : count(data.people.filter(counted).map((p) => p.codes[i]), code)}</td>`).join('') + '<td></td><td></td><td></td><td></td></tr>';
   }
   $('t').innerHTML = html + '</tbody>';
   lock = hover = null; // ตารางถูกวาดใหม่ ตำแหน่งเดิมอาจเป็นคนอื่นแล้ว
   $('title').textContent = data.title;
   renderLog();
-  $('note').textContent = `${data.people.length} คน · เปลี่ยน ${changes.length} รายการ (ช่องกรอบแดง กดดูของเดิม)`;
+  $('note').textContent = `กำลังพล ${data.people.filter(counted).length} คน · เปลี่ยน ${changes.length} รายการ (ช่องกรอบแดง กดดูของเดิม)`;
 }
 
 $('q').oninput = render;
