@@ -7,6 +7,7 @@ import { samePlace } from './bbs-match.js?v=1';
 import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
 import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=3';
 import { destList, diffPlan, mergeChanges, describe } from './bbs-diff.js?v=1';
+import { HISTORY_URL, nameKey, indexHistory, thaiDate } from './bbs-history.js?v=1';
 
 // URL /exec ของ Apps Script (apps-script/bbs.gs) — ว่างไว้ = เก็บในเครื่องนี้อย่างเดียว
 const API_URL = 'https://script.google.com/macros/s/AKfycbxGlbuYTL5_K8DZ7EIPT9P0NO5gef1od1f4WXzRvBPLbCvAPwST87Tl3hqtjMljY3Yx8w/exec';
@@ -500,13 +501,66 @@ function destinations(v, redraw) {
         ...removed.map((c) => line('–', c.name, { state: 'removed' }, [c], null)));
 }
 
+// ===== ป้ายประวัติพฤติกรรมข้างชื่อ พขร. (ดูอย่างเดียว) =====
+let behaviorLog = new Map();
+
+async function loadHistory() {
+    try {
+        const { history: rows } = JSON.parse(await fetchProtectedText(HISTORY_URL));
+        if (!Array.isArray(rows)) throw new Error('สคริปต์ยังเป็นเวอร์ชันเก่า');
+        behaviorLog = indexHistory(rows);
+        if (report && !busyEditing()) render();
+    } catch (err) {
+        console.warn('history', err);
+        $('history-note').hidden = false;
+    }
+}
+
+function historyBadge(name) {
+    const list = behaviorLog.get(nameKey(name));
+    if (!list) return null;
+    const lines = list.map((h) => thaiDate(h.date) + '  ' + h.what + (h.risk ? ' (เสี่ยง' + h.risk + ')' : ''));
+    const head = 'ประวัติ 6 เดือน: ' + name + ' ' + list.length + ' ครั้ง';
+    const open = (e) => {
+        // ป้ายอยู่ในปุ่มของรถ ไม่ให้เปิดหน้ารถตามไปด้วย
+        e.preventDefault();
+        e.stopPropagation();
+        $('history-title').textContent = head;
+        $('history-list').replaceChildren(...lines.map((text) => el('li', { textContent: text })));
+        $('history-dialog').showModal();
+    };
+    const node = el('span', {
+        className: 'history', tabIndex: 0, textContent: '⚠ ' + list.length,
+        title: [head, ...lines.slice(0, 8), ...(lines.length > 8 ? ['… กดเพื่อดูทั้งหมด'] : [])].join('\n'),
+        onclick: open, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') open(e); }
+    });
+    node.setAttribute('role', 'button');
+    node.setAttribute('aria-label', head);
+    return node;
+}
+
+// ชื่อ + ป้าย (ถ้ามีประวัติ)
+const who = (name) => el('span', { className: 'who' }, name || 'ไม่มีคนขับ', historyBadge(name));
+
+// หัวหน้ารายคัน: วาดป้ายใหม่เมื่อพิมพ์ชื่อเสร็จ
+function titleOf(v, withPlate) {
+    const node = el('h3', { className: 'title' });
+    const paint = () => node.replaceChildren(...[
+        v.scc + ' ',
+        withPlate && v.plate ? el('span', { className: 'plate', textContent: v.plate }) : null,
+        ' ' + (v.driver || ''), historyBadge(v.driver)
+    ].filter(Boolean));
+    paint();
+    return { node, paint };
+}
+
 // ===== หน้ารวม: รถละกล่อง หัว (รถ/คนขับ) → ปลายทาง → รอบที่ตรวจ =====
 function vehicleRow(v) {
     return el('button', { type: 'button', className: 'row' + (v.rounds.length ? '' : ' none'), onclick: () => openVehicle(v.scc) },
         el('span', { className: 'car' },
             el('b', { textContent: v.scc }),
             v.plate ? el('span', { className: 'plate', textContent: v.plate }) : null,
-            el('span', { className: 'who', textContent: v.driver || 'ไม่มีคนขับ' }),
+            who(v.driver),
             v.changes?.length ? el('span', { className: 'changed', textContent: 'แผนเปลี่ยน' }) : null,
             el('span', { className: 'tally', textContent: v.rounds.length ? 'ตรวจ ' + v.rounds.length + ' รอบ' : 'ยังไม่ตรวจ' })),
         destinations(v),
@@ -534,14 +588,14 @@ function hourGrid(v, who) {
 }
 
 const hourGrids = (v) => [hourGrid(v, 1), ...(v.driver2
-    ? [el('div', { className: 'mute second', textContent: 'พขร.2 ' + v.driver2 }), hourGrid(v, 2)] : [])];
+    ? [el('div', { className: 'mute second' }, 'พขร.2 ' + v.driver2, historyBadge(v.driver2)), hourGrid(v, 2)] : [])];
 
 function hourlyRow(v) {
     const trips = v.trips.map((t) => t.cust || t.ship).filter(Boolean);
     return el('div', { className: 'row plain' + (v.rounds.length ? '' : ' none') },
         el('button', { type: 'button', className: 'car', onclick: () => openVehicle(v.scc) },
             el('b', { textContent: v.scc }),
-            el('span', { className: 'who', textContent: v.driver || 'ไม่มีคนขับ' }),
+            who(v.driver),
             v.changes?.length ? el('span', { className: 'changed', textContent: 'แผนเปลี่ยน' }) : null,
             el('span', { className: 'tally', textContent: v.rounds.length ? 'ตรวจ ' + v.rounds.length + ' ช่อง' : 'ยังไม่ตรวจ' })),
         trips.length || v.remark ? el('div', { className: 'jobs' }, trips.join(' → '),
@@ -551,12 +605,13 @@ function hourlyRow(v) {
 
 function hourlyPage(v) {
     const page = el('div', { className: 'vehicle' });
+    const title = titleOf(v);
     const redraw = () => page.replaceChildren(...[
         button('← กลับหน้ารวม', closeVehicle),
-        el('h3', { className: 'title', textContent: v.scc + ' ' + (v.driver || '') }),
+        title.node,
         ...hourGrids(v),
         el('div', { className: 'line' },
-            el('label', { className: 'field grow' }, 'พขร.1', input(v, 'driver', 'ชื่อ พขร.1')),
+            el('label', { className: 'field grow' }, 'พขร.1', input(v, 'driver', 'ชื่อ พขร.1', { onchange: () => title.paint() })),
             el('label', { className: 'field grow' }, 'พขร.2 / คนโหลด', input(v, 'driver2', 'ชื่อ พขร.2 (ถ้ามี)', { onchange: () => redraw() }))),
         el('div', { className: 'line' },
             el('label', {}, 'GPS ', select(v, 'gps', 'สถานะ GPS', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']])),
@@ -641,7 +696,8 @@ function vehiclePage(v) {
     let infoOpen = !v.driver || v.trips.some((t) => !t.ship && !t.cust);
     const redraw = () => {
         const editing = v.rounds[openRound.get(v.scc)];
-        const driver = input(v, 'driver', 'ชื่อ พขร.', { className: 'grow' });
+        const title = titleOf(v, true);
+        const driver = input(v, 'driver', 'ชื่อ พขร.', { className: 'grow', onchange: () => title.paint() });
         const info = el('details', { className: 'info', open: infoOpen },
             el('summary', { textContent: 'ข้อมูลคนขับและงาน (' + v.trips.length + ' งาน)' }),
             el('div', { className: 'line' },
@@ -666,8 +722,7 @@ function vehiclePage(v) {
 
         page.replaceChildren(
             button('← กลับหน้ารวม', closeVehicle),
-            el('h3', { className: 'title' }, v.scc + ' ',
-                v.plate ? el('span', { className: 'plate', textContent: v.plate }) : null, ' ' + (v.driver || '')),
+            title.node,
             destinations(v, redraw),
             button('+ ตรวจรอบใหม่', () => {
                 const time = new Date().toTimeString().slice(0, 8);
@@ -802,6 +857,7 @@ async function importPlans(files) {
         el('b', { textContent: v.scc }),
         p.created && template.vehicles.length ? el('em', { textContent: ' รถใหม่ ไม่มีในฟอร์ม' }) : null,
         ' ' + (item.driver || v.driver || 'ไม่ระบุคนขับ'),
+        historyBadge(item.driver || v.driver),
         fresh
             ? el('div', { className: 'mute', textContent: (update ? 'งานใหม่: ' : '') + destList(item.trips).map((d) => d.name).join(' | ') })
             : el('ul', {}, ...changes.map((c) => el('li', { textContent: describe(c) })))); }));
@@ -1308,5 +1364,6 @@ requireLogin(async () => {
     }
     for (const id of ['form', 'date', 'shift']) $(id).disabled = false;
     bind();
+    loadHistory(); // ไม่ต้องรอ ประวัติมาช้าไม่ขวางการทำงาน
     await load();
 });

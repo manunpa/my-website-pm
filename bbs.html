@@ -64,6 +64,7 @@ section p{margin:0 0 8px}
 .car{display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;background:var(--head);padding:8px 12px}
 .car b{font-size:17px}
 .who{flex:1}
+.history{display:inline-block;margin-left:6px;padding:0 7px;font-size:12px;font-weight:600;color:var(--no);border:1px solid var(--no);border-radius:99px;cursor:pointer;white-space:nowrap}
 .tally{font-size:13px;color:var(--mute)}
 .row.none .tally{color:var(--no);font-weight:600}
 .logs{display:block;border-top:1px solid var(--line)}
@@ -205,6 +206,7 @@ dialog em{font-style:normal;color:var(--no)}
       <button class="btn" id="alert-button" type="button" title="จัดข้อความแจ้งเหตุสำหรับส่ง LINE" disabled><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17.5v.01"/></svg>แจ้งเหตุ</button>
     </div>
     <p class="mute tools" id="count"></p>
+    <p class="mute tools" id="history-note" hidden>โหลดประวัติพฤติกรรม พขร. ไม่ได้ (ป้าย ⚠ จะไม่แสดง)</p>
     <div id="list"></div>
     <p class="tools"><label><input type="checkbox" id="show-all"> แสดงรถที่ไม่มีงาน (<span id="hidden-count">0</span>)</label></p>
   </section>
@@ -221,6 +223,11 @@ dialog em{font-style:normal;color:var(--no)}
     </span>
   </section>
 
+  <dialog id="history-dialog" aria-labelledby="history-title">
+    <h3 id="history-title"></h3>
+    <ul id="history-list"></ul>
+    <form method="dialog"><button class="btn">ปิด</button></form>
+  </dialog>
   <dialog id="hour-dialog" aria-labelledby="hour-title">
     <h3 id="hour-title"></h3>
     <div class="line"><label class="field">เวลาที่ดู<input type="time" id="hour-time"></label>
@@ -305,6 +312,6 @@ dialog em{font-style:normal;color:var(--no)}
   });
 })();
 </script>
-<script type="module" src="./bbs.js?v=37"></script>
+<script type="module" src="./bbs.js?v=38"></script>
 </body>
 </html>
