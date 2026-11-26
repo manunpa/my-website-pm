@@ -55,7 +55,7 @@ button,input,select{font:inherit;color:var(--text)}
 a.btn{text-decoration:none;color:var(--text);display:inline-flex;align-items:center}
 @media print{.navbtn{display:none!important}}
 .btn.primary{background:var(--accent);color:#1d2433;border-color:var(--accent);font-weight:500}
-.theme{width:38px;height:38px;border-radius:50%;padding:0;font-size:18px;line-height:1}
+.theme{width:38px;height:38px;border-radius:50%;padding:0;display:inline-flex;align-items:center;justify-content:center}
 .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;box-shadow:var(--shadow)}
 .filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;align-items:end;margin-bottom:12px}
 label{display:block;font-size:11px;color:var(--muted);margin-bottom:3px}
@@ -106,6 +106,39 @@ tbody tr{cursor:pointer}
   #cDay .col{flex:0 0 26px}
   #cDay .x{white-space:nowrap}
   #cMonth .col{flex:1 1 0;max-width:70px}
+/* กราฟวิเคราะห์เพิ่มเติม (leo-charts.js) */
+.xgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:12px;align-items:start}
+.xgrid>.panel{min-width:0}
+.xgrid .full{grid-column:1/-1}
+@media (max-width:860px){.xgrid{grid-template-columns:minmax(0,1fr)}}
+.x-scroll{overflow-x:auto}
+.xgrid table{min-width:0;width:100%}
+.xgrid th{position:static;cursor:default}
+.xgrid tbody tr{cursor:default}
+table.heat{border-collapse:separate;border-spacing:2px}
+.heat th{background:none;color:var(--muted);font-weight:400;font-size:10px;padding:0;border:0}
+.heat tbody th{text-align:left;padding-right:6px;font-size:11px;white-space:nowrap}
+.heat td{height:20px;min-width:11px;padding:0;border:1px solid var(--line);border-radius:3px}
+.heat td.sum{border:0;text-align:right;font-size:11px;padding-left:6px}
+.mini td.num{text-align:right;white-space:nowrap}
+.mini small{display:block;color:var(--muted);font-size:11px}
+.mini td.thin{opacity:.5}
+.cell-bar{display:inline-block;width:56px;height:7px;margin-right:8px;background:var(--bg);border-radius:4px;overflow:hidden}
+.cell-bar i{display:block;height:100%;background:var(--accent2)}
+.hbar.wide{grid-template-columns:150px 1fr 90px}
+.hbar.wide b{text-align:right;white-space:nowrap}
+.big{font-size:26px;font-weight:700}
+.note{color:var(--muted);font-size:12px;margin:4px 0 8px}
+.xgrid h4{margin:12px 0 4px;font-size:12px;color:var(--muted)}
+.warnline{color:var(--bad);font-size:12px;margin-bottom:6px}
+.stack{display:flex;gap:8px;align-items:flex-end;height:170px}
+.stack .col{flex:1 1 0;max-width:70px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;min-width:0}
+.stack .col i{width:100%;display:block;border-top:1px solid var(--card)}
+.stack .n,.stack .x{font-size:10px;color:var(--muted)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;margin-top:8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px}
+.xctl{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.xctl select{padding:4px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font-size:12px;max-width:100%}
 </style>
 </head>
 <body>
@@ -119,7 +152,7 @@ tbody tr{cursor:pointer}
     <a class="btn navbtn" href="Access-Hub.html" title="กลับหน้า Hub">← Hub</a>
     <div class="status"><span class="dot demo" id="dot"></span><span id="stText">ข้อมูลตัวอย่าง</span><span style="color:var(--muted)" id="stTime"></span></div>
     <button class="btn primary" id="refresh">⟳ รีเฟรช</button>
-    <button class="btn theme" id="theme" title="สลับโทนสี">🌙</button>
+    <button class="btn theme" id="theme" title="สลับโทนสี" aria-label="สลับโทนสี"></button>
     <button class="btn navbtn" id="logout-btn" title="ออกจากระบบ">ออกจากระบบ</button>
   </div>
 </header>
@@ -156,6 +189,21 @@ tbody tr{cursor:pointer}
   <div class="panel"><h3>การแจ้งเตือนรายเดือน</h3><div class="bars" id="cMonth"></div></div>
 </div>
 
+<div class="xgrid">
+  <div class="panel full"><h3>ประเภทการจอด × ช่วงเวลา <span style="color:var(--muted);font-weight:400;font-size:12px">(สีเข้ม = เกิดบ่อย)</span></h3><div id="xTypeHeat"></div></div>
+  <div class="panel full"><h3>วันในสัปดาห์ × ช่วงเวลา <span style="color:var(--muted);font-weight:400;font-size:12px">(ใช้ดูการจัดคนเข้ากะ)</span></h3><div id="xWeekHeat"></div></div>
+  <div class="panel"><h3>ประเภทการจอดรายเดือน <span style="color:var(--muted);font-weight:400;font-size:12px">(12 เดือนล่าสุดในช่วงที่เลือก)</span></h3><div id="xMonth"></div></div>
+  <div class="panel"><h3>เวลาจอดเฉลี่ยตามประเภท <span style="color:var(--muted);font-weight:400;font-size:12px">(อย่างน้อย 3 เคส)</span></h3><div id="xAvg"></div></div>
+  <div class="panel"><h3>สัดส่วนตามประเภทการจอด</h3><div id="xShare"></div></div>
+  <div class="panel"><h3>เจาะลึกอันดับสูงสุด <span style="color:var(--muted);font-weight:400;font-size:12px">(10 อันดับ)</span></h3><div class="xctl"><select id="xType" aria-label="ประเภทการจอด"></select></div><div class="xctl" id="xBy"><span class="chip" data-v="plate">ทะเบียน</span><span class="chip" data-v="driver">คนขับ</span><span class="chip" data-v="province">จังหวัด</span><span class="chip" data-v="releasedBy">ผู้ปลด</span></div><div id="xDrill"></div></div>
+  <div class="panel full"><h3>จุดที่เกิดซ้ำ <span style="color:var(--muted);font-weight:400;font-size:12px">(12 พื้นที่ที่มีเคสมากสุด)</span></h3><div class="xctl" id="xLevel"><span class="chip" data-v="district">อำเภอ</span><span class="chip" data-v="area">ตำบล</span></div><div id="xHot"></div></div>
+  <div class="panel"><h3>แจ้งเตือนที่ไม่ต้องตรวจจริง</h3><div id="xNoise"></div></div>
+  <div class="panel"><h3>เวลาตอบสนองของผู้ปลด <span style="color:var(--muted);font-weight:400;font-size:12px">(ยิ่งน้อยยิ่งเร็ว)</span></h3><div id="xResp"></div></div>
+  <div class="panel"><h3>เคสไม่อนุมัติ</h3><div id="xRej"></div></div>
+  <div class="panel"><h3>ไม่อนุมัติรายสัปดาห์ <span style="color:var(--muted);font-weight:400;font-size:12px">(12 สัปดาห์ล่าสุดในช่วงที่เลือก)</span></h3><div id="xRejWeek"></div></div>
+  <div class="panel full"><h3>เกณฑ์การไม่อนุมัติของผู้ปลด แยกตามประเภท</h3><div id="xMatrix"></div></div>
+</div>
+
 <div class="panel">
   <h3>รายละเอียดเคส <span style="color:var(--muted);font-weight:400;font-size:12px">(คลิกหัวคอลัมน์เพื่อเรียง, คลิกแถวเพื่อดูรายละเอียด)</span></h3>
   <div class="tablebox"><table><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody></table></div>
@@ -166,6 +214,6 @@ tbody tr{cursor:pointer}
 <div class="modal" id="modal"><div class="box"><div style="display:flex;justify-content:space-between;margin-bottom:10px"><h3 style="margin:0" id="mTitle"></h3><button class="btn" id="mClose">✕</button></div><div class="kv" id="mBody"></div></div></div>
 
 <!-- เรียกใช้งานไฟล์ JavaScript ภายนอกที่แยกออกมา -->
-<script type="module" src="./leo_dashboard.js?v=20261124-stoptype"></script>
+<script type="module" src="./leo_dashboard.js?v=20261127-light"></script>
 </body>
 </html>

@@ -1,4 +1,5 @@
 import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122-cut';
+import { renderCharts } from './leo-charts.js?v=20261127';
 /* ===== ตั้งค่าการเชื่อม Google Sheets API ===== */
 const CONFIG = {
   API_URL: 'https://script.google.com/macros/s/AKfycbyWoNoFrTC1Ep3j395aio1ZP9E9qrTwubtUei2uydmoHnsIigYk7V8jN29wvl32t84W/exec',
@@ -63,13 +64,21 @@ let ROWS = [], sortKey = 'start', sortDir = -1, mode = 'demo', timer;
 function setTheme(t){
   document.documentElement.dataset.theme = t;
   const themeBtn = $('theme');
-  if(themeBtn) themeBtn.textContent = t === 'dark' ? '☀️' : '🌙';
-  try{ localStorage.setItem('theme', t) }catch(e){}
+  // ไอคอนลายเส้น: โทนมืดแสดงดวงอาทิตย์ โทนสว่างแสดงพระจันทร์
+  if(themeBtn) themeBtn.innerHTML = t === 'dark'
+    ? '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>'
+    : '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>';
+
 }
-let saved = null; try{ saved = localStorage.getItem('theme') }catch(e){}
-setTheme(saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+// หน้านี้เริ่มที่โทนสว่างเสมอ จำเฉพาะเมื่อกดปุ่มสลับเอง (แยกคีย์จากหน้าอื่น)
+let saved = null; try{ saved = localStorage.getItem('leo-theme') }catch(e){}
+setTheme(saved || 'light');
 const themeBtnEl = $('theme');
-if(themeBtnEl) themeBtnEl.onclick = () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+if(themeBtnEl) themeBtnEl.onclick = () => {
+  const t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  setTheme(t);
+  try{ localStorage.setItem('leo-theme', t) }catch(e){}
+};
 
 /* ---------- ข้อมูล ---------- */
 function parseDT(s){
@@ -224,10 +233,10 @@ function preset(p){
   document.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c.dataset.p === p));
   render();
 }
-function filtered(){
+function filtered(range){
   const fromEl = $('from'), toEl = $('to'), qEl = $('q'), drEl = $('fDriver'), unEl = $('fUnlocker'), duEl = $('fDur');
-  const f = fromEl && fromEl.value ? new Date(fromEl.value) : null;
-  const t = toEl && toEl.value ? new Date(toEl.value) : null;
+  const f = range ? range[0] : fromEl && fromEl.value ? new Date(fromEl.value) : null;
+  const t = range ? range[1] : toEl && toEl.value ? new Date(toEl.value) : null;
   const q = qEl ? qEl.value.trim().toLowerCase() : '';
   const dr = drEl ? drEl.value : '';
   const un = unEl ? unEl.value : '';
@@ -323,6 +332,7 @@ function render(){
   hbars('cReason', countBy(d, r=>r.reason.replace(/[\d.,]+\s*,\s*[\d.]+\s*/,'').slice(0,40)));
   hbars('cCat', countBy(d, r=>r.cat), STOP_TYPES.length + 1);
   renderTrend(d);
+  renderCharts(chartData(d));
 
   d.sort((a,b) => {
     const k = sortKey, map = {start:'startD', end:'endD', unlockAt:'unlockD', dur:'sec'};
@@ -344,6 +354,19 @@ function render(){
   }
   if(countEl) countEl.textContent = `แสดง ${d.length} จาก ${ROWS.length} รายการ`;
   window._d = d;
+}
+
+// ช่วงวันที่ของกราฟวิเคราะห์: ตามช่องตั้งแต่/ถึง ถ้าเว้นว่างใช้ข้อมูลแรกถึงล่าสุด
+// prev = ช่วงยาวเท่ากันก่อนหน้า (ตัวกรองอื่นเหมือนเดิม) มีเมื่อเลือกวันเริ่มแล้วเท่านั้น
+function chartData(rows){
+  const f = $('from').value ? new Date($('from').value).getTime() : null;
+  const t = $('to').value ? new Date($('to').value).getTime() + 6e4 : null;
+  if(!rows.length) return {rows, prev: null, range: null};
+  const times = rows.map(r => r.startD.getTime());
+  const day = ms => new Date(ms).setHours(0,0,0,0);
+  const range = {from: f ?? day(times.reduce((a, b) => Math.min(a, b))), to: t ?? day(times.reduce((a, b) => Math.max(a, b))) + 864e5};
+  const prev = f === null ? null : filtered([new Date(2*range.from - range.to), new Date(range.from - 1)]);
+  return {rows, prev, range};
 }
 
 /* ---------- อีเวนต์ ---------- */
