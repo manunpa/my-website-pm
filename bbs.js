@@ -1,6 +1,6 @@
 import { requireLogin, fetchProtectedText, PRESENCE_URL, auth } from './firebase-guard.js?v=20261122-cut';
 import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=10';
-import { readPlans, vehicleNo, sccName, PEOPLE_FIELDS } from './bbs-plan.js?v=12';
+import { readPlans, vehicleNo, sccName, PEOPLE_FIELDS } from './bbs-plan.js?v=14';
 import { readHourly, buildHourly } from './bbs-hourly.js?v=8';
 import { readImage, parseShot, inShift } from './bbs-ocr.js?v=1';
 import { samePlace } from './bbs-match.js?v=1';

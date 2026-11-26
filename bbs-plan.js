@@ -65,6 +65,46 @@ function splitTrips(ship, cust) {
     return ship || cust ? [{ ship, cust }] : [];
 }
 
+// ===== หน้างานใส่ผิดช่อง: ช่องตามหัวคอลัมน์ว่างหรือข้อมูลไม่เข้าพวก ให้หาจากช่องอื่นในแถว (LLK, SRC) =====
+const isName = (t) => DRIVER.test(t);
+const isText = (t) => !!t && !isName(t) && !/^[\d\s.,\/\-:]+$/.test(t) && !/^SCC\s*\d+/i.test(t);
+const CUSTOMER = /บจก|บมจ|หจก|หสน|บริษัท|สหกรณ์|ปิโตร|ออย|บริการ|เซอร์วิส|แก๊ส|พลังงาน/;
+
+/** อ่านช่อง cols ที่ควรอยู่ก่อน ไม่ได้จึงหาช่องใกล้สุดในช่วง [lo, hi] (moved = เจอผิดที่) */
+function pick(row, cols, ok, stray, [lo, hi]) {
+    for (const c of cols) {
+        const value = row.cells.get(c) || '';
+        if (ok(value)) return { value, col: c };
+    }
+    const near = [...row.cells].filter(([c, t]) => c >= lo && c <= hi && stray(t))
+        .sort((a, b) => Math.abs(a[0] - cols[0]) - Math.abs(b[0] - cols[0]))[0];
+    return near ? { value: near[1], col: near[0], moved: true } : { value: '' };
+}
+
+// เรียนรูปแบบจากข้อมูลที่อยู่ถูกช่องในไฟล์เดียวกัน ค่าที่อยู่ผิดช่องต้องเข้ารูปแบบนั้นจึงจะหยิบมา
+const columnValues = (rows, cols) => rows.flatMap((r) => cols.map((c) => r.cells.get(c) || '')).filter(Boolean);
+/** เลขชนิดเดียวกัน = ยาวเท่ากันและขึ้นต้นเหมือนกัน (เช่น NOM 12xxxx) */
+function sameKind(values, re) {
+    const shape = (v) => v.length + ':' + v.slice(0, 2);
+    const seen = new Set(values.filter((v) => re.test(v)).map(shape));
+    return (t) => re.test(t) && seen.has(shape(t));
+}
+/** ชื่อลูกค้า: มีคำของนิติบุคคล/ปั๊ม หรือเคยอยู่ในช่องลูกค้าของไฟล์นี้ */
+function likeCustomer(values) {
+    const seen = new Set(values.filter(isText));
+    return (t) => isText(t) && (CUSTOMER.test(t) || seen.has(t));
+}
+
+// เบอร์รถเลื่อนไปช่องข้างๆ ต้องมีคำว่า SCC นำหน้า กันหยิบตัวเลขอื่น (ระยะทาง ฯลฯ)
+function carNo(row, col, moved) {
+    const no = vehicleNo(row.cells.get(col));
+    if (no) return no;
+    const near = [col - 1, col + 1].map((c) => row.cells.get(c) || '').find((t) => /^SCC\s*\d/i.test(t) && vehicleNo(t));
+    if (!near) return '';
+    moved(vehicleNo(near), 'เบอร์รถ');
+    return vehicleNo(near);
+}
+
 // ===== 1.1 Daily Report: ครึ่งซ้ายกะกลางวัน ครึ่งขวากะกลางคืน =====
 // หัวคอลัมน์ฝั่งกลางคืนเหลื่อมกับข้อมูล จึงหาจากลักษณะของข้อความแทน
 function readDaily(rows, header, shift, add) {
@@ -134,29 +174,68 @@ function readNpm(rows, header, add) {
 }
 
 // ===== JC Daily Report: ครึ่งซ้ายกะกลางวัน ครึ่งขวากะกลางคืน คันละหลายแถว (คนละ Drop) =====
-function readJourney(rows, header, shift, add) {
+// แผน LLK ใช้ผังเดียวกัน (มี "วันทำงาน" เพิ่ม): สถานะเป็นกลุ่มเสี่ยง L/M/H และหัวคอลัมน์ฝั่งกลางคืนเหลื่อม
+// คือไม่มีหัว "พขร." (ชื่ออยู่ใต้ "รหัส พขร.") และชื่อลูกค้าอยู่ใต้ "Shipment"
+function readJourney(rows, header, shift, add, moved) {
     const nth = (re) => [...header.cells].filter(([, t]) => re.test(t)).map(([c]) => c)[shift === 'night' ? 1 : 0];
-    const cols = { scc: nth(/^SCC$/), driver: nth(/^พขร/), cust: nth(/^ลูกค้า/), status: nth(/^สถานะ$/), rest: nth(/^สถานะวันหยุด$/) };
+    const cols = { scc: nth(/^SCC$/), driver: nth(/^พขร/) || nth(/^รหัส\s*พขร/), cust: nth(/^ลูกค้า/), ship: nth(/^Shipment/i),
+        trip: nth(/^Trip$/i), status: nth(/^สถานะ$/), rest: nth(/^สถานะวันหยุด$/) };
+    const llk = [...header.cells.values()].includes('วันทำงาน');
+    // ช่วงคอลัมน์ของกะนี้ (ไม่ให้ไปหยิบของอีกกะหรือคอลัมน์สรุป)
+    const sccCols = [...header.cells].filter(([, t]) => t === 'SCC').map(([c]) => c);
+    const total = [...header.cells].find(([, t]) => /^จำนวนเที่ยว/.test(t))?.[0];
+    const range = shift === 'night' ? [cols.scc - 1, (total || 999) - 1] : [1, (sccCols[1] || 999) - 2];
+    const body = rows.filter((r) => r.n > header.n);
+    const knownShip = sameKind(columnValues(body, [cols.ship]), SHIPMENTS);
+    const knownCustomer = likeCustomer(columnValues(body, [cols.cust, cols.ship]));
     const cars = new Map();
     let current = '';
     for (const row of rows.filter((r) => r.n > header.n)) {
         if ([...row.cells.values()].some((t) => /^(รวม|สรุป)/.test(t))) break;
-        const no = vehicleNo(row.cells.get(cols.scc));
+        const no = llk ? carNo(row, cols.scc, moved) : vehicleNo(row.cells.get(cols.scc));
         if (no) current = no;
         if (!current) continue;
         const car = cars.get(current) || { people: [], custs: [] };
         cars.set(current, car);
-        const driver = row.cells.get(cols.driver) || '';
+        let driver = row.cells.get(cols.driver) || '';
+        let statusText = row.cells.get(cols.status) || '';
+        let restText = row.cells.get(cols.rest) || '';
+        if (llk) {
+            const found = pick(row, [cols.driver], isName, isName, range);
+            if (found.moved) moved(current, 'พขร.');
+            driver = found.value || (isText(driver) ? driver : '');
+            if (driver) {
+                const risk = pick(row, [cols.status], (t) => /^[LMH]$/.test(t), (t) => /^[LMH]$/.test(t), range);
+                const isRest = (t) => /^(ปกติ|หยุด|ลา|กลับจากหยุด)/.test(t);
+                const rest = pick(row, [cols.rest], isRest, isRest, range);
+                if (risk.moved || rest.moved) moved(current, 'กลุ่มเสี่ยง/วันหยุด');
+                statusText = risk.value;
+                restText = rest.value;
+            }
+        }
         // แผนมีแถวละ 1 งาน เขียนชื่อซ้ำได้ ชื่อเดียวกันคือคนเดียวกัน
         if (driver) {
             const same = (name) => name.replace(/\(.*?\)|^(นาย|นาง|น\.ส\.)|[\s*]/g, '');
             let person = car.people.find((p) => same(p.name) === same(driver));
             if (!person) car.people.push(person = { name: driver, status: '', rest: '' });
-            person.status ||= row.cells.get(cols.status) || '';
-            person.rest ||= row.cells.get(cols.rest) || '';
+            person.status ||= statusText;
+            person.rest ||= restText;
         }
-        const cust = row.cells.get(cols.cust) || '';
-        if (cust && !/^(SPARE|ไม่มีงาน)$/i.test(cust)) car.custs.push(cust);
+        let ship = SHIPMENTS.test(row.cells.get(cols.ship) || '') ? row.cells.get(cols.ship) : '';
+        let cust = row.cells.get(cols.cust) || '';
+        if (llk) {
+            const foundShip = pick(row, [cols.ship], (t) => SHIPMENTS.test(t), knownShip, range);
+            ship = foundShip.value;
+            // LLK: แถวไม่มีเลข Trip และไม่มี Shipment คือข้อความบอกสถานะรถ (จอดซ่อม ฯลฯ) ไม่ใช่งาน
+            const trip = [cols.trip, cols.trip - 1, cols.trip + 1].some((c) => /^\d{1,2}$/.test(row.cells.get(c) || ''));
+            if (!trip && !ship) continue;
+            // ชื่อลูกค้าอยู่ใต้ "ลูกค้า" หรือ "Shipment" (ฝั่งกลางคืน) ได้ทั้งคู่
+            const found = pick(row, [cols.cust, cols.ship], isText, knownCustomer, range);
+            cust = found.value;
+            if (found.moved) moved(current, 'ลูกค้า');
+            if (foundShip.moved) moved(current, 'Shipment');
+        }
+        if ((cust || ship) && !/^(SPARE|ไม่มีงาน)$/i.test(cust)) car.custs.push(...splitTrips(ship, cust));
     }
     for (const [no, car] of cars) {
         // คนที่ 2 = คนโหลด (ถ้าระบุ) คนที่เหลือเป็นคนที่ 3
@@ -168,16 +247,17 @@ function readJourney(rows, header, shift, add) {
             driver: first?.name || '',
             driver2: second?.name || '',
             driver3: third?.name || '',
+            risk: /^[LMH]$/.test(first?.status || '') ? (first.status + ' ' + first.rest).trim() : '',
             status: first?.status || '', rest: first?.rest || '',
             status2: second?.status || '', rest2: second?.rest || '',
             status3: third?.status || '', rest3: third?.rest || '',
-            trips: car.custs.map((cust) => ({ ship: '', custId: '', cust }))
+            trips: car.custs.map((t) => ({ ...t, custId: '' }))
         });
     }
 }
 
 // ===== Confirm fleet SRC (งานเย็น = กะกลางคืน): กลุ่มคอลัมน์ พขร./ลูกค้า/NOM มี 2 ชุด =====
-function readConfirm(rows, header, shift, add) {
+function readConfirm(rows, header, shift, add, moved) {
     if (shift !== 'night') return 'เป็นแผนงานเย็น ใช้กับกะกลางคืนเท่านั้น';
     const cols = (re) => [...header.cells].filter(([, t]) => re.test(t)).map(([c]) => c);
     const [scc] = cols(/เบอร์รถ/);
@@ -186,13 +266,28 @@ function readConfirm(rows, header, shift, add) {
     const noms = cols(/^NOM/i);
     const [risk] = cols(/risk/i);
     const [plate] = cols(/^ทะเบียน/);
-    for (const row of rows.filter((r) => r.n > header.n)) {
-        const no = vehicleNo(row.cells.get(scc));
+    const codes = cols(/^รหัสพขร/);
+    const body = rows.filter((r) => r.n > header.n);
+    const nomShape = /^\d{6}(\s*[\/,]\s*\d{6})*$/;
+    const knownNom = sameKind(columnValues(body, noms), nomShape);
+    const knownCustomer = likeCustomer(columnValues(body, custs));
+    for (const row of body) {
+        const no = carNo(row, scc, moved);
         if (!no) continue;
         drivers.forEach((c, i) => {
-            const driver = row.cells.get(c) || '';
-            const names = (row.cells.get(custs[i]) || '').split(/\/+/).map((s) => s.trim()).filter(Boolean);
-            const nom = row.cells.get(noms[i]) || '';
+            const range = [codes[i] || c - 1, noms[i] || custs[i] + 1]; // กลุ่มคอลัมน์ พขร. ชุดนี้
+            const name = pick(row, [c], isName, isName, range);
+            const driver = name.value;
+            // NOM ผิดช่องต้องขึ้นต้นเหมือนเลข NOM อื่นในไฟล์ กันหยิบเลขในหมายเหตุ
+            const number = pick(row, [noms[i]], (t) => nomShape.test(t), knownNom, [range[0], range[1] + 1]);
+            const nom = number.value || row.cells.get(noms[i]) || '';
+            let place = pick(row, [custs[i]], isText, knownCustomer, range);
+            // ชื่อกับลูกค้าใส่สลับช่องกัน: ข้อความในช่องชื่อคือลูกค้า
+            if (!place.value && name.moved && name.col === custs[i] && isText(row.cells.get(c))) place = { value: row.cells.get(c), moved: true };
+            const names = place.value.split(/\/+/).map((s) => s.trim()).filter(Boolean);
+            if (name.moved) moved(no, 'พขร.');
+            if (number.moved) moved(no, 'NOM');
+            if (place.moved) moved(no, 'ลูกค้า');
             if (!DRIVER.test(driver) && !names.length && !nom) return;
             add(no, {
                 plate: (row.cells.get(plate) || '').split('/')[0].trim(),
@@ -223,6 +318,7 @@ export async function readPlans(files, date, shift) {
         v.plate ||= item.plate || '';
         if (item.replace) { // แผน NPM: ไฟล์หลังคือฉบับแก้ ใช้ทับของเดิม
             v.driver = item.driver || v.driver;
+            v.risk = item.risk || v.risk;
             v.remark = item.remark;
             v.driver2 = item.driver2;
             for (const k of PEOPLE_FIELDS) if (item[k] !== undefined) v[k] = item[k];
@@ -240,6 +336,8 @@ export async function readPlans(files, date, shift) {
         vehicles.set(no, v);
     };
     const want = date.split('-').reverse().join('/');
+    const misplaced = new Map(); // คัน -> ข้อมูลที่เจอผิดช่อง
+    const moved = (no, what) => misplaced.set(no, (misplaced.get(no) || new Set()).add(what));
     for (const file of files) {
         const say = (text) => notes.push(file.name + ': ' + text);
         try {
@@ -249,8 +347,9 @@ export async function readPlans(files, date, shift) {
             const journey = rows.slice(0, 8).find((r) => has(r, /^SCC$/) && has(r, /^ใช้รถจริง$/));
             // JC Report ไม่มีวันที่ในหัวชีต: วัน = ชื่อชีต เดือน/ปี = ชื่อไฟล์ (เช่น 11_2026)
             const month = journey && /(\d{1,2})[_\-](\d{4})/.exec(file.name);
-            const found = month ? iso(Number(month[2]), Number(month[1]), Number(date.slice(8))) : headerDate(rows) || (journey ? date : '');
-            if (journey && !month) say('ชื่อไฟล์ไม่บอกเดือน/ปี ตรวจสอบว่าเป็นแผนของเดือนนี้');
+            const written = headerDate(rows);
+            const found = month ? iso(Number(month[2]), Number(month[1]), Number(date.slice(8))) : written || (journey ? date : '');
+            if (journey && !month && !written) say('ชื่อไฟล์ไม่บอกเดือน/ปี ตรวจสอบว่าเป็นแผนของเดือนนี้');
             if (found !== date) {
                 say(found ? 'หัวชีตเป็นวันที่ ' + found.split('-').reverse().join('/') + ' ไม่ใช่ ' + want + ' จึงไม่ดึง'
                     : 'หาวันที่ในหัวชีตไม่เจอ จึงไม่ดึง');
@@ -260,10 +359,10 @@ export async function readPlans(files, date, shift) {
             if (!header) { say('ไม่รู้จักรูปแบบแผนงานนี้'); continue; }
             const before = vehicles.size;
             let problem = '';
-            if (journey) readJourney(rows, journey, shift, add);
+            if (journey) readJourney(rows, journey, shift, add, moved);
             else if (has(header, /^Reg\.?\s*Truck$/i)) readNpm(rows, header, add);
             else if (has(header, /^SCC$/)) readDaily(rows, header, shift, add);
-            else if (has(header, /ชื่อพขร/)) problem = readConfirm(rows, header, shift, add);
+            else if (has(header, /ชื่อพขร/)) problem = readConfirm(rows, header, shift, add, moved);
             else readShell(rows, header, shift, add);
             if (problem) say(problem);
             else if (vehicles.size === before && !journey && !has(header, /^Reg/i)) say('ไม่พบรถใหม่ของกะนี้');
@@ -272,6 +371,7 @@ export async function readPlans(files, date, shift) {
             say('อ่านไม่ได้ (' + err.message + ')');
         }
     }
+    for (const [no, what] of misplaced) notes.push(sccName(no) + ': อ่าน ' + [...what].join(', ') + ' จากช่องที่ใส่ผิดที่ ตรวจก่อนกดตกลง');
     // รถจอดซ่อม/ไม่มีงาน ไม่ต้องเติมอะไร
     for (const [no, v] of vehicles) if (!v.driver && !v.trips.length) vehicles.delete(no);
     return { vehicles, notes };
