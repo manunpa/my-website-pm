@@ -4,6 +4,7 @@
  * - แท็บ "รายวัน": จำนวนเครื่อง จำนวนคน และช่วงพีคของแต่ละวัน
  * - แท็บ "history": จำนวนเครื่องต่อหน้าทุก 5 นาที เก็บ 90 วัน
  * - แท็บ "สรุป": สูตรรวมตามคน หน้า ชั่วโมง และชนิดเครื่อง
+ * - แท็บ "ประวัติการกระทำ": 1 แถวต่อ 1 การกระทำในหน้า BBS (ส่งออก/คัดลอก = เขียว, ลบ/ล้าง = แดง) ไม่ลบอัตโนมัติ
  * - เครื่องที่ไม่ส่งสัญญาณเกิน 150 วินาทีถูกตัดออก กลับมาใหม่นับเป็นรอบใหม่
  * - สวิตช์เปิด/ปิดป้ายประวัติพฤติกรรม พขร. ในหน้า BBS: ทุกคนที่ล็อกอินอ่านได้ เปลี่ยนได้เฉพาะ ADMIN_EMAIL
  * - ส่งสัญญาณได้เฉพาะคนที่ล็อกอินเว็บแล้ว (อีเมลมาจากการตรวจ token) ดูได้เฉพาะ ADMIN_EMAIL
@@ -39,6 +40,12 @@ function doPost(e) {
     return json_({ status: 'error', error: 'unauthorized', message: 'เซสชันหมดอายุหรือไม่มีสิทธิ์ กรุณาล็อกอินใหม่' });
   }
   if (body.action === 'flags') return json_({ status: 'success', showHistory: showHistory_() });
+  if (body.action === 'log') {
+    const lock = LockService.getScriptLock();
+    lock.waitLock(20000);
+    try { log_(body.rows, user.email); } finally { lock.releaseLock(); }
+    return json_({ status: 'success', logged: true });
+  }
   if (body.action === 'view' || body.action === 'setHistory') {
     if (!ADMIN_EMAIL || user.email !== ADMIN_EMAIL.trim().toLowerCase()) {
       return json_({ status: 'error', error: 'forbidden', message: 'บัญชีนี้ไม่มีสิทธิ์ดูหน้านี้' });
@@ -277,6 +284,45 @@ function summary_(map) {
     devices[parts[0]] = true;
   });
   return { status: 'success', total: Object.keys(devices).length, pages: pages };
+}
+
+// ===== ประวัติการใช้งาน (เพิ่มต่อท้ายอย่างเดียว ไม่แก้ ไม่ลบของเดิม) =====
+const LOG_TAB = 'ประวัติการกระทำ';
+const LOG_HEADERS = ['เวลาที่ทำ', 'ผู้ใช้', 'กลุ่ม', 'การกระทำ', 'ฟอร์ม', 'วันที่', 'กะ', 'เบอร์รถ', 'รายละเอียด', 'id'];
+const LOG_COLORS = { 'ส่งออก': '#d9ead3', 'ลบ': '#f4cccc' };
+
+function log_(entries, email) {
+  if (!Array.isArray(entries) || !entries.length) return;
+  const sheet = tab_(LOG_TAB, LOG_HEADERS);
+  // เว็บอาจส่งชุดเดิมซ้ำเมื่อเน็ตหลุดก่อนได้คำตอบ ข้ามรายการที่ลงแล้ว
+  const last = sheet.getLastRow();
+  const have = {};
+  if (last > 1) {
+    const from = Math.max(2, last - 1999);
+    sheet.getRange(from, LOG_HEADERS.length, last - from + 1, 1).getDisplayValues()
+      .forEach(function (r) { have[r[0]] = true; });
+  }
+  const rows = entries.slice(0, 200).filter(function (e) { return e && !have[e.id]; }).map(function (e) {
+    const at = new Date(Number(e.at) || Date.now());
+    return [Utilities.formatDate(at, 'Asia/Bangkok', 'yyyy-MM-dd HH:mm:ss'), email, e.group, e.action,
+      e.form, e.date, e.shift, e.scc, e.detail, e.id]
+      .map(function (v) { return safe_(String(v == null ? '' : v).slice(0, 2000)); });
+  });
+  if (!rows.length) return;
+  const start = last + 1;
+  const missing = start + rows.length - 1 - sheet.getMaxRows();
+  if (missing > 0) sheet.insertRowsAfter(sheet.getMaxRows(), missing);
+  const range = sheet.getRange(start, 1, rows.length, LOG_HEADERS.length);
+  range.setNumberFormat('@').setValues(rows);
+  range.setBackgrounds(rows.map(function (r) {
+    return LOG_HEADERS.map(function () { return LOG_COLORS[r[2]] || '#ffffff'; });
+  }));
+}
+
+// ข้อความที่ขึ้นต้นเหมือนสูตรต้องเก็บเป็นข้อความ
+function safe_(value) {
+  const s = String(value == null ? '' : value);
+  return /^[=+\-@]/.test(s) ? "'" + s : s;
 }
 
 // ===== ตรวจ Firebase ID token (จำผลไว้ไม่เกิน 5 นาที) =====

@@ -1,4 +1,4 @@
-import { requireLogin, fetchProtectedText, PRESENCE_URL } from './firebase-guard.js?v=20261122-cut';
+import { requireLogin, fetchProtectedText, PRESENCE_URL, auth } from './firebase-guard.js?v=20261122-cut';
 import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=10';
 import { readPlans, vehicleNo, sccName } from './bbs-plan.js?v=10';
 import { readHourly, buildHourly } from './bbs-hourly.js?v=4';
@@ -8,6 +8,7 @@ import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js
 import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=3';
 import { destList, diffPlan, mergeChanges, describe } from './bbs-diff.js?v=1';
 import { HISTORY_URL, nameKey, indexHistory, thaiDate } from './bbs-history.js?v=1';
+import { createLog } from './bbs-log.js?v=1';
 
 // URL /exec ของ Apps Script (apps-script/bbs.gs) — ว่างไว้ = เก็บในเครื่องนี้อย่างเดียว
 const API_URL = 'https://script.google.com/macros/s/AKfycbxGlbuYTL5_K8DZ7EIPT9P0NO5gef1od1f4WXzRvBPLbCvAPwST87Tl3hqtjMljY3Yx8w/exec';
@@ -76,6 +77,28 @@ let forms = []; // [{ id, name, updated }]
 
 const fromBase64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0)).buffer;
 const call = async (body) => JSON.parse(await fetchProtectedText(API_URL, body));
+
+// ===== ประวัติการใช้งาน (bbs-log.js) =====
+const activity = createLog({
+    // เก็บที่ชีต PM การใช้งาน (apps-script/presence.gs) ต้องได้ logged กลับมา: สคริปต์รุ่นเก่าตอบ success เฉยๆ โดยไม่ได้จด
+    send: async (rows) => !PRESENCE_URL ||
+        JSON.parse(await fetchProtectedText(PRESENCE_URL, { action: 'log', rows })).logged === true,
+    user: () => auth.currentUser?.email || ''
+});
+
+// group: ส่งออก (เขียว) / ลบ (แดง) / นำเข้า / แก้ไข / ดู
+function note(group, action, extra = {}) {
+    activity.add({
+        group, action,
+        form: [template && shortName(template.name), unit()?.name].filter(Boolean).join(' · '),
+        date: report?.date || '',
+        shift: report ? (report.shift === 'night' ? 'กลางคืน' : 'กลางวัน') : '',
+        scc: '', ...extra
+    });
+}
+const edited = (field, from, to, scc = '') =>
+    note('แก้ไข', 'แก้ข้อมูล', { scc, field, from: String(from ?? ''), to: String(to ?? '') });
+const roundText = (r) => [r.hour !== undefined ? 'ชั่วโมง ' + r.hour : '', r.time, r.place, typeName(r), r.note].filter(Boolean).join(' · ');
 
 // ใช้สำเนาในเครื่องถ้าไฟล์ใน Drive ไม่ได้ถูกแก้
 async function openForm(id) {
@@ -264,6 +287,7 @@ async function load() {
     seen = snapshot(report);
     render();
     if (!API_URL || !template) return;
+    note('ดู', 'เปิดรายงาน');
     try {
         status('กำลังโหลดจาก Google Sheet…');
         const remote = await fetchRemote(key);
@@ -293,6 +317,8 @@ function resetReport() {
         'มีรอบตรวจ ' + rounds + ' รายการ แผนงานและผลตรวจจะหายทุกเครื่อง กู้คืนไม่ได้',
         'ยืนยันล้าง?'
     ].join('\n\n'))) return;
+    note('ลบ', 'ล้างรายงาน', { detail: 'รอบตรวจที่หายไป ' + rounds + ' รายการ' + report.vehicles.filter((v) => v.rounds.length)
+        .map((v) => ' | ' + v.scc + ': ' + v.rounds.map(roundText).join(', ')).join('') });
     report = newReport();
     report.resetAt = report.headAt = Date.now();
     report.gone = {};
@@ -315,10 +341,16 @@ function el(tag, props = {}, ...children) {
     return node;
 }
 
+// current = รถที่กำลังแก้ (หน้ารายคัน) ใช้ลงประวัติ
 function input(obj, prop, placeholder, extra = {}) {
     const node = el('input', { value: obj[prop] || '', placeholder, ...extra });
     node.setAttribute('aria-label', placeholder);
+    let before = node.value;
     node.addEventListener('input', () => { obj[prop] = node.value; save(); });
+    node.addEventListener('change', () => {
+        if (node.value !== before) edited(placeholder, before, node.value, current || '');
+        before = node.value;
+    });
     return node;
 }
 
@@ -327,7 +359,7 @@ function select(obj, prop, label, options) {
     node.setAttribute('aria-label', label);
     if (obj[prop] && !options.some(([v]) => v === obj[prop])) node.append(el('option', { value: obj[prop], textContent: obj[prop] }));
     node.value = obj[prop] || '';
-    node.addEventListener('change', () => { obj[prop] = node.value; save(); });
+    node.addEventListener('change', () => { edited(label, obj[prop], node.value, current || ''); obj[prop] = node.value; save(); });
     return node;
 }
 
@@ -357,6 +389,8 @@ function roundView(v, r, i, redraw) {
             if (mark === 'P') r.marks[col] = 'O';
             else if (mark === 'O') delete r.marks[col];
             else r.marks[col] = 'P';
+            const shown = (m) => (m === 'P' ? '✓' : m === 'O' ? '✗' : '–');
+            edited('รอบ ' + shortTime(r) + ' ' + name.replace(/\s+/g, ' ').trim(), shown(mark), shown(r.marks[col]), v.scc);
             paint();
             tally();
             save();
@@ -368,19 +402,19 @@ function roundView(v, r, i, redraw) {
     const type = el('select', {}, ...Object.entries(TYPES).map(([value, t]) => el('option', { value, textContent: t.label })));
     type.value = r.type;
     type.setAttribute('aria-label', 'ประเภทการตรวจ');
-    type.onchange = () => { r.type = type.value; r.marks = presetMarks(r.type); save(); redraw(); };
+    type.onchange = () => { edited('ประเภทการตรวจ รอบ ' + shortTime(r), typeName(r), TYPES[type.value].label, v.scc); r.type = type.value; r.marks = presetMarks(r.type); save(); redraw(); };
 
     tally();
     // ปุ่มลัด: เติมค่าเริ่มต้นเฉพาะช่องที่ยังว่าง (ข้อที่เป็น ✗ คงไว้) หรือล้างทั้งหมด
     const quick = el('div', { className: 'line' },
-        button('✓ ค่าเริ่มต้น', () => { for (const col of TYPES[r.type].preset) r.marks[col] ||= 'P'; save(); redraw(); }),
-        button('ล้าง', () => { r.marks = {}; save(); redraw(); }));
+        button('✓ ค่าเริ่มต้น', () => { note('แก้ไข', 'ติ๊กค่าเริ่มต้น', { scc: v.scc, detail: roundText(r) }); for (const col of TYPES[r.type].preset) r.marks[col] ||= 'P'; save(); redraw(); }),
+        button('ล้าง', () => { note('ลบ', 'ล้างหัวข้อตรวจ', { scc: v.scc, detail: roundText(r) + ' (ติ๊กไว้ ' + Object.keys(r.marks).length + ' ข้อ)' }); r.marks = {}; save(); redraw(); }));
     return el('div', { className: 'round' },
         el('div', { className: 'line' },
             input(r, 'time', 'เวลา', { type: 'time', step: '1' }),
             input(r, 'place', 'สถานที่', { className: 'grow' }),
             type,
-            button('ลบ', () => { v.rounds.splice(i, 1); save(); redraw(); })),
+            button('ลบ', () => { note('ลบ', 'ลบรอบตรวจ', { scc: v.scc, detail: roundText(r) }); v.rounds.splice(i, 1); save(); redraw(); })),
         TYPES[r.type].cols.length
             ? el('details', { open: !r.closed, ontoggle: (e) => { r.closed = !e.target.open; } }, count, quick, checks)
             : null,
@@ -392,12 +426,14 @@ function tripView(v, t, i, redraw) {
     const id = input(t, 'custId', 'รหัสลูกค้า');
     id.addEventListener('change', () => {
         const name = template && template.customers[id.value.trim()];
-        if (name) { t.cust = cust.value = name; save(); }
+        if (name) { edited('ชื่อลูกค้า (จากรหัส)', t.cust, name, v.scc); t.cust = cust.value = name; save(); }
     });
     return el('div', { className: 'line' },
         input(t, 'ship', 'Shipment'), id, cust,
-        button('ลบ', () => { v.trips.splice(i, 1); save(); redraw(); }));
+        button('ลบ', () => { noteTripDelete(v, t); v.trips.splice(i, 1); save(); redraw(); }));
 }
+
+const noteTripDelete = (v, t) => note('ลบ', 'ลบงาน', { scc: v.scc, detail: [t.ship, t.custId, t.cust].filter(Boolean).join(' · ') });
 
 let current = null; // เบอร์รถที่เปิดดูอยู่ (null = หน้ารวม)
 const openRound = new Map(); // เบอร์รถ -> รอบที่กำลังเปิดแก้ (เปิดทีละรอบ)
@@ -416,6 +452,7 @@ const shortTime = (r) => (r.time || '--:--').slice(0, 5);
 const typeName = (r) => TYPES[r.type]?.label || '';
 
 function openVehicle(scc) {
+    note('ดู', 'เปิดดูรถ', { scc });
     if (current === null) history.pushState({ bbs: true }, ''); // ปุ่มย้อนกลับของมือถือ = กลับหน้ารวม
     current = scc;
     render();
@@ -469,6 +506,7 @@ function destSelect(v, name, redraw) {
     node.setAttribute('aria-label', 'สถานะงาน ' + name);
     node.onchange = () => {
         v.dest ||= {};
+        edited('สถานะงาน ' + name, STATE_TEXT[v.dest[name]] || 'อัตโนมัติ', STATE_TEXT[node.value] || 'อัตโนมัติ', v.scc);
         if (node.value) v.dest[name] = node.value; else delete v.dest[name];
         save();
         redraw();
@@ -551,6 +589,7 @@ function historyBadge(name) {
         $('history-title').textContent = head;
         $('history-list').replaceChildren(...lines.map((text) => el('li', { textContent: text })));
         $('history-dialog').showModal();
+        note('ดู', 'ดูประวัติพฤติกรรม พขร.', { detail: name });
     };
     const node = el('span', {
         className: 'history', tabIndex: 0, textContent: '⚠ ' + list.length,
@@ -644,8 +683,8 @@ function hourlyPage(v) {
         el('h3', { textContent: 'งานตามแผน' }),
         ...v.trips.map((t, i) => el('div', { className: 'line' },
             input(t, 'cust', 'Trips ' + (i + 1), { className: 'grow' }),
-            button('ลบ', () => { v.trips.splice(i, 1); save(); redraw(); }))),
-        button('+ เพิ่มงาน', () => { v.trips.push({ ship: '', custId: '', cust: '' }); save(); redraw(); })
+            button('ลบ', () => { noteTripDelete(v, t); v.trips.splice(i, 1); save(); redraw(); }))),
+        button('+ เพิ่มงาน', () => { note('นำเข้า', 'เพิ่มงาน', { scc: v.scc }); v.trips.push({ ship: '', custId: '', cust: '' }); save(); redraw(); })
     ]);
     redraw();
     return page;
@@ -668,6 +707,9 @@ function editHour(v, hour, who) {
             note: $('hour-note').value.trim(), marks: {}
         };
         const target = car();
+        note('แก้ไข', old ? 'แก้ช่องรายชั่วโมง' : 'ลงช่องรายชั่วโมง', {
+            scc: v.scc, detail: (old ? roundText(old) + ' → ' : '') + roundText(entry) + (who === 2 ? ' · พขร.2' : '')
+        });
         const i = target.rounds.findIndex((r) => r.id === entry.id);
         if (i < 0) target.rounds.push(entry); else target.rounds[i] = entry;
         target.gps ||= 'ปกติ';
@@ -680,6 +722,7 @@ function editHour(v, hour, who) {
     $('hour-other-ok').onclick = () => { const text = $('hour-other').value.trim(); if (text) set(text); };
     $('hour-clear').hidden = !old;
     $('hour-clear').onclick = () => {
+        note('ลบ', 'ลบช่องรายชั่วโมง', { scc: v.scc, detail: roundText(old) });
         car().rounds = car().rounds.filter((r) => r.id !== old.id);
         done();
     };
@@ -729,7 +772,7 @@ function vehiclePage(v) {
                 el('label', {}, 'GPS ', select(v, 'gps', 'สถานะ GPS', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']])),
                 el('label', {}, 'CCTV ', select(v, 'cctv', 'สถานะ CCTV', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']]))),
             ...v.trips.map((t, i) => tripView(v, t, i, redraw)),
-            button('+ เพิ่มงาน', () => { v.trips.push({ ship: '', custId: '', cust: '' }); save(); redraw(); }));
+            button('+ เพิ่มงาน', () => { note('นำเข้า', 'เพิ่มงาน', { scc: v.scc }); v.trips.push({ ship: '', custId: '', cust: '' }); save(); redraw(); }));
         info.addEventListener('toggle', () => { infoOpen = info.open; });
 
         const entry = (r) => {
@@ -750,6 +793,7 @@ function vehiclePage(v) {
             button('+ ตรวจรอบใหม่', () => {
                 const time = new Date().toTimeString().slice(0, 8);
                 v.rounds.push({ time, place: '', type: 'driving', marks: presetMarks('driving'), note: '' });
+                note('นำเข้า', 'เพิ่มรอบตรวจ', { scc: v.scc, detail: time });
                 openRound.set(v.scc, v.rounds.length - 1);
                 save();
                 redraw();
@@ -846,6 +890,7 @@ async function importPlans(files) {
     const when = date.split('-').reverse().join('/') + (shift === 'night' ? ' กะกลางคืน' : ' กะกลางวัน');
     status('กำลังอ่านแผนงาน…');
     const { vehicles, notes } = await readPlans(files, date, shift);
+    note('นำเข้า', 'เปิดไฟล์แผนงาน', { detail: [...files].map((f) => f.name).join(', ') });
     const mine = new Map(report.vehicles.map((v) => [vehicleNo(v.scc), v]));
     // รถในแผนที่ยังไม่มีในรายงาน (รถย้ายเข้าใหม่ หรือฟอร์มกลาง) สร้างเพิ่มให้ ทะเบียนค้นจากฟอร์มอื่นใน Drive
     const created = new Set();
@@ -915,6 +960,8 @@ function applyPlans() {
         if (!fresh) v.changes = mergeChanges(v.changes, changes, v.trips, at);
         if (v.driver) { v.gps ||= 'ปกติ'; v.cctv ||= 'ปกติ'; }
     }
+    const applied = planPreview.filter((p) => !p.skip).map((p) => p.v.scc);
+    note('นำเข้า', 'เติมแผนงาน', { detail: applied.length + ' คัน: ' + applied.join(', ') });
     save();
     render();
 }
@@ -1010,6 +1057,7 @@ async function readShot(blob) {
 function addShots(files) {
     const images = [...files].filter((f) => f && f.type.startsWith('image/'));
     if (!images.length || !openShots()) return;
+    note('นำเข้า', 'ใส่รูปให้อ่าน', { detail: images.length + ' รูป' });
     for (const image of images) {
         shotsLeft++;
         shotQueue = shotQueue.then(() => readShot(image)).catch((err) => {
@@ -1025,6 +1073,7 @@ function applyShots() {
     // ตัดสินว่ามีงานไหมก่อนเพิ่ม ไม่ให้รอบแรกที่เพิ่มเปลี่ยนผลของรอบถัดไป
     const quiet = new Set(shotItems.filter((x) => !hasWork(x.v)).map((x) => x.v));
     for (const item of shotItems.filter((x) => x.use)) {
+        note('นำเข้า', 'ลงเวลาจากรูป', { scc: item.v.scc, detail: [item.time, item.place.trim(), TYPES[item.type]?.label].filter(Boolean).join(' · ') });
         item.v.rounds.push({
             time: item.time, place: item.place.trim(), type: item.type, marks: presetMarks(item.type), note: '',
             ...(quiet.has(item.v) ? { quiet: true } : {})
@@ -1150,9 +1199,13 @@ function bindSummary() {
         $('summary-extra').value = draft.extra || '';
         showSummary();
         $('summary-dialog').showModal();
+        note('ดู', 'เปิดหน้าสรุป');
         $('summary-copy').focus();
         $('summary-text').scrollTop = 0;
     });
+    for (const [id, label] of [['summary-text', 'ข้อความสรุป'], ['summary-extra', 'ข้อความเพิ่มเติม']]) {
+        $(id).addEventListener('change', () => note('แก้ไข', 'แก้' + label, { detail: $(id).value }));
+    }
     $('summary-text').addEventListener('input', () => {
         draft.text = $('summary-text').value;
         draft.at = new Date().toTimeString().slice(0, 5);
@@ -1166,6 +1219,7 @@ function bindSummary() {
     });
     $('summary-new').addEventListener('click', () => {
         if (draft.text !== undefined && !confirm('ทิ้งข้อความที่แก้ไว้ แล้วสร้างจากข้อมูลล่าสุด?')) return;
+        if (draft.text !== undefined) note('ลบ', 'ทิ้งข้อความสรุปที่แก้ไว้', { detail: draft.text });
         delete draft.text;
         delete draft.at;
         keepDraft();
@@ -1174,6 +1228,7 @@ function bindSummary() {
     $('summary-copy').addEventListener('click', async () => {
         const extra = $('summary-extra').value.trim();
         const text = $('summary-text').value.trimEnd() + (extra ? '\n\n[ข้อความเพิ่มเติม]\n' + extra : '');
+        note('ส่งออก', 'คัดลอกสรุป', { detail: text });
         try {
             await navigator.clipboard.writeText(text);
             $('summary-copy').textContent = 'คัดลอกแล้ว วางใน LINE ได้เลย';
@@ -1218,10 +1273,15 @@ function bindAlert() {
     $('alert-button').addEventListener('click', () => {
         $('alert-dialog').showModal();
         $('alert-input').focus();
+        note('ดู', 'เปิดหน้าแจ้งเหตุ');
     });
     $('alert-input').addEventListener('input', buildAlert);
     $('alert-type').addEventListener('change', buildAlert);
+    for (const [id, label] of [['alert-input', 'เนื้อหาแจ้งเหตุ'], ['alert-output', 'ข้อความตามแพทเทิน']]) {
+        $(id).addEventListener('change', () => note('แก้ไข', 'แก้' + label, { detail: $(id).value }));
+    }
     $('alert-clear').addEventListener('click', () => {
+        if ($('alert-input').value) note('ลบ', 'ล้างข้อความแจ้งเหตุ', { detail: $('alert-input').value });
         $('alert-input').value = '';
         $('alert-type').value = '';
         $('alert-guess').textContent = '';
@@ -1229,6 +1289,7 @@ function bindAlert() {
         $('alert-input').focus();
     });
     $('alert-copy').addEventListener('click', async () => {
+        note('ส่งออก', 'คัดลอกข้อความแจ้งเหตุ', { detail: $('alert-output').value });
         try {
             await navigator.clipboard.writeText($('alert-output').value);
             $('alert-copy').textContent = 'คัดลอกแล้ว';
@@ -1286,10 +1347,16 @@ function bind() {
         await load();
     });
     document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden') { if (pending.size) flush(); }
+        if (document.visibilityState === 'hidden') { if (pending.size) flush(); activity.flush(); }
         else pull();
     });
-    for (const id of ['checker', 'monitor']) $(id).addEventListener('input', () => { report[id] = $(id).value; save(); });
+    for (const [id, label] of [['checker', 'ชื่อผู้ตรวจสอบ'], ['monitor', 'ชื่อ Monitor']]) {
+        let before = '';
+        $(id).addEventListener('focus', () => { before = $(id).value; });
+        $(id).addEventListener('input', () => { report[id] = $(id).value; save(); });
+        $(id).addEventListener('change', () => { edited(label, before, $(id).value); before = $(id).value; });
+    }
+    $('search').addEventListener('change', () => { if ($('search').value.trim()) note('ดู', 'ค้นหา', { detail: $('search').value.trim() }); });
     $('search').addEventListener('input', render);
     $('show-all').addEventListener('change', render);
     $('plan-button').addEventListener('click', () => $('plan').click());
@@ -1321,6 +1388,7 @@ function bind() {
             report.vehicles.push(v);
         }
         v.pinned = true;
+        note('นำเข้า', 'เพิ่มรถ/งาน', { scc: v.scc });
         if (!v.trips.length) v.trips.push({ ship: '', custId: '', cust: '' });
         $('search').value = '';
         $('add-dialog').close();
@@ -1353,6 +1421,7 @@ function bind() {
             link.click();
             setTimeout(() => URL.revokeObjectURL(link.href), 10000);
             status('ส่งออกรายงานแล้ว');
+            note('ส่งออก', 'ส่งออกรายงาน Excel', { detail: link.download });
         } catch (err) {
             console.error(err);
             status('ส่งออกไม่ได้: ' + err.message, true);
@@ -1391,4 +1460,5 @@ requireLogin(async () => {
     setInterval(loadHistory, 60000);
     document.addEventListener('visibilitychange', loadHistory);
     await load();
+    activity.flush(); // ของที่ค้างจากครั้งก่อน
 });
