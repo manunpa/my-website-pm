@@ -206,7 +206,7 @@
 
   /* ---------- ปักหมุด ---------- */
   .pin {
-    position: relative; flex: none; width: 28px; height: 28px; margin: -4px -6px -4px 0;
+    position: absolute; top: 4px; right: 4px; width: 26px; height: 26px;
     display: grid; place-items: center; border-radius: 50%;
     color: var(--muted); opacity: 0; cursor: pointer;
     transition: opacity .2s, background .2s, color .2s, transform .3s cubic-bezier(.4,1.6,.5,1);
@@ -249,7 +249,7 @@
     --mx: 50%; --my: 50%;
     position: relative; overflow: hidden;
     display: flex; align-items: center; gap: 14px;
-    padding: 16px 18px;
+    padding: 17px 30px 17px 18px; line-height: 1.6;
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 12px;
@@ -278,9 +278,9 @@
 
   .icon {
     position: relative; flex: none;
-    width: 42px; height: 42px; border-radius: 10px;
+    width: 40px; height: 40px; border-radius: 10px;
     background: var(--bg); border: 1px solid var(--line);
-    display: grid; place-items: center; font-size: 1.15rem;
+    display: grid; place-items: center; font-size: 1.12rem;
     transition: background .25s, color .25s, transform .35s cubic-bezier(.4,1.6,.5,1), border-color .25s;
   }
   .btn:hover .icon {
@@ -293,7 +293,7 @@
     display: block; font-weight: 500; font-size: 1rem;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .label span { display: block; font-size: .82rem; color: var(--muted); font-weight: 300; }
+  .label span { display: block; margin-top: 3px; line-height: 1.5; font-size: .82rem; color: var(--muted); font-weight: 300; }
   /* ป้าย "กำลังพัฒนา"/"เร็ว ๆ นี้" ห้ามถูกตัด: ถ้าที่ไม่พอให้ป้ายขึ้นบรรทัดใหม่ทั้งป้าย */
   .btn.beta .label strong, .btn.soon .label strong, .btn.running .label strong { white-space: normal; overflow: visible; }
   /* หน้าที่ใช้งานอยู่: ป้าย "Active" สีเขียว จุดกระจายวง กรอบป้ายเรืองเป็นจังหวะ */
@@ -307,7 +307,7 @@
 
   /* ลูกศรเลื่อนเข้ามาตอน hover */
   .go {
-    position: relative; flex: none; width: 18px; height: 18px; color: var(--muted);
+    position: absolute; right: 8px; bottom: 8px; width: 16px; height: 16px; color: var(--muted);
     opacity: 0; transform: translate(-6px, 6px);
     transition: opacity .25s, transform .25s;
   }
