@@ -767,14 +767,14 @@ function editHour(v, hour, who) {
     const oldGroup = old && (old.group || groups.find((g) => g[2].includes(old.place))?.[0]);
     const result = (code, label, group) => {
         const node = el('button', {
-            type: 'button', onclick: () => set(code, group),
+            type: 'button', onclick: () => set(code, group), title: label && label !== code ? label : '',
             className: 'btn result' + (group ? ' ' + group : '') +
                 (old?.place === code && (!group || oldGroup === group) ? ' primary' : '')
-        }, el('b', { textContent: code }), label && label !== code ? el('small', { textContent: label }) : null);
+        }, el('b', { textContent: code }));
         const color = !group && template.colors?.[/^C\d+$/.test(code) ? 'C' : code];
         if (color) {
             node.classList.add('tinted');
-            node.style.background = node.style.borderColor = color;
+            node.style.setProperty('--c', color); // ความเข้มคุมใน CSS ไม่ให้แสบตา
         }
         return node;
     };
@@ -786,7 +786,7 @@ function editHour(v, hour, who) {
         ...template.results.filter(([code]) => code !== 'C' && !grouped.has(code)).map(([code, label]) => result(code, label)),
         ...Array.from({ length: customers }, (_, i) => result('C' + (i + 1), '')),
         el('button', { type: 'button', className: 'btn result', title: 'เพิ่มลูกค้า', onclick: () => { customers++; drawResults(); } },
-            el('b', { textContent: '+' }), el('small', { textContent: 'เพิ่มลูกค้า' })),
+            el('b', { textContent: '+' })),
         ...groups.flatMap(([group, title, codes]) => [
             el('small', { className: 'grouphead', textContent: title }),
             ...codes.map((code) => result(code, code, group))]));

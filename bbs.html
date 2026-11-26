@@ -157,14 +157,15 @@ button.car{width:100%;border:0;text-align:left;cursor:pointer}
 .hour.no{border-color:var(--no);background:color-mix(in srgb,var(--no) 14%,var(--panel))}.hour.no b{color:var(--no)}
 .hour.at{background:var(--head)}
 .hour.noted{border-style:dashed}
-.results{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-bottom:10px}
+.results{display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:5px;margin-bottom:10px}
+#hour-dialog{width:min(460px,94vw)}
 .result{display:flex;flex-direction:column;align-items:center}
 .result small{font-size:12px}
 .grouphead{grid-column:1/-1;color:var(--mute)}
-.result{justify-content:center;min-height:42px}
-.result.depot{background:#ff9900;border-color:#ff9900}
-.result.unit{background:#4d93d9;border-color:#4d93d9}
-.result.depot,.result.unit,.result.tinted{color:#111}
+.result{justify-content:center;min-height:32px;padding:3px 4px;font-size:13px}
+.result.depot{--c:#ff9900}
+.result.unit{--c:#4d93d9}
+.result.depot,.result.unit,.result.tinted{background:color-mix(in srgb,var(--c) 20%,var(--panel));border-color:color-mix(in srgb,var(--c) 55%,var(--panel))}
 .result.primary.depot,.result.primary.unit,.result.primary.tinted{outline:3px solid var(--ink);outline-offset:1px}
 dialog{width:min(640px,94vw);max-height:85vh;overflow:auto;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:16px}
 dialog::backdrop{background:rgba(0,0,0,.45)}
@@ -327,6 +328,6 @@ dialog em{font-style:normal;color:var(--no)}
   });
 })();
 </script>
-<script type="module" src="./bbs.js?v=49"></script>
+<script type="module" src="./bbs.js?v=50"></script>
 </body>
 </html>
