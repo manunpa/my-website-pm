@@ -1,5 +1,5 @@
 import { requireLogin, fetchProtectedText, PRESENCE_URL } from "./firebase-guard.js?v=20261122-cut";
-import { isOwner } from "./owner.js";
+import { isOwner, SHIFTS_URL } from "./owner.js?v=lock1";
 var initCards; // ตั้งค่าในฟังก์ชันด้านล่าง เรียกหลังรู้ว่าใครล็อกอิน
 (function () {
   var root = document.documentElement;
@@ -353,21 +353,36 @@ function showRoomButton(uid) {
   });
 }
 
-// การ์ดตารางวันทำงาน (ยังทดลอง) สร้างเฉพาะบัญชีเจ้าของ — ดู owner.js
-function addShiftCard() {
+// การ์ดตารางวันทำงาน: ทุกคนเห็น แต่กดไม่ได้จนกว่าเจ้าของจะปลดล็อกในหน้า room.html
+function addShiftCard(owner) {
   const grid = document.querySelector('section[data-sec="ours"] .grid');
   const card = grid.querySelector('a.btn[href="bbs.html"]').cloneNode(true);
-  card.href = "shifts.html";
   card.dataset.kw = "ตาราง กะ วันทำงาน เวร";
   card.querySelector(".icon").textContent = "📅";
   card.querySelector("strong").textContent = "ตารางวันทำงาน";
-  card.querySelector(".label span").textContent = "เห็นเฉพาะคุณ (ทดลอง)";
+  card.querySelector(".label span").textContent = "อัปเดตข้อมูลทุก 06:00:00";
+  card.classList.remove("beta"); // ก๊อปมาจากการ์ด BBS ที่ติดป้ายกำลังพัฒนา
   grid.appendChild(card);
+  function unlock() {
+    card.href = "shifts.html";
+    card.classList.remove("locked");
+    card.removeAttribute("aria-disabled");
+    card.querySelector(".icon").textContent = "📅";
+  }
+  if (owner) { unlock(); return; }
+  card.removeAttribute("href");
+  card.classList.add("locked");
+  card.setAttribute("aria-disabled", "true");
+  card.querySelector(".icon").textContent = "🔒";
+  // ถามสถานะทีหลัง ไม่ให้หน้าหลักรอ
+  fetchProtectedText(SHIFTS_URL, { action: "flags" }).then(function (text) {
+    if (JSON.parse(text).open === true) unlock();
+  }).catch(function () {});
 }
 
 // ===== Firebase: ตรวจสิทธิ์ / Logout / ตัด Session (ดู firebase-guard.js) =====
 requireLogin(async (user) => {
-  if (await isOwner(user).catch(() => false)) addShiftCard(); // ต้องเพิ่มก่อน initCards
+  addShiftCard(await isOwner(user).catch(() => false)); // ต้องเพิ่มก่อน initCards
   initCards(user.uid);
   showRoomButton(user.uid);
   if (window.hubStart) window.hubStart();

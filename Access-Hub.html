@@ -267,6 +267,8 @@
   /* หน้าที่ยังไม่ได้สร้าง: แสดงไว้แต่กดไม่ได้ พร้อมป้าย "เร็ว ๆ นี้" */
   .btn.soon { opacity: .5; cursor: default; pointer-events: none; }
   .btn.soon .go { display: none; }
+  .btn.locked { opacity: .5; cursor: default; pointer-events: none; }
+  .btn.locked .go { display: none; }
   .btn.soon .label strong::after { content: "เร็ว ๆ นี้"; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 600; border: 1px solid currentColor; opacity: .8; vertical-align: 1px; }
   /* หน้าที่เปิดใช้ได้แล้วแต่ยังพัฒนาอยู่: ป้าย "กำลังพัฒนา" */
   .btn.beta .label strong::after { content: "กำลังพัฒนา"; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 600; color: #b45309; border: 1px solid currentColor; vertical-align: 1px; }
@@ -605,7 +607,7 @@
 </div>
 
 <!-- เรียกใช้งานไฟล์ JavaScript ภายนอกที่แยกออกมา -->
-<script type="module" src="./hub.js?v=shifts-20261127"></script>
+<script type="module" src="./hub.js?v=shifts-lock1"></script>
 <!-- ลูกเล่นเทศกาลลอยกระทง (ชั่วคราว เปิด/ปิดเองตามวันที่ในไฟล์) -->
 <!-- พื้นหลังแถบเส้นใยจุดบิดพลิ้ว -->
 <script src="./ghost-fibers.js?v=3" defer></script>
@@ -618,4 +620,4 @@
 <script src="./festival-bangsaen21.js" defer></script>
 <script src="./festival-newyear.js" defer></script>
 </body>
-</html>
+</html>

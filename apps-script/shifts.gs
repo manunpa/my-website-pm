@@ -1,5 +1,6 @@
 /**
- * หลังบ้านหน้า "ตารางวันทำงาน" (shifts.html) — รับเฉพาะบัญชีใน ALLOWED ที่ล็อกอินเว็บแล้ว
+ * หลังบ้านหน้า "ตารางวันทำงาน" (shifts.html) — บัญชีใน ALLOWED ดูได้เสมอ
+ * คนอื่นที่ล็อกอินเว็บแล้วดูได้ (ดูอย่างเดียว) เมื่อเจ้าของกดปลดล็อกในหน้า room.html
  *
  * แท็บ months : 1 แถวต่อเดือน (ตารางล่าสุดของเดือนนั้น)
  * แท็บ rounds : 1 แถวต่อการแก้ 1 ครั้ง (ใคร เมื่อไร เปลี่ยนอะไร)
@@ -32,10 +33,20 @@ function doPost(e) {
   if (!user) {
     return json_({ status: 'error', error: 'unauthorized', reason: FAIL_REASON_, message: 'เซสชันหมดอายุ กรุณาล็อกอินใหม่' });
   }
-  if (ALLOWED.indexOf(hash_(user.email)) < 0) {
-    return json_({ status: 'error', error: 'forbidden', message: 'บัญชีนี้ไม่มีสิทธิ์ดูตาราง' });
+  const owner = ALLOWED.indexOf(hash_(user.email)) >= 0;
+  const props = PropertiesService.getScriptProperties();
+  let open = props.getProperty('open') === 'on'; // ยังไม่เคยกด = ล็อก
+  if (body.action === 'flags') return json_({ status: 'success', open: open });
+  const reading = body.action === 'months' || body.action === 'get';
+  if (!owner && !(open && reading)) {
+    return json_({ status: 'error', error: 'forbidden', message: 'ตารางวันทำงานยังล็อกอยู่' });
   }
   try {
+    if (body.action === 'setOpen') {
+      open = body.open === true;
+      props.setProperty('open', open ? 'on' : 'off');
+      return json_({ status: 'success', open: open });
+    }
     if (body.action === 'months') {
       return json_({ status: 'success', months: all_('months').map(function (r) { return r.key; }).sort() });
     }

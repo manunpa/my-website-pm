@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex">
-<style>html:not(.owner) body{visibility:hidden}</style>
+<style>html:not(.allowed) body{visibility:hidden}</style>
 <title>ตารางวันทำงาน</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -121,10 +121,7 @@ render();
 </script>
 <script type="module">
 import { requireLogin, fetchProtectedText, HUB_URL } from "./firebase-guard.js?v=20261122-cut";
-import { isOwner } from "./owner.js";
-
-// URL /exec ของ apps-script/shifts.gs
-const SHIFTS_URL = "https://script.google.com/macros/s/AKfycbzbv4mvsrhJuQrKXJoknD1WKC8xdLCi-K0J4i12kLoeKsAVaAYgtd5b3YDl8ermmC9MDQ/exec";
+import { SHIFTS_URL } from "./owner.js?v=lock1";
 
 const MONTHS = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
 const call = async (body) => JSON.parse(await fetchProtectedText(SHIFTS_URL, body));
@@ -163,10 +160,11 @@ $("month").onchange = async (e) => {
   catch (err) { $("info").textContent = "โหลดไม่สำเร็จ: " + err.message; }
 };
 
-// บัญชีอื่นเปิดลิงก์ตรง → พากลับหน้าหลัก
-requireLogin(async (user) => {
-  if (!(await isOwner(user))) return location.replace(HUB_URL);
-  document.documentElement.classList.add("owner");
+// เจ้าของดูได้เสมอ คนอื่นดูได้เมื่อปลดล็อกแล้ว — เซิร์ฟเวอร์เป็นคนตัดสิน
+requireLogin(async () => {
+  try { await call({ action: "months" }); }
+  catch (e) { return location.replace(HUB_URL); }
+  document.documentElement.classList.add("allowed");
   start();
 });
 </script>

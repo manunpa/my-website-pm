@@ -140,7 +140,7 @@ header a{margin-left:0}
 </head>
 <body>
 <div class="wrap">
-  <header><h1>Active Users</h1><span class="live" id="live"><i></i>LIVE</span><span class="space"></span><button class="tool" id="history" type="button" title="ป้ายประวัติพฤติกรรม พขร. ในหน้าบันทึก BBS (มีผลทุกคน)" hidden></button><button class="tool" id="sound" type="button" aria-pressed="false">เสียง ปิด</button><button class="tool" id="full" type="button">เต็มจอ</button><a href="./Access-Hub.html">หน้าหลัก</a></header>
+  <header><h1>Active Users</h1><span class="live" id="live"><i></i>LIVE</span><span class="space"></span><button class="tool" id="history" type="button" title="ป้ายประวัติพฤติกรรม พขร. ในหน้าบันทึก BBS (มีผลทุกคน)" hidden></button><button class="tool" id="shifts" type="button" title="เปิดให้ทุกคนที่ล็อกอินดูตารางวันทำงาน" hidden></button><button class="tool" id="sound" type="button" aria-pressed="false">เสียง ปิด</button><button class="tool" id="full" type="button">เต็มจอ</button><a href="./Access-Hub.html">หน้าหลัก</a></header>
   <div class="grid">
     <div class="col">
       <section class="scope" aria-label="อุปกรณ์ที่ใช้งานอยู่ตอนนี้">
@@ -188,6 +188,7 @@ header a{margin-left:0}
 </div>
 <script type="module">
 import { requireLogin, fetchProtectedText, PRESENCE_URL } from './firebase-guard.js?v=20261122-cut';
+import { isOwner, SHIFTS_URL } from './owner.js?v=lock1';
 
 const NAMES = {
   'Access-Hub': 'หน้าหลัก', bbs: 'บันทึก BBS', 'access-maps': 'แผนที่', 'alert-mileage': 'Mileage Analysis',
@@ -380,6 +381,27 @@ $('history').onclick = async () => {
   $('history').disabled = false;
 };
 
+// ===== สวิตช์ล็อกปุ่มตารางวันทำงาน (เฉพาะบัญชีเจ้าของ) =====
+const shiftsCall = async (body) => JSON.parse(await fetchProtectedText(SHIFTS_URL, body));
+function drawShiftsSwitch(open) {
+  if (typeof open !== 'boolean') return; // สคริปต์ยังเป็นเวอร์ชันเก่า ไม่แสดงปุ่ม
+  $('shifts').hidden = false;
+  $('shifts').setAttribute('aria-pressed', open);
+  $('shifts').textContent = 'ตารางกะ ' + (open ? 'ปลดล็อก' : 'ล็อก');
+}
+$('shifts').onclick = async () => {
+  const open = $('shifts').getAttribute('aria-pressed') !== 'true';
+  if (!confirm(open ? 'ปลดล็อกให้ทุกคนที่ล็อกอินเห็นตารางวันทำงาน (ชื่อ กะ และวันลา)?' : 'ล็อกตารางวันทำงาน ให้เห็นเฉพาะคุณ?')) return;
+  $('shifts').disabled = true;
+  try {
+    drawShiftsSwitch((await shiftsCall({ action: 'setOpen', open })).open);
+    say(open ? 'ปลดล็อกตารางวันทำงานแล้ว' : 'ล็อกตารางวันทำงานแล้ว');
+  } catch (err) {
+    say(err.message, true);
+  }
+  $('shifts').disabled = false;
+};
+
 // ===== กราฟ =====
 function columns(id, items) {
   const max = Math.max(1, ...items.map((x) => x.value));
@@ -520,6 +542,9 @@ async function refresh() {
 
 requireLogin((user) => {
   uid = user.uid;
+  isOwner(user).then(async (owner) => {
+    if (owner) drawShiftsSwitch((await shiftsCall({ action: 'flags' })).open);
+  }).catch(() => {});
   if (!PRESENCE_URL) { say('ยังไม่ได้ติดตั้งตัวนับ (apps-script/presence.gs)', true); return; }
   refresh();
   setInterval(refresh, 30000);
