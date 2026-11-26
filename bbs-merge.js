@@ -2,6 +2,7 @@
 // - รอบตรวจ: เก็บของทุกคน แยกด้วย id รอบเดียวกันที่แก้สองที่ เอาอันที่แก้ล่าสุด
 // - รอบที่ลบ: จดไว้ใน report.gone ไม่ให้เครื่องอื่นเอากลับมา
 // - ข้อมูลรถ (คนขับ งาน สถานะ): เอาของที่แก้ล่าสุดทั้งชุดของคันนั้น
+// - ล้างแล้วเริ่มใหม่: report.resetAt ฝั่งที่ล้างทีหลังชนะทั้งรายงาน ของก่อนล้างทิ้ง
 
 const INFO = ['plate', 'driver', 'risk', 'gps', 'cctv', 'trips', 'dest', 'changes', 'pinned', 'driver2', 'remark'];
 
@@ -64,6 +65,7 @@ export function merge(mine, theirs) {
     const a = normalize(structuredClone(mine));
     if (!theirs) return a;
     const b = normalize(structuredClone(theirs));
+    if ((a.resetAt || 0) !== (b.resetAt || 0)) return (a.resetAt || 0) > (b.resetAt || 0) ? a : b;
     const gone = { ...b.gone };
     for (const [key, at] of Object.entries(a.gone)) gone[key] = Math.max(at, gone[key] || 0);
 
@@ -97,7 +99,7 @@ export function merge(mine, theirs) {
 /** เนื้อหาเท่ากันไหม (ไม่สนเวลาและลำดับ) */
 export function sameReport(a, b) {
     const body = (r) => stable([
-        r.checker || '', r.monitor || '',
+        r.checker || '', r.monitor || '', r.resetAt || 0,
         [...r.vehicles].sort((x, y) => x.scc.localeCompare(y.scc)).map((v) => [v.scc, infoBody(v),
             [...v.rounds].map(roundBody).sort()])
     ]);

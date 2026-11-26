@@ -5,7 +5,7 @@ import { readHourly, buildHourly } from './bbs-hourly.js?v=4';
 import { readImage, parseShot, inShift } from './bbs-ocr.js?v=1';
 import { samePlace } from './bbs-match.js?v=1';
 import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
-import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=2';
+import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=3';
 import { destList, diffPlan, mergeChanges, describe } from './bbs-diff.js?v=1';
 
 // URL /exec ของ Apps Script (apps-script/bbs.gs) — ว่างไว้ = เก็บในเครื่องนี้อย่างเดียว
@@ -173,6 +173,7 @@ function keep() {
 
 function adopt(merged) {
     if (merged.key !== keyOf() || busyEditing() || sameReport(merged, report)) return;
+    if ((merged.resetAt || 0) < (report.resetAt || 0)) return; // ผลที่ค้างมาจากก่อนกดล้าง
     report = merged;
     mergeVehicles();
     seen = snapshot(report);
@@ -281,6 +282,28 @@ async function load() {
     } catch (err) {
         status('โหลดจาก Google Sheet ไม่ได้: ' + err.message, true);
     }
+}
+
+// ล้างรายงานของ ฟอร์ม/วัน/กะ ที่เปิดอยู่ ทั้งในเครื่องและบนชีต
+function resetReport() {
+    const rounds = report.vehicles.reduce((n, v) => n + v.rounds.length, 0);
+    if (!confirm([
+        'ล้างรายงาน ' + $('setup-title').textContent,
+        'มีรอบตรวจ ' + rounds + ' รายการ แผนงานและผลตรวจจะหายทุกเครื่อง กู้คืนไม่ได้',
+        'ยืนยันล้าง?'
+    ].join('\n\n'))) return;
+    report = newReport();
+    report.resetAt = report.headAt = Date.now();
+    report.gone = {};
+    mergeVehicles();
+    seen = snapshot(report);
+    current = null;
+    openRound.clear();
+    summaryKey = '';
+    try { localStorage.removeItem('bbs-summary:' + report.key); } catch { /* ไม่มีร่างสรุป */ }
+    save();
+    render();
+    if (API_URL) flush(); // ส่งทันที ไม่รอรอบ
 }
 
 // ===== สร้างหน้าจอ =====
@@ -675,7 +698,7 @@ function render() {
         report.date.split('-').reverse().join('/'),
         report.shift === 'night' ? 'กลางคืน' : 'กลางวัน'
     ].filter(Boolean).join(' · ');
-    for (const id of ['export', 'summary-button', 'alert-button', 'plan-button', 'shot-button', 'search', 'add']) $(id).disabled = !template;
+    for (const id of ['reset-button', 'export', 'summary-button', 'alert-button', 'plan-button', 'shot-button', 'search', 'add']) $(id).disabled = !template;
     $('template-name').textContent = template ? template.name : '';
     $('template-name').hidden = !!API_URL || !template;
     $('shot-button').hidden = !!template?.hourly; // ตัวอ่านรูปทำไว้สำหรับฟอร์มรายรอบ
@@ -1173,7 +1196,7 @@ function bind() {
     $('form').addEventListener('change', async () => {
         $('list').replaceChildren();
         $('unit-field').hidden = true;
-        for (const id of ['export', 'summary-button', 'alert-button', 'plan-button', 'shot-button', 'search', 'add']) $(id).disabled = true;
+        for (const id of ['reset-button', 'export', 'summary-button', 'alert-button', 'plan-button', 'shot-button', 'search', 'add']) $(id).disabled = true;
         try {
             await openForm($('form').value);
             localStorage.setItem('bbs-form', $('form').value);
@@ -1225,6 +1248,7 @@ function bind() {
         save();
         openVehicle(v.scc);
     });
+    $('reset-button').addEventListener('click', resetReport);
     $('export').addEventListener('click', async () => {
         $('export').disabled = true;
         try {
