@@ -30,21 +30,22 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Cdefs%3E%3ClinearGradient id=%27g%27 x1=%270%27 y1=%270%27 x2=%271%27 y2=%271%27%3E%3Cstop offset=%270%27 stop-color=%27%234776ff%27/%3E%3Cstop offset=%271%27 stop-color=%27%238d5cf6%27/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27url(%23g)%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%277%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272.4%27/%3E%3Cpath d=%27M16 5v6M16 21v6M5 16h6M21 16h6%27 stroke=%27white%27 stroke-width=%272.4%27 stroke-linecap=%27round%27/%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#f6f7fb;--card:#fff;--text:#1d2433;--muted:#6b7385;--line:#e4e7ef;--accent:#f5a300;--accent2:#2f6fed;--ok:#16a34a;--bad:#dc2626;--head:#ffc000;--headtext:#1d2433;--shadow:0 1px 3px rgba(20,30,60,.08)}
-[data-theme=dark]{--bg:#0f131b;--card:#181e29;--text:#e8ecf4;--muted:#939bb0;--line:#2a3243;--accent:#ffb52e;--accent2:#6b9cff;--ok:#4ade80;--bad:#f87171;--head:#3a2f0b;--headtext:#ffd266;--shadow:none}
+:root{--bg:#f6f7fb;--card:#fff;--text:#1d2433;--muted:#6b7385;--line:#e4e7ef;--accent:#f5a300;--accent2:#2f6fed;--ok:#16a34a;--bad:#dc2626;--head:#ffc000;--headtext:#1d2433;--shadow:0 1px 3px rgba(20,30,60,.08);--fiber-a:#8a8a84;--fiber-b:#1a1a1a;--fiber-alpha:.32}
+[data-theme=dark]{--bg:#0f131b;--card:#181e29;--text:#e8ecf4;--muted:#939bb0;--line:#2a3243;--accent:#ffb52e;--accent2:#6b9cff;--ok:#4ade80;--bad:#f87171;--head:#3a2f0b;--headtext:#ffd266;--shadow:none;--fiber-a:#8d8d88;--fiber-b:#ffffff}
 *{box-sizing:border-box}
 body{margin:0;font-family:'Noto Sans Thai',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;transition:background .2s,color .2s}
 .wrap{max-width:1500px;margin:0 auto;padding:16px}
 /* โหมดแอป: เว้นรอยบาก/Dynamic Island/แถบโฮม (เบราว์เซอร์ปกติเป็น 0) */
 @media screen{body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}}
-header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px}
+header.top{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;justify-content:space-between;margin-bottom:12px;padding:16px 18px}
+.top-title{min-width:0}
 h1{font-size:24px;margin:0;font-weight:700}
-.grad{background:linear-gradient(90deg,#f5a300,#ff5e62,#a855f7,#2f6fed,#14b8a6,#f5a300);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;animation:shift 6s linear infinite}
-@keyframes shift{to{background-position:-300% 0}}
-@media (prefers-reduced-motion:reduce){.grad{animation:none}}
 .sub{color:var(--muted);font-size:12px;margin-top:2px}
-.right{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.status{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);padding:6px 12px;border-radius:999px;font-size:12px}
+.right{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.right .btn{height:38px;display:inline-flex;align-items:center;justify-content:center;gap:7px;border-radius:999px;padding:0 15px;white-space:nowrap}
+.right .btn.theme,.right .btn.icon{width:38px;padding:0}
+.status{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:8px;font-size:12px}
+#stTime{color:var(--muted)}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--muted)}
 .dot.live{background:var(--ok);box-shadow:0 0 0 3px rgba(22,163,74,.2)}
 .dot.demo{background:var(--accent)}
@@ -52,10 +53,9 @@ h1{font-size:24px;margin:0;font-weight:700}
 button,input,select{font:inherit;color:var(--text)}
 .btn{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer}
 .btn:hover{border-color:var(--accent)}
-a.btn{text-decoration:none;color:var(--text);display:inline-flex;align-items:center}
+a.btn{text-decoration:none;color:var(--text)}
 @media print{.navbtn{display:none!important}}
-.btn.primary{background:var(--accent);color:#1d2433;border-color:var(--accent);font-weight:500}
-.theme{width:38px;height:38px;border-radius:50%;padding:0;display:inline-flex;align-items:center;justify-content:center}
+.btn.primary{background:var(--accent);color:#1d2433;box-shadow:0 4px 12px rgba(245,163,0,.3);border-color:var(--accent);font-weight:500}
 .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;box-shadow:var(--shadow)}
 .filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;align-items:end;margin-bottom:12px}
 label{display:block;font-size:11px;color:var(--muted);margin-bottom:3px}
@@ -106,6 +106,8 @@ tbody tr{cursor:pointer}
   #cDay .col{flex:0 0 26px}
   #cDay .x{white-space:nowrap}
   #cMonth .col{flex:1 1 0;max-width:70px}
+/* การ์ดโปร่งเล็กน้อยให้เห็นพื้นหลังเคลื่อนไหว (ghost-fibers.js) */
+.wrap>.panel,.kpis>.panel,.charts>.panel,.xgrid>.panel{background:color-mix(in srgb,var(--card) 80%,transparent)}
 /* กราฟวิเคราะห์เพิ่มเติม (leo-charts.js) */
 .xgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:12px;align-items:start}
 .xgrid>.panel{min-width:0}
@@ -143,17 +145,17 @@ table.heat{border-collapse:separate;border-spacing:2px}
 </head>
 <body>
 <div class="wrap">
-<header>
-  <div>
-    <h1><span class="grad">แดชบอร์ดข้อมูลการปลดล็อค</span></h1>
+<header class="panel top">
+  <div class="top-title">
+    <h1>แดชบอร์ดข้อมูลการปลดล็อค</h1>
     <div class="sub">สรุปเคสจอดนอกจุด การขอปลด และการอนุมัติ</div>
+    <div class="status"><span class="dot demo" id="dot"></span><span id="stText">ข้อมูลตัวอย่าง</span><span id="stTime"></span></div>
   </div>
   <div class="right">
-    <a class="btn navbtn" href="Access-Hub.html" title="กลับหน้า Hub">← Hub</a>
-    <div class="status"><span class="dot demo" id="dot"></span><span id="stText">ข้อมูลตัวอย่าง</span><span style="color:var(--muted)" id="stTime"></span></div>
-    <button class="btn primary" id="refresh">⟳ รีเฟรช</button>
+    <a class="btn navbtn" href="Access-Hub.html" title="กลับหน้า Hub"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 19-7-7 7-7M5 12h14"/></svg><span>Hub</span></a>
+    <button class="btn primary" id="refresh"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.5 6.2L3 16M3 21v-5h5"/></svg><span>รีเฟรช</span></button>
     <button class="btn theme" id="theme" title="สลับโทนสี" aria-label="สลับโทนสี"></button>
-    <button class="btn navbtn" id="logout-btn" title="ออกจากระบบ">ออกจากระบบ</button>
+    <button class="btn navbtn icon" id="logout-btn" title="ออกจากระบบ" aria-label="ออกจากระบบ"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></button>
   </div>
 </header>
 
@@ -214,6 +216,7 @@ table.heat{border-collapse:separate;border-spacing:2px}
 <div class="modal" id="modal"><div class="box"><div style="display:flex;justify-content:space-between;margin-bottom:10px"><h3 style="margin:0" id="mTitle"></h3><button class="btn" id="mClose">✕</button></div><div class="kv" id="mBody"></div></div></div>
 
 <!-- เรียกใช้งานไฟล์ JavaScript ภายนอกที่แยกออกมา -->
-<script type="module" src="./leo_dashboard.js?v=20261127-light"></script>
+<script src="./ghost-fibers.js?v=3" defer></script>
+<script type="module" src="./leo_dashboard.js?v=20261127-head2"></script>
 </body>
 </html>
