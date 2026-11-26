@@ -34,6 +34,10 @@ td.AL,.chip.AL,.key .AL{background:var(--AL);color:var(--ALt)}
 td.V,.chip.V,.key .V{background:var(--V);color:var(--Vt)}
 td.L,.chip.L,.key .L{background:var(--L);color:var(--Lt)}
 td.chg{box-shadow:inset 0 0 0 2px #e5484d;font-weight:600;cursor:pointer}
+#t{cursor:crosshair;user-select:none}
+#t .x{background-image:linear-gradient(rgba(59,130,246,.13),rgba(59,130,246,.13))}
+#t .lk{background-image:linear-gradient(rgba(245,158,11,.22),rgba(245,158,11,.22))}
+#t .at{outline:2px solid #2563eb;outline-offset:-2px;font-weight:600}
 tr.sum td{font-weight:500;color:var(--mute)}
 .key span{padding:1px 11px;border-radius:999px;font-size:12px}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin-top:10px}
@@ -95,6 +99,21 @@ function renderLog() {
   $('log').innerHTML = html;
 }
 
+// เส้นเล็ง: ชี้เมาส์ = แถบฟ้า, กด = ค้างแถบส้ม กดช่องเดิมอีกครั้งเพื่อยกเลิก
+let lock = null;
+let hover = null;
+function paint() {
+  [...$('t').rows].forEach((row, y) => [...row.cells].forEach((cell, x) => {
+    cell.classList.toggle('x', !!hover && (hover.x === x || hover.y === y));
+    cell.classList.toggle('lk', !!lock && (lock.x === x || lock.y === y));
+    cell.classList.toggle('at', !!lock && lock.x === x && lock.y === y);
+  }));
+}
+const spot = (e) => {
+  const cell = e.target.closest('td,th');
+  return cell ? { x: cell.cellIndex, y: cell.parentNode.rowIndex } : null;
+};
+
 function render() {
   changes = rounds.flatMap((r) => r.list);
   const q = $('q').value.trim().toLowerCase();
@@ -113,13 +132,18 @@ function render() {
     html += `<tr class="sum"><td class="name">รวม${label}</td><td></td>` + data.days.map((_, i) => `<td>${count(data.people.map((p) => p.codes[i]), code)}</td>`).join('') + '<td></td><td></td><td></td><td></td></tr>';
   }
   $('t').innerHTML = html + '</tbody>';
+  lock = hover = null; // ตารางถูกวาดใหม่ ตำแหน่งเดิมอาจเป็นคนอื่นแล้ว
   $('title').textContent = data.title;
   renderLog();
   $('note').textContent = `${data.people.length} คน · เปลี่ยน ${changes.length} รายการ (ช่องกรอบแดง กดดูของเดิม)`;
 }
 
 $('q').oninput = render;
+$('t').onmouseover = (e) => { hover = spot(e); paint(); };
+$('t').onmouseleave = () => { hover = null; paint(); };
 $('t').onclick = (e) => {
+  const at = spot(e);
+  if (at) { lock = lock && lock.x === at.x && lock.y === at.y ? null : at; paint(); }
   const k = e.target.dataset.k;
   if (k !== undefined) $('info').textContent = `${changes[k].name} · ${changes[k].text}`;
 };
