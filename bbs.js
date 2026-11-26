@@ -312,11 +312,14 @@ async function load() {
 // ล้างรายงานของ ฟอร์ม/วัน/กะ ที่เปิดอยู่ ทั้งในเครื่องและบนชีต
 function resetReport() {
     const rounds = report.vehicles.reduce((n, v) => n + v.rounds.length, 0);
-    if (!confirm([
+    // ต้องพิมพ์เอง กันกดตกลงผ่านโดยไม่อ่าน
+    const typed = prompt([
         'ล้างรายงาน ' + $('setup-title').textContent,
         'มีรอบตรวจ ' + rounds + ' รายการ แผนงานและผลตรวจจะหายทุกเครื่อง กู้คืนไม่ได้',
-        'ยืนยันล้าง?'
-    ].join('\n\n'))) return;
+        'พิมพ์คำว่า ล้าง เพื่อยืนยัน'
+    ].join('\n\n'));
+    if (typed === null) return;
+    if (typed.trim() !== 'ล้าง') { alert('ยังไม่ได้ล้าง ต้องพิมพ์คำว่า ล้าง ให้ตรง'); return; }
     note('ลบ', 'ล้างรายงาน', { detail: 'รอบตรวจที่หายไป ' + rounds + ' รายการ' + report.vehicles.filter((v) => v.rounds.length)
         .map((v) => ' | ' + v.scc + ': ' + v.rounds.map(roundText).join(', ')).join('') });
     report = newReport();
