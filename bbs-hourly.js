@@ -1,4 +1,4 @@
-// ฟอร์ม BBS แบบตารางรายชั่วโมง (NPM): ชีตละ 1 วัน ชื่อชีตเป็นเลขวันที่
+// ฟอร์ม BBS แบบตารางรายชั่วโมง (NPM): ชีตละ 1 วัน (ไฟล์รายเดือนตั้งชื่อชีตเป็นเลขวันที่ ฟอร์มเปล่าชื่ออะไรก็ได้)
 // A=ทะเบียน B=GPS C=CCTV D=พขร. E-I=Trips 1-5 J=ป้ายแถว K-AH=ชั่วโมง 0-23 AI=เวลาที่ออก
 // รถ 1 คัน = แถวคู่ "เวลาที่ดู / ผลการตรวจสอบ" 2 คู่ (พขร.1, พขร.2) คั่นด้วยแถวสี
 import { openBook, els, colOf, rowNum, colName } from './bbs-xlsx.js?v=10';
@@ -16,10 +16,12 @@ export const RESULTS = [
 const cellAt = (row, col) => els(row, 'c').find((c) => colOf(c) === col);
 const colNum = (s) => [...s].reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0);
 
-async function daySheets(book) {
+// ชีตวันที่ล่าสุดก่อน ตามด้วยชีตชื่ออื่น (ตัดสินว่าใช่ตารางหรือไม่จากเนื้อหา)
+async function sheetNames(book) {
     const wb = await book.read('xl/workbook.xml');
-    return els(wb, 'sheet').filter((s) => /^\d{1,2}$/.test(s.getAttribute('name').trim()))
-        .map((s) => s.getAttribute('name'));
+    const names = els(wb, 'sheet').map((s) => s.getAttribute('name')).reverse();
+    const isDay = (name) => /^\d{1,2}$/.test(name.trim());
+    return [...names.filter(isDay), ...names.filter((name) => !isDay(name))];
 }
 
 // แถวของรถแต่ละคัน: เริ่มที่แถวมีทะเบียนใน A ต่อไปจนกว่าป้ายใน J จะไม่ใช่แถวตรวจ
@@ -44,7 +46,7 @@ function findBlocks(book, doc) {
 // ชีตวันล่าสุดที่เป็นฟอร์มแบบเต็ม (4 แถวต่อคัน) ใช้เป็นต้นแบบ
 async function pickSheet(book) {
     let fallback = null;
-    for (const name of (await daySheets(book)).reverse()) {
+    for (const name of await sheetNames(book)) {
         const path = book.sheetPath(name);
         const doc = await book.read(path);
         const blocks = findBlocks(book, doc);
