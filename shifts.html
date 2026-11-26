@@ -52,6 +52,17 @@ tr.sum td{font-weight:500;color:var(--mute)}
 .log th{background:var(--bg);font-weight:500}
 .log .chip{display:inline-block;min-width:32px;text-align:center;border-radius:6px;padding:0 6px}
 .low{color:#b3261e;font-weight:600}
+.top{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.boxes{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}
+.box{border-radius:10px;padding:8px 12px}
+.box b{display:block;font-size:24px;font-weight:600;line-height:1.2}
+.box b small{font-size:12px;font-weight:400;margin-left:6px}
+.who{display:inline-block;background:rgba(255,255,255,.75);color:var(--ink);border-radius:999px;padding:0 9px;font-size:12px;margin:3px 3px 0 0}
+.box.D{background:var(--D);color:var(--Dt)}.box.N{background:var(--N);color:var(--Nt)}.box.DO{background:var(--DO);color:var(--DOt)}.box.L{background:var(--L);color:var(--Lt)}
+.up{color:#1f6b3a}
+.tabs button{font:inherit;background:var(--panel);border:1px solid var(--line);padding:3px 14px;cursor:pointer;color:var(--mute)}
+.tabs button:first-child{border-radius:999px 0 0 999px}.tabs button:last-child{border-radius:0 999px 999px 0}
+.tabs button[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:#fff}
 </style>
 </head>
 <body>
@@ -70,6 +81,7 @@ tr.sum td{font-weight:500;color:var(--mute)}
   <span class="D">D เช้า</span><span class="N">N ดึก</span><span class="DO">DO หยุด</span>
   <span class="AL">AL นักขัตฤกษ์</span><span class="V">พร พักร้อน</span><span class="L">ป / ก / ข ลา-ขาด</span>
 </div>
+<div class="panel" id="tomorrow" hidden></div>
 <div class="panel"><b>สรุปการเปลี่ยนแปลง</b><div id="log"></div></div>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -132,6 +144,67 @@ const spot = (e) => {
   return cell ? { x: cell.cellIndex, y: cell.parentNode.rowIndex } : null;
 };
 
+// ===== สรุปวันนี้ / พรุ่งนี้ (พรุ่งนี้เทียบกับวันนี้) (ตามปฏิทินจริง ไม่ขึ้นกับเดือนที่เลือกดู) =====
+const GROUPS = [['D', 'เข้าเช้า'], ['N', 'เข้าดึก'], ['DO', 'หยุด (DO)'], ['L', 'ลา / พักร้อน']];
+const groupOf = (code) => (!code ? '' : code === 'D' || code === 'N' || code === 'DO' ? code : 'L');
+const shortName = (name) => name.replace(/^(นางสาว|นาย|นาง|น\.ส\.|นส\.)\s*/, '').split(/\s+/)[0];
+const monthKey = (date) => `m${date.getFullYear() + 543}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+// รหัสกะของแต่ละคนในวันนั้น: id -> { name, code } คนที่ช่องว่าง (ออก/ฝึกงานจบ) ไม่นับ
+function dayCodes(month, date) {
+  const out = new Map();
+  if (!month) return out;
+  const i = month.days.indexOf(date.getDate(), Math.max(0, month.days.indexOf(1)));
+  if (i < 0) return out;
+  for (const p of month.people) if (p.codes[i]) out.set(p.id, { name: p.name, code: p.codes[i] });
+  return out;
+}
+
+// months = { m2569-11: ตาราง, ... }
+let dayData = {};
+let dayNow = new Date();
+let dayTab = 0; // 0 = วันนี้, 1 = พรุ่งนี้
+function renderTomorrow(months = dayData, now = dayNow) {
+  dayData = months;
+  dayNow = now;
+  const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const a = dayCodes(months[monthKey(now)], now);
+  const b = dayCodes(months[monthKey(next)], next);
+  const [shown, base] = dayTab ? [b, a] : [a, new Map()];
+  const when = (dayTab ? next : now).toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'short' });
+  const box = $('tomorrow');
+  box.hidden = false;
+  const head = `<div class="top"><div class="tabs">${['วันนี้', 'พรุ่งนี้'].map((t, n) => `<button type="button" data-day="${n}" aria-pressed="${n === dayTab}">${t}</button>`).join('')}</div><b>${esc(when)}</b>`;
+  if (!shown.size) { box.innerHTML = head + '</div><div class="mute">ยังไม่มีข้อมูลกะของวันนี้ในตาราง</div>'; return; }
+  const count = (map, group) => [...map.values()].filter((p) => groupOf(p.code) === group).length;
+  const diff = (x, y) => (!base.size || x === y ? '' : y > x ? `เพิ่ม ${y - x}` : `ลด ${x - y}`);
+  const work = (map) => count(map, 'D') + count(map, 'N');
+  let html = head + `<span class="mute">มาทำงาน ${work(shown)} คน`
+    + (base.size ? ` (วันนี้ ${work(base)}${work(base) === work(shown) ? '' : ', ' + diff(work(base), work(shown))})` : '') + '</span></div><div class="boxes">';
+  for (const [group, title] of GROUPS) {
+    const list = [...shown.values()].filter((p) => groupOf(p.code) === group);
+    html += `<div class="box ${group}">${title}<b>${list.length}<small>${diff(count(base, group), list.length)}</small></b>`
+      + list.map((p) => `<span class="who">${esc(shortName(p.name))}${group === 'L' ? ' · ' + esc(p.code) : ''}</span>`).join('') + '</div>';
+  }
+  html += '</div>';
+  const moved = [...shown].filter(([id, p]) => base.has(id) && groupOf(base.get(id).code) !== groupOf(p.code));
+  if (moved.length) {
+    const note = (from, to) => {
+      const off = (g) => g === 'DO' || g === 'L';
+      if (to === 'L') return ['low', 'เริ่มลา'];
+      if (to === 'DO') return ['', 'เริ่มหยุด'];
+      if (off(from)) return ['up', 'กลับมาทำงาน'];
+      return ['', to === 'N' ? 'ย้ายไปกะดึก' : 'ย้ายไปกะเช้า'];
+    };
+    html += '<div class="round">เปลี่ยนจากวันนี้</div><table class="log"><tr><th>ชื่อ</th><th>วันนี้</th><th>พรุ่งนี้</th><th></th></tr>'
+      + moved.map(([id, p]) => {
+        const [cls, text] = note(groupOf(base.get(id).code), groupOf(p.code));
+        return `<tr><td>${esc(shortName(p.name))}</td><td>${chip(base.get(id).code)}</td><td>${chip(p.code)}</td><td class="${cls}">${text}</td></tr>`;
+      }).join('') + '</table>';
+  }
+  box.innerHTML = html;
+}
+
 function render() {
   shownRounds = rounds
     .map((r) => ({ ...r, list: r.list.filter((c) => inMonth(c.i)), impact: r.impact.filter((x) => inMonth(x.i)) }))
@@ -162,6 +235,10 @@ function render() {
 }
 
 $('q').oninput = render;
+$('tomorrow').onclick = (e) => {
+  const day = e.target.dataset.day;
+  if (day !== undefined) { dayTab = Number(day); renderTomorrow(); }
+};
 $('t').onmouseover = (e) => { hover = spot(e); paint(); };
 $('t').onmouseleave = () => { hover = null; paint(); };
 $('t').onclick = (e) => {
@@ -193,6 +270,22 @@ function fillMonths(keys, selected) {
   $("month").hidden = !keys.length;
 }
 
+// โหลดตารางของวันนี้และพรุ่งนี้ (สิ้นเดือนจะเป็นคนละเดือน)
+async function loadTomorrow(available) {
+  const now = new Date();
+  const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const months = {};
+  try {
+    for (const key of new Set([monthKey(now), monthKey(next)])) {
+      if (available.includes(key)) months[key] = (await call({ action: "get", key })).data;
+    }
+    renderTomorrow(months, now);
+  } catch (e) {
+    $("tomorrow").hidden = false;
+    $("tomorrow").textContent = "โหลดสรุปกำลังพลไม่สำเร็จ: " + e.message;
+  }
+}
+
 async function start() {
   try {
     const { months } = await call({ action: "months" });
@@ -202,6 +295,7 @@ async function start() {
     const key = months.includes(today) ? today : months.at(-1);
     fillMonths(months, key);
     show(key ? await call({ action: "get", key }) : { rounds: [] });
+    await loadTomorrow(months);
   } catch (e) {
     $("info").textContent = "โหลดไม่สำเร็จ: " + e.message;
   }
