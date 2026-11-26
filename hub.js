@@ -1,4 +1,5 @@
 import { requireLogin, fetchProtectedText, PRESENCE_URL } from "./firebase-guard.js?v=20261122-cut";
+import { isOwner } from "./owner.js";
 var initCards; // ตั้งค่าในฟังก์ชันด้านล่าง เรียกหลังรู้ว่าใครล็อกอิน
 (function () {
   var root = document.documentElement;
@@ -352,8 +353,21 @@ function showRoomButton(uid) {
   });
 }
 
+// การ์ดตารางวันทำงาน (ยังทดลอง) สร้างเฉพาะบัญชีเจ้าของ — ดู owner.js
+function addShiftCard() {
+  const grid = document.querySelector('section[data-sec="ours"] .grid');
+  const card = grid.querySelector('a.btn[href="bbs.html"]').cloneNode(true);
+  card.href = "shifts.html";
+  card.dataset.kw = "ตาราง กะ วันทำงาน เวร";
+  card.querySelector(".icon").textContent = "📅";
+  card.querySelector("strong").textContent = "ตารางวันทำงาน";
+  card.querySelector(".label span").textContent = "เห็นเฉพาะคุณ (ทดลอง)";
+  grid.appendChild(card);
+}
+
 // ===== Firebase: ตรวจสิทธิ์ / Logout / ตัด Session (ดู firebase-guard.js) =====
-requireLogin((user) => {
+requireLogin(async (user) => {
+  if (await isOwner(user).catch(() => false)) addShiftCard(); // ต้องเพิ่มก่อน initCards
   initCards(user.uid);
   showRoomButton(user.uid);
   if (window.hubStart) window.hubStart();
