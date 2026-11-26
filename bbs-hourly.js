@@ -152,7 +152,12 @@ export async function readHourly(buffer) {
     const sheet = await pickSheet(book);
     if (!sheet) return null;
     const { layout } = sheet;
+    const legend = legendOf(book, sheet.doc, await book.read('xl/styles.xml'));
+    const codesOf = (kind) => [...new Set(legend.filter((x) => x.kind === kind).map((x) => x.code))];
     return {
+        // สีปุ่มบนเว็บตามหัวฟอร์ม (รหัสที่ไม่ได้อยู่ในกลุ่มคลัง/หน่วยงาน)
+        colors: Object.fromEntries(legend.filter((x) => !x.kind && x.color).map((x) => [x.code, x.color])),
+        groups: [['depot', 'คลังน้ำมัน', codesOf('depot')], ['unit', 'หน่วยงาน', codesOf('unit')]].filter((g) => g[2].length),
         hourly: true,
         units: await readUnits(book),
         shiftHours: (shift) => hoursOf(layout, shift),
@@ -236,34 +241,44 @@ function appendBlocks(doc, blocks, count) {
 const watched = (time) => (time ? Number(time.slice(0, 2)) + '.' + time.slice(3, 5) : '');
 const used = (v) => !!(v.driver || v.trips.length || v.rounds.length);
 
-// สีของแต่ละรหัสอ่านจากคำอธิบายหัวฟอร์ม (เช่น ช่อง C สีชมพู) แล้วลงสีเดียวกันในช่องผลการตรวจ
-// รหัสที่มีสองสีในหัวฟอร์มใช้อันแรกที่เจอ
-function painter(book, doc, styles) {
-    const fills = els(els(styles, 'fills')[0], 'fill');
-    const cellXfs = els(styles, 'cellXfs')[0];
-    const xfs = els(cellXfs, 'xf');
-    const colored = (id) => {
-        const pattern = fills[id] && els(fills[id], 'patternFill')[0];
-        const color = pattern?.getAttribute('patternType') === 'solid' && els(pattern, 'fgColor')[0];
-        if (!color) return false;
-        const rgb = color.getAttribute('rgb');
-        return rgb ? !/FFFFFF$/i.test(rgb) : color.getAttribute('theme') !== '0';
-    };
+// คำอธิบายรหัสที่ลงสีไว้บนหัวฟอร์ม: [{ code, fill, kind }]
+// kind ดูจากสี: ส้ม = คลังน้ำมัน, ฟ้า = หน่วยงาน (รหัสเดียวกันมีได้ทั้งสองสี)
+const KINDS = { FF9900: 'depot', '4D93D9': 'unit' };
 
-    const legend = new Map(); // รหัส -> fillId
+function legendOf(book, doc, styles) {
+    const fills = els(els(styles, 'fills')[0], 'fill');
+    const xfs = els(els(styles, 'cellXfs')[0], 'xf');
+    const found = [];
     for (const row of els(doc, 'row')) {
         const texts = els(row, 'c').map((c) => [c, book.value(c).trim()]);
         if (texts.some(([, t]) => t === WATCH)) break;
-        for (const [c, text] of texts) {
-            if (!/^[A-Z][A-Z0-9]{0,7}$/.test(text) || legend.has(text)) continue;
-            const id = Number(xfs[Number(c.getAttribute('s') || 0)]?.getAttribute('fillId') || 0);
-            if (colored(id)) legend.set(text, id);
+        for (const [c, code] of texts) {
+            if (!/^[A-Z][A-Z0-9]{0,7}$/.test(code)) continue;
+            const fill = Number(xfs[Number(c.getAttribute('s') || 0)]?.getAttribute('fillId') || 0);
+            const pattern = fills[fill] && els(fills[fill], 'patternFill')[0];
+            const color = pattern?.getAttribute('patternType') === 'solid' && els(pattern, 'fgColor')[0];
+            if (!color) continue;
+            const rgb = (color.getAttribute('rgb') || '').slice(-6).toUpperCase();
+            if (rgb ? rgb === 'FFFFFF' : color.getAttribute('theme') === '0') continue;
+            found.push({ code, fill, kind: KINDS[rgb] || '', color: rgb ? '#' + rgb : '' });
         }
+    }
+    return found;
+}
+
+// ลงสีช่องผลการตรวจตามคำอธิบายหัวฟอร์ม (เช่น ช่อง C สีชมพู)
+function painter(book, doc, styles) {
+    const cellXfs = els(styles, 'cellXfs')[0];
+    const xfs = els(cellXfs, 'xf');
+    const legend = new Map(); // รหัส หรือ รหัส@kind -> fillId (ไม่ระบุ kind = อันแรกที่เจอ)
+    for (const { code, fill, kind } of legendOf(book, doc, styles)) {
+        if (!legend.has(code)) legend.set(code, fill);
+        if (kind) legend.set(code + '@' + kind, fill);
     }
 
     const made = new Map(); // สไตล์เดิม:สี -> สไตล์ใหม่ (เส้นขอบ ฟอนต์ คงเดิม)
-    return (cell, code) => {
-        const fill = legend.get(/^C\d+$/.test(code) ? 'C' : code);
+    return (cell, code, kind) => {
+        const fill = legend.get(code + '@' + kind) ?? legend.get(/^C\d+$/.test(code) ? 'C' : code);
         if (!cell || fill === undefined) return;
         const base = Number(cell.getAttribute('s') || 0);
         const key = base + ':' + fill;
@@ -339,7 +354,7 @@ function fill(book, doc, layout, blocks, report, paint) {
             if (!col || !rows[at + 1]) continue;
             setCell(doc, rows[at], col, watched(r.time));
             setCell(doc, rows[at + 1], col, r.place || '');
-            paint(cellAt(rows[at + 1], col), r.place || '');
+            paint(cellAt(rows[at + 1], col), r.place || '', r.group);
             if (r.note) notes.push(r.hour + ' น. ' + r.note);
         }
         setCell(doc, rows[0], noteCol, notes.join(' / '));

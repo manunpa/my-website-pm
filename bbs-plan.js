@@ -147,7 +147,14 @@ function readJourney(rows, header, shift, add) {
         const car = cars.get(current) || { people: [], custs: [] };
         cars.set(current, car);
         const driver = row.cells.get(cols.driver) || '';
-        if (driver) car.people.push({ name: driver, status: row.cells.get(cols.status) || '', rest: row.cells.get(cols.rest) || '' });
+        // แผนมีแถวละ 1 งาน เขียนชื่อซ้ำได้ ชื่อเดียวกันคือคนเดียวกัน
+        if (driver) {
+            const same = (name) => name.replace(/\(.*?\)|^(นาย|นาง|น\.ส\.)|[\s*]/g, '');
+            let person = car.people.find((p) => same(p.name) === same(driver));
+            if (!person) car.people.push(person = { name: driver, status: '', rest: '' });
+            person.status ||= row.cells.get(cols.status) || '';
+            person.rest ||= row.cells.get(cols.rest) || '';
+        }
         const cust = row.cells.get(cols.cust) || '';
         if (cust && !/^(SPARE|ไม่มีงาน)$/i.test(cust)) car.custs.push(cust);
     }

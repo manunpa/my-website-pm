@@ -1,7 +1,7 @@
 import { requireLogin, fetchProtectedText, PRESENCE_URL, auth } from './firebase-guard.js?v=20261122-cut';
 import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=10';
-import { readPlans, vehicleNo, sccName, PEOPLE_FIELDS } from './bbs-plan.js?v=11';
-import { readHourly, buildHourly } from './bbs-hourly.js?v=6';
+import { readPlans, vehicleNo, sccName, PEOPLE_FIELDS } from './bbs-plan.js?v=12';
+import { readHourly, buildHourly } from './bbs-hourly.js?v=8';
 import { readImage, parseShot, inShift } from './bbs-ocr.js?v=1';
 import { samePlace } from './bbs-match.js?v=1';
 import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
@@ -745,10 +745,10 @@ function editHour(v, hour, who) {
     // หารถใหม่ตอนกด: ระหว่างเปิดหน้าต่างรายงานอาจถูกโหลดใหม่
     const car = () => report.vehicles.find((x) => x.scc === v.scc);
     const done = () => { save(); $('hour-dialog').close(); render(); };
-    const set = (place) => {
+    const set = (place, group) => {
         // id ตามช่อง: สองเครื่องลงช่องเดียวกันจะเหลืออันที่แก้ล่าสุด
         const entry = {
-            id: 'h' + who + '-' + hour, type: 'hour', hour, who, place,
+            id: 'h' + who + '-' + hour, type: 'hour', hour, who, place, ...(group ? { group } : {}),
             time: ($('hour-time').value || new Date().toTimeString().slice(0, 5)) + ':00',
             note: $('hour-note').value.trim(), marks: {}
         };
@@ -762,17 +762,34 @@ function editHour(v, hour, who) {
         target.cctv ||= 'ปกติ';
         done();
     };
-    const result = (code, label) => el('button', {
-        type: 'button', className: 'btn result' + (old?.place === code ? ' primary' : ''), onclick: () => set(code)
-    }, el('b', { textContent: code }), el('small', { textContent: label === code ? '' : label }));
+    const groups = template.groups || [];
+    // ของเก่าที่ไม่ได้บอกกลุ่ม ถือเป็นกลุ่มแรกที่มีรหัสนั้น (ตรงกับสีที่ลงในรายงาน)
+    const oldGroup = old && (old.group || groups.find((g) => g[2].includes(old.place))?.[0]);
+    const result = (code, label, group) => {
+        const node = el('button', {
+            type: 'button', onclick: () => set(code, group),
+            className: 'btn result' + (group ? ' ' + group : '') +
+                (old?.place === code && (!group || oldGroup === group) ? ' primary' : '')
+        }, el('b', { textContent: code }), label && label !== code ? el('small', { textContent: label }) : null);
+        const color = !group && template.colors?.[/^C\d+$/.test(code) ? 'C' : code];
+        if (color) {
+            node.classList.add('tinted');
+            node.style.background = node.style.borderColor = color;
+        }
+        return node;
+    };
+    const grouped = new Set(groups.flatMap((g) => g[2]));
     // ลูกค้าแยกเป็น C1, C2 ... : เริ่มเท่าจำนวนปลายทาง (หรือเลขสูงสุดที่เคยลง) กด + เพิ่มได้
     const names = destNames(v);
     let customers = Math.max(1, names.length, ...v.rounds.map((r) => Number(/^C(\d+)$/.exec(r.place)?.[1] || 0)));
     const drawResults = () => $('hour-results').replaceChildren(
-        ...template.results.filter(([code]) => code !== 'C').map(([code, label]) => result(code, label)),
-        ...Array.from({ length: customers }, (_, i) => result('C' + (i + 1), names[i] || 'ลูกค้า')),
+        ...template.results.filter(([code]) => code !== 'C' && !grouped.has(code)).map(([code, label]) => result(code, label)),
+        ...Array.from({ length: customers }, (_, i) => result('C' + (i + 1), '')),
         el('button', { type: 'button', className: 'btn result', title: 'เพิ่มลูกค้า', onclick: () => { customers++; drawResults(); } },
-            el('b', { textContent: '+' }), el('small', { textContent: 'เพิ่มลูกค้า' })));
+            el('b', { textContent: '+' }), el('small', { textContent: 'เพิ่มลูกค้า' })),
+        ...groups.flatMap(([group, title, codes]) => [
+            el('small', { className: 'grouphead', textContent: title }),
+            ...codes.map((code) => result(code, code, group))]));
     drawResults();
     $('hour-other-ok').onclick = () => { const text = $('hour-other').value.trim(); if (text) set(text); };
     $('hour-clear').hidden = !old;
@@ -972,7 +989,7 @@ async function importPlans(files) {
         const v = mine.get(no);
         const fresh = !v.trips.length; // ยังไม่เคยมีงาน = งานใหม่ ไม่นับเป็นการเปลี่ยน
         // สถานะ/คนที่ 3 เปลี่ยนอย่างเดียวก็ต้องอัปเดต
-        const people = !fresh && PEOPLE_FIELDS.some((k) => item[k] !== undefined && item[k] !== (v[k] || ''));
+        const people = !fresh && ['driver2', ...PEOPLE_FIELDS].some((k) => item[k] !== undefined && item[k] !== (v[k] || ''));
         return { v, item, fresh, people, changes: fresh ? [] : diffPlan(v, item) };
     });
     const update = report.vehicles.some((v) => v.trips.length); // เคยมีแผนแล้ว = โหมดอัปเดต
