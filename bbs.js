@@ -1443,12 +1443,34 @@ function bind() {
     $('search').addEventListener('input', render);
     $('show-all').addEventListener('change', render);
     $('plan-button').addEventListener('click', () => $('plan').click());
-    $('plan').addEventListener('change', async () => {
-        const files = [...$('plan').files];
-        $('plan').value = '';
+    const readFiles = async (files) => {
         if (!files.length) return;
         try { await importPlans(files); }
         catch (err) { console.error(err); status('อ่านแผนงานไม่ได้: ' + err.message, true); }
+    };
+    $('plan').addEventListener('change', () => {
+        const files = [...$('plan').files];
+        $('plan').value = '';
+        readFiles(files);
+    });
+
+    // ลากไฟล์แผนมาวางตรงไหนของหน้าก็ได้ (ตอนเปิดหน้าต่างอื่นอยู่ไม่รับ)
+    const dragging = (on) => document.body.classList.toggle('dropping', on);
+    const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+    const ready = () => !$('plan-button').disabled && !document.querySelector('dialog[open]');
+    document.addEventListener('dragover', (e) => {
+        if (!hasFiles(e) || !ready()) return;
+        e.preventDefault();
+        dragging(true);
+    });
+    document.addEventListener('dragleave', (e) => { if (!e.relatedTarget) dragging(false); });
+    document.addEventListener('drop', (e) => {
+        dragging(false);
+        if (!hasFiles(e) || !ready()) return;
+        e.preventDefault(); // ไม่ให้เบราว์เซอร์เปิดไฟล์แทนหน้านี้
+        const files = [...e.dataTransfer.files].filter((f) => /\.xlsx$/i.test(f.name));
+        if (files.length) readFiles(files);
+        else status('ลากได้เฉพาะไฟล์แผนงาน .xlsx', true);
     });
     $('plan-ok').addEventListener('click', () => { applyPlans(); $('plan-dialog').close(); });
     $('plan-cancel').addEventListener('click', () => $('plan-dialog').close());
