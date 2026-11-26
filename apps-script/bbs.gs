@@ -4,7 +4,7 @@
  * ฟอร์มต้นแบบ : ไฟล์ .xlsx ในโฟลเดอร์ Drive ตาม FOLDER_PATH (อ่านอย่างเดียว ไม่แก้ไฟล์)
  * แท็บ reports : 1 แถวต่อ ฟอร์ม/วัน/กะ (ข้อมูลทั้งรายงาน ใช้โหลดกลับขึ้นเว็บ)
  * แท็บ rounds  : 1 แถวต่อ 1 รอบตรวจ (อ่าน/กรอง/ทำสถิติได้ในชีต)
- * แท็บ rounds NPM : 1 แถวต่อ 1 ชั่วโมงที่ตรวจ ของฟอร์มรายชั่วโมง
+ * แท็บ rounds <หน่วยงาน> : 1 แถวต่อ 1 ชั่วโมงที่ตรวจ ของฟอร์มรายชั่วโมง
  * ทั้งสองแท็บสร้างให้เองครั้งแรกที่บันทึก
  *
  * วิธีติดตั้ง: สร้าง Google ชีตใหม่ → ส่วนขยาย → Apps Script → วางโค้ดนี้ทับ → บันทึก
@@ -109,7 +109,7 @@ function getForm_(id) {
 const CHUNK = 45000; // 1 ช่องในชีตเก็บได้ไม่เกิน 50,000 ตัวอักษร
 const ROUND_HEADERS = ['key', 'ฟอร์ม', 'วันที่', 'กะ', 'SCC', 'ทะเบียน', 'พขร.', 'เวลา', 'สถานที่', 'ผ่าน', 'ไม่ผ่าน', 'หมายเหตุ'];
 
-const HOURLY_HEADERS = ['key', 'ฟอร์ม', 'วันที่', 'กะ', 'ทะเบียน', 'พขร.', 'ชั่วโมง', 'เวลาที่ดู', 'ผล', 'หมายเหตุ'];
+const HOURLY_HEADERS = ['key', 'ฟอร์ม', 'วันที่', 'กะ', 'เบอร์รถ', 'พขร.', 'ชั่วโมง', 'เวลาที่ดู', 'ผล', 'หมายเหตุ'];
 
 function tab_(name, headers) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -158,7 +158,9 @@ function writeRounds_(key, report) {
   // ฟอร์มรายชั่วโมง (NPM) แยกแท็บของตัวเองในชีตไฟล์เดียวกัน
   const hourly = report.layout === 'hourly';
   const headers = hourly ? HOURLY_HEADERS : ROUND_HEADERS;
-  const sheet = tab_(hourly ? 'rounds NPM' : 'rounds', headers);
+  // ชื่อแท็บตามหน่วยงาน (ตัดอักขระที่ชีตไม่รับ)
+  const unit = String(report.tab || 'NPM-BRP').replace(/[\[\]:*?\/\\]/g, ' ').trim().slice(0, 80);
+  const sheet = tab_(hourly ? 'rounds ' + unit : 'rounds', headers);
   const rows = [];
   report.vehicles.forEach(function (v) {
     if (hourly) {

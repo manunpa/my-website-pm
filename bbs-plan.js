@@ -133,6 +133,35 @@ function readNpm(rows, header, add) {
     }
 }
 
+// ===== JC Daily Report: ครึ่งซ้ายกะกลางวัน ครึ่งขวากะกลางคืน คันละหลายแถว (คนละ Drop) =====
+function readJourney(rows, header, shift, add) {
+    const nth = (re) => [...header.cells].filter(([, t]) => re.test(t)).map(([c]) => c)[shift === 'night' ? 1 : 0];
+    const cols = { scc: nth(/^SCC$/), driver: nth(/^พขร/), cust: nth(/^ลูกค้า/) };
+    const cars = new Map();
+    let current = '';
+    for (const row of rows.filter((r) => r.n > header.n)) {
+        if ([...row.cells.values()].some((t) => /^(รวม|สรุป)/.test(t))) break;
+        const no = vehicleNo(row.cells.get(cols.scc));
+        if (no) current = no;
+        if (!current) continue;
+        const car = cars.get(current) || { drivers: [], custs: [] };
+        cars.set(current, car);
+        const driver = row.cells.get(cols.driver) || '';
+        if (driver) car.drivers.push(driver);
+        const cust = row.cells.get(cols.cust) || '';
+        if (cust && !/^(SPARE|ไม่มีงาน)$/i.test(cust)) car.custs.push(cust);
+    }
+    for (const [no, car] of cars) {
+        const loader = car.drivers.find((d, i) => i > 0 && /โหลด/.test(d)) || car.drivers[1] || '';
+        add(no, {
+            replace: true,
+            driver: car.drivers[0] || '',
+            driver2: loader,
+            trips: car.custs.map((cust) => ({ ship: '', custId: '', cust }))
+        });
+    }
+}
+
 // ===== Confirm fleet SRC (งานเย็น = กะกลางคืน): กลุ่มคอลัมน์ พขร./ลูกค้า/NOM มี 2 ชุด =====
 function readConfirm(rows, header, shift, add) {
     if (shift !== 'night') return 'เป็นแผนงานเย็น ใช้กับกะกลางคืนเท่านั้น';
@@ -178,6 +207,7 @@ export async function readPlans(files, date, shift) {
         if (item.replace) { // แผน NPM: ไฟล์หลังคือฉบับแก้ ใช้ทับของเดิม
             v.driver = item.driver || v.driver;
             v.remark = item.remark;
+            v.driver2 = item.driver2;
             if (item.trips.length) v.trips = item.trips;
             vehicles.set(no, v);
             return;
@@ -197,23 +227,28 @@ export async function readPlans(files, date, shift) {
         try {
             const rows = await daySheet(await file.arrayBuffer(), Number(date.slice(8)));
             if (!rows) { say('ไม่มีชีตของวันที่ ' + Number(date.slice(8))); continue; }
-            const found = headerDate(rows);
+            const has = (row, re) => [...row.cells.values()].some((t) => re.test(t));
+            const journey = rows.slice(0, 8).find((r) => has(r, /^SCC$/) && has(r, /^ใช้รถจริง$/));
+            // JC Report ไม่มีวันที่ในหัวชีต: วัน = ชื่อชีต เดือน/ปี = ชื่อไฟล์ (เช่น 11_2026)
+            const month = journey && /(\d{1,2})[_\-](\d{4})/.exec(file.name);
+            const found = month ? iso(Number(month[2]), Number(month[1]), Number(date.slice(8))) : headerDate(rows) || (journey ? date : '');
+            if (journey && !month) say('ชื่อไฟล์ไม่บอกเดือน/ปี ตรวจสอบว่าเป็นแผนของเดือนนี้');
             if (found !== date) {
                 say(found ? 'หัวชีตเป็นวันที่ ' + found.split('-').reverse().join('/') + ' ไม่ใช่ ' + want + ' จึงไม่ดึง'
                     : 'หาวันที่ในหัวชีตไม่เจอ จึงไม่ดึง');
                 continue;
             }
-            const has = (row, re) => [...row.cells.values()].some((t) => re.test(t));
             const header = rows.slice(0, 8).find((r) => has(r, /^SCC$/) || has(r, /^เบอร์รถ$/) || has(r, /^Reg\.?\s*Truck$/i));
             if (!header) { say('ไม่รู้จักรูปแบบแผนงานนี้'); continue; }
             const before = vehicles.size;
             let problem = '';
-            if (has(header, /^Reg\.?\s*Truck$/i)) readNpm(rows, header, add);
+            if (journey) readJourney(rows, journey, shift, add);
+            else if (has(header, /^Reg\.?\s*Truck$/i)) readNpm(rows, header, add);
             else if (has(header, /^SCC$/)) readDaily(rows, header, shift, add);
             else if (has(header, /ชื่อพขร/)) problem = readConfirm(rows, header, shift, add);
             else readShell(rows, header, shift, add);
             if (problem) say(problem);
-            else if (vehicles.size === before && !has(header, /^Reg/i)) say('ไม่พบรถใหม่ของกะนี้');
+            else if (vehicles.size === before && !journey && !has(header, /^Reg/i)) say('ไม่พบรถใหม่ของกะนี้');
         } catch (err) {
             console.error(err);
             say('อ่านไม่ได้ (' + err.message + ')');

@@ -1,7 +1,7 @@
 import { requireLogin, fetchProtectedText } from './firebase-guard.js?v=20261122-cut';
 import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=10';
-import { readPlans, vehicleNo, sccName } from './bbs-plan.js?v=9';
-import { readHourly, buildHourly, shiftHours, RESULTS } from './bbs-hourly.js?v=2';
+import { readPlans, vehicleNo, sccName } from './bbs-plan.js?v=10';
+import { readHourly, buildHourly } from './bbs-hourly.js?v=4';
 import { readImage, parseShot, inShift } from './bbs-ocr.js?v=1';
 import { samePlace } from './bbs-match.js?v=1';
 import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
@@ -113,12 +113,14 @@ async function loadForms() {
 
 // "รายงาน…พขร. BBS BFPL WO-LLK วันที่/เดือน/ปี.xlsx" → "BBS BFPL WO-LLK"
 const shortName = (name) => name.replace(/\.xlsx$/i, '').split('วันที่')[0]
-    .replace(/^รายงานติดตามพฤติกรรมพขร\.?\s*/, '').replace(/^ผ่าน\s*CCTV\s*/i, '')
+    .replace(/^รายงานติดตามพฤติกรรมพขร\.?\s*/, '').replace(/^ผ่าน\s*CCTV[\s\-]*/i, '')
     .replace(/\s*(January|February|March|April|May|June|July|August|September|October|November|December)\s*\d{4}/i, '')
     .trim() || name;
 
 // ===== ข้อมูลรายงานต่อ 1 ฟอร์ม/วัน/กะ =====
-const keyOf = () => (API_URL ? $('form').value + '_' : '') + $('date').value + '_' + $('shift').value;
+// ฟอร์มที่มีหน่วยงานย่อย แยกรายงานกันคนละ key
+const unit = () => template?.units?.[Number($('unit').value)] || null;
+const keyOf = () => (API_URL ? $('form').value + (unit() ? '-u' + $('unit').value : '') + '_' : '') + $('date').value + '_' + $('shift').value;
 const localKey = (key) => 'bbs-report:' + key;
 
 function emptyVehicle(v) {
@@ -243,6 +245,8 @@ function mergeVehicles() {
     if (!template) return;
     report.formName = template.name;
     report.layout = template.hourly ? 'hourly' : '';
+    report.unitTitle = unit()?.title || '';
+    report.tab = template.hourly ? unit()?.name || shortName(template.name).replace(/^BBS\s*/i, '') : ''; // ชื่อแท็บในชีต
     const have = new Set(report.vehicles.map((v) => v.scc));
     report.vehicles.push(...template.vehicles.filter((v) => !have.has(v.scc)).map(emptyVehicle));
 }
@@ -491,7 +495,8 @@ const roundAt = (v, hour, who) => v.rounds.find((r) => r.hour === hour && (r.who
 const tone = (r) => (!r ? '' : r.place === 'NG' ? ' no' : r.place === 'OK' ? ' ok' : ' at');
 
 function hourGrid(v, who) {
-    return el('div', { className: 'hours' }, ...shiftHours(report.shift).map((hour) => {
+    const hours = template.shiftHours(report.shift);
+    const grid = el('div', { className: 'hours' }, ...hours.map((hour) => {
         const r = roundAt(v, hour, who);
         const node = el('button', { type: 'button', className: 'hour' + tone(r), onclick: () => editHour(v, hour, who) },
             el('small', { textContent: String(hour).padStart(2, '0') }),
@@ -501,6 +506,8 @@ function hourGrid(v, who) {
         if (r?.note) { node.title = r.note; node.classList.add('noted'); }
         return node;
     }));
+    grid.style.setProperty('--n', hours.length);
+    return grid;
 }
 
 const hourGrids = (v) => [hourGrid(v, 1), ...(v.driver2
@@ -527,7 +534,7 @@ function hourlyPage(v) {
         ...hourGrids(v),
         el('div', { className: 'line' },
             el('label', { className: 'field grow' }, 'พขร.1', input(v, 'driver', 'ชื่อ พขร.1')),
-            el('label', { className: 'field grow' }, 'พขร.2', input(v, 'driver2', 'ชื่อ พขร.2 (ถ้ามี)', { onchange: () => redraw() }))),
+            el('label', { className: 'field grow' }, 'พขร.2 / คนโหลด', input(v, 'driver2', 'ชื่อ พขร.2 (ถ้ามี)', { onchange: () => redraw() }))),
         el('div', { className: 'line' },
             el('label', {}, 'GPS ', select(v, 'gps', 'สถานะ GPS', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']])),
             el('label', {}, 'CCTV ', select(v, 'cctv', 'สถานะ CCTV', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']])),
@@ -548,7 +555,7 @@ function editHour(v, hour, who) {
     $('hour-title').textContent = v.scc + ' · ' + String(hour).padStart(2, '0') + ':00 น.' + (who === 2 ? ' · พขร.2' : '');
     $('hour-time').value = old ? shortTime(old) : new Date().toTimeString().slice(0, 5);
     $('hour-note').value = old?.note || '';
-    $('hour-other').value = old && !RESULTS.some(([code]) => code === old.place) ? old.place : '';
+    $('hour-other').value = old && !template.results.some(([code]) => code === old.place) ? old.place : '';
     // หารถใหม่ตอนกด: ระหว่างเปิดหน้าต่างรายงานอาจถูกโหลดใหม่
     const car = () => report.vehicles.find((x) => x.scc === v.scc);
     const done = () => { save(); $('hour-dialog').close(); render(); };
@@ -566,7 +573,7 @@ function editHour(v, hour, who) {
         target.cctv ||= 'ปกติ';
         done();
     };
-    $('hour-results').replaceChildren(...RESULTS.map(([code, label]) => el('button', {
+    $('hour-results').replaceChildren(...template.results.map(([code, label]) => el('button', {
         type: 'button', className: 'btn result' + (old?.place === code ? ' primary' : ''), onclick: () => set(code)
     }, el('b', { textContent: code }), el('small', { textContent: label === code ? '' : label }))));
     $('hour-other-ok').onclick = () => { const text = $('hour-other').value.trim(); if (text) set(text); };
@@ -594,7 +601,7 @@ function hourlySummary() {
     const unchecked = working.filter((v) => !v.rounds.length).map((v) => v.scc);
     const section = (title, lines) => (lines.length ? ['', '[' + title + ']', ...lines] : []);
     return [
-        'สรุป BBS ' + shortName(template.name),
+        'สรุป BBS ' + (unit()?.name || shortName(template.name)),
         d + '/' + m + '/' + (Number(y) + 543) + (report.shift === 'night' ? ' กะกลางคืน' : ' กะกลางวัน') +
             ' (ณ ' + new Date().toTimeString().slice(0, 5) + ' น.)',
         '',
@@ -664,6 +671,7 @@ function render() {
     document.body.classList.toggle('detail', !!open);
     $('setup-title').textContent = [
         $('form').selectedOptions[0]?.textContent,
+        unit()?.name,
         report.date.split('-').reverse().join('/'),
         report.shift === 'night' ? 'กลางคืน' : 'กลางวัน'
     ].filter(Boolean).join(' · ');
@@ -692,6 +700,17 @@ function render() {
 
 async function useTemplate(buffer, name) {
     template = { buffer, name, ...((await readHourly(buffer)) || (await readTemplate(buffer))) };
+    const units = template.units || [];
+    $('unit').replaceChildren(...units.map((u, i) => el('option', { value: String(i), textContent: u.name })));
+    $('unit-field').hidden = !units.length;
+    const last = units.findIndex((u) => u.title === localStorage.getItem('bbs-unit'));
+    if (units.length) $('unit').value = String(Math.max(0, last));
+    useUnit();
+}
+
+// รายชื่อรถตั้งต้นตามหน่วยงานย่อยที่เลือก
+function useUnit() {
+    if (unit()) template.vehicles = unit().cars.map((scc) => ({ scc, plate: '', driver: '', risk: '' }));
 }
 
 // เบอร์รถ → ทะเบียน จากฟอร์มอื่นในโฟลเดอร์ (ใช้เติมตอนทำรายงานบนฟอร์มกลาง)
@@ -785,6 +804,7 @@ function applyPlans() {
         if (item.risk) v.risk = item.risk;
         else v.risk ||= item.riskIfEmpty;
         if (item.remark !== undefined) v.remark = item.remark;
+        if (item.driver2 !== undefined) v.driver2 = item.driver2;
         const jobsChanged = fresh || changes.some((c) => c.type !== 'driver');
         if (item.trips.length && jobsChanged) {
             const ids = new Map(v.trips.map((t) => [t.cust, t.custId]));
@@ -1120,7 +1140,7 @@ function bindAlert() {
 
 // ชื่อไฟล์ส่งออกตามชื่อฟอร์ม โดยตัดคำว่า "วันที่/เดือน..." ท้ายชื่อออก
 function baseName() {
-    if (template.hourly) return 'รายงานติดตามพฤติกรรมพขร ผ่าน CCTV ' + shortName(template.name);
+    if (template.hourly) return 'รายงานติดตามพฤติกรรมพขร ผ่าน CCTV ' + (unit()?.name || shortName(template.name));
     const name = API_URL ? template.name.replace(/\.xlsx$/i, '').split('วันที่')[0].trim() : '';
     return name || 'รายงานติดตามพฤติกรรมพขร. BBS';
 }
@@ -1145,8 +1165,14 @@ function bind() {
         $('template').value = '';
     });
     for (const id of ['date', 'shift']) $(id).addEventListener('change', () => { if ($('date').value) load(); });
+    $('unit').addEventListener('change', () => {
+        localStorage.setItem('bbs-unit', unit().title);
+        useUnit();
+        load();
+    });
     $('form').addEventListener('change', async () => {
         $('list').replaceChildren();
+        $('unit-field').hidden = true;
         for (const id of ['export', 'summary-button', 'alert-button', 'plan-button', 'shot-button', 'search', 'add']) $(id).disabled = true;
         try {
             await openForm($('form').value);

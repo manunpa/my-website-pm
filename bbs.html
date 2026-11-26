@@ -138,7 +138,7 @@ button.car{width:100%;border:0;text-align:left;cursor:pointer}
 .jobs{padding:5px 12px;font-size:13px;overflow-wrap:anywhere}
 .jobs em{font-style:normal;color:#a56f00}
 .second{padding:0 12px}
-.hours{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:3px;padding:6px 8px}
+.hours{display:grid;grid-template-columns:repeat(var(--n,12),minmax(0,1fr));gap:3px;padding:6px 8px}
 @media(max-width:700px){.hours{grid-template-columns:repeat(6,minmax(0,1fr))}}
 .hour{display:flex;flex-direction:column;align-items:center;min-height:52px;padding:3px 0;background:var(--panel);border:1px solid var(--line);border-radius:6px;cursor:pointer;overflow:hidden;line-height:1.25}
 .hour small{font-size:11px;color:var(--mute);min-height:14px}
@@ -177,6 +177,7 @@ dialog em{font-style:normal;color:var(--no)}
         <select id="form" aria-label="ฟอร์ม" hidden></select>
         <span class="btn" id="pick-file"><label for="template">เลือกไฟล์ฟอร์มต้นแบบ (.xlsx)</label></span>
       </label>
+      <label class="field grow" id="unit-field" hidden>หน่วยงานย่อย<select id="unit"></select></label>
       <label class="field">วันที่<input type="date" id="date"></label>
       <label class="field">กะ<select id="shift"><option value="day">กลางวัน 08–20 น.</option><option value="night">กลางคืน 20–08 น.</option></select></label>
     </div>
@@ -303,6 +304,6 @@ dialog em{font-style:normal;color:var(--no)}
   });
 })();
 </script>
-<script type="module" src="./bbs.js?v=34"></script>
+<script type="module" src="./bbs.js?v=36"></script>
 </body>
 </html>
