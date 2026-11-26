@@ -136,7 +136,7 @@ function readNpm(rows, header, add) {
 // ===== JC Daily Report: ครึ่งซ้ายกะกลางวัน ครึ่งขวากะกลางคืน คันละหลายแถว (คนละ Drop) =====
 function readJourney(rows, header, shift, add) {
     const nth = (re) => [...header.cells].filter(([, t]) => re.test(t)).map(([c]) => c)[shift === 'night' ? 1 : 0];
-    const cols = { scc: nth(/^SCC$/), driver: nth(/^พขร/), cust: nth(/^ลูกค้า/) };
+    const cols = { scc: nth(/^SCC$/), driver: nth(/^พขร/), cust: nth(/^ลูกค้า/), status: nth(/^สถานะ$/), rest: nth(/^สถานะวันหยุด$/) };
     const cars = new Map();
     let current = '';
     for (const row of rows.filter((r) => r.n > header.n)) {
@@ -144,19 +144,26 @@ function readJourney(rows, header, shift, add) {
         const no = vehicleNo(row.cells.get(cols.scc));
         if (no) current = no;
         if (!current) continue;
-        const car = cars.get(current) || { drivers: [], custs: [] };
+        const car = cars.get(current) || { people: [], custs: [] };
         cars.set(current, car);
         const driver = row.cells.get(cols.driver) || '';
-        if (driver) car.drivers.push(driver);
+        if (driver) car.people.push({ name: driver, status: row.cells.get(cols.status) || '', rest: row.cells.get(cols.rest) || '' });
         const cust = row.cells.get(cols.cust) || '';
         if (cust && !/^(SPARE|ไม่มีงาน)$/i.test(cust)) car.custs.push(cust);
     }
     for (const [no, car] of cars) {
-        const loader = car.drivers.find((d, i) => i > 0 && /โหลด/.test(d)) || car.drivers[1] || '';
+        // คนที่ 2 = คนโหลด (ถ้าระบุ) คนที่เหลือเป็นคนที่ 3
+        const [first, ...others] = car.people;
+        const second = others.find((p) => /โหลด/.test(p.name)) || others[0];
+        const third = others.find((p) => p !== second);
         add(no, {
             replace: true,
-            driver: car.drivers[0] || '',
-            driver2: loader,
+            driver: first?.name || '',
+            driver2: second?.name || '',
+            driver3: third?.name || '',
+            status: first?.status || '', rest: first?.rest || '',
+            status2: second?.status || '', rest2: second?.rest || '',
+            status3: third?.status || '', rest3: third?.rest || '',
             trips: car.custs.map((cust) => ({ ship: '', custId: '', cust }))
         });
     }
@@ -192,6 +199,9 @@ function readConfirm(rows, header, shift, add) {
     return '';
 }
 
+// พขร.คนที่ 3 และสถานะของแต่ละคน (มีเฉพาะแผน JC)
+export const PEOPLE_FIELDS = ['driver3', 'status', 'rest', 'status2', 'rest2', 'status3', 'rest3'];
+
 /**
  * @param {File[]} files
  * @param {string} date 'YYYY-MM-DD'
@@ -208,6 +218,7 @@ export async function readPlans(files, date, shift) {
             v.driver = item.driver || v.driver;
             v.remark = item.remark;
             v.driver2 = item.driver2;
+            for (const k of PEOPLE_FIELDS) if (item[k] !== undefined) v[k] = item[k];
             if (item.trips.length) v.trips = item.trips;
             vehicles.set(no, v);
             return;

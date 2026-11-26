@@ -1,11 +1,11 @@
 import { requireLogin, fetchProtectedText, PRESENCE_URL, auth } from './firebase-guard.js?v=20261122-cut';
 import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=10';
-import { readPlans, vehicleNo, sccName } from './bbs-plan.js?v=10';
-import { readHourly, buildHourly } from './bbs-hourly.js?v=4';
+import { readPlans, vehicleNo, sccName, PEOPLE_FIELDS } from './bbs-plan.js?v=11';
+import { readHourly, buildHourly } from './bbs-hourly.js?v=6';
 import { readImage, parseShot, inShift } from './bbs-ocr.js?v=1';
 import { samePlace } from './bbs-match.js?v=1';
 import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
-import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=4';
+import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=5';
 import { destList, diffPlan, mergeChanges, describe } from './bbs-diff.js?v=1';
 import { HISTORY_URL, nameKey, indexHistory, thaiDate } from './bbs-history.js?v=1';
 import { createLog } from './bbs-log.js?v=1';
@@ -493,10 +493,12 @@ const destNames = (v) => destList(v.trips).map((d) => d.name);
 function destState(v, name) {
     const manual = v.dest?.[name];
     if (manual === 'cancel' || manual === 'open') return { state: manual };
-    // ฟอร์มรายชั่วโมงช่องเก็บแค่รหัสผล ไม่มีชื่อปลายทาง จึงใช้ที่เลือกเองเท่านั้น
-    if (template?.hourly) return { state: manual === 'done' ? 'done' : 'open' };
     const names = destNames(v);
-    const round = byTime(v.rounds).find((r) => r.type !== 'loading' && samePlace(r.place, name, names));
+    // ฟอร์มรายชั่วโมงไม่มีชื่อสถานที่ ใช้รหัสลูกค้า C1, C2 ตามลำดับปลายทาง
+    const code = 'C' + (names.indexOf(name) + 1);
+    const round = byTime(v.rounds).find(template?.hourly
+        ? (r) => r.place === code
+        : (r) => r.type !== 'loading' && samePlace(r.place, name, names));
     if (manual === 'done') return { state: 'done', round };
     return round ? { state: 'done', round } : { state: 'open' };
 }
@@ -505,16 +507,13 @@ const STATE_TEXT = { open: 'รอส่ง', done: 'ส่งแล้ว', can
 
 // เลือกสถานะเอง (หน้ารายคัน)
 function destSelect(v, name, redraw) {
-    const node = el('select', {}, ...(template?.hourly
-        ? [['', 'รอส่ง'], ['done', 'ส่งแล้ว'], ['cancel', 'ยกเลิก']]
-        : [['', 'อัตโนมัติ'], ['done', 'ส่งแล้ว'], ['open', 'รอส่ง'], ['cancel', 'ยกเลิก']])
+    const node = el('select', {}, ...[['', 'อัตโนมัติ'], ['done', 'ส่งแล้ว'], ['open', 'รอส่ง'], ['cancel', 'ยกเลิก']]
         .map(([value, text]) => el('option', { value, textContent: text })));
     node.value = v.dest?.[name] || '';
     node.setAttribute('aria-label', 'สถานะงาน ' + name);
     node.onchange = () => {
         v.dest ||= {};
-        const unset = template?.hourly ? 'รอส่ง' : 'อัตโนมัติ';
-        edited('สถานะงาน ' + name, STATE_TEXT[v.dest[name]] || unset, STATE_TEXT[node.value] || unset, v.scc);
+        edited('สถานะงาน ' + name, STATE_TEXT[v.dest[name]] || 'อัตโนมัติ', STATE_TEXT[node.value] || 'อัตโนมัติ', v.scc);
         if (node.value) v.dest[name] = node.value; else delete v.dest[name];
         save();
         redraw();
@@ -683,14 +682,25 @@ function hourGrid(v, who) {
     return grid;
 }
 
-const hourGrids = (v) => [hourGrid(v, 1), ...(v.driver2
-    ? [el('div', { className: 'mute second' }, 'พขร.2 ' + v.driver2, historyBadge(v.driver2)), hourGrid(v, 2)] : [])];
+// "Sheep · หยุด/ลา" ของ พขร. คนนั้น (หยุด = ตัวแดงเหมือนในฟอร์ม)
+function dutyTag(v, n) {
+    const suffix = n > 1 ? n : '';
+    const rest = v['rest' + suffix] || '';
+    const text = [v['status' + suffix], rest].filter(Boolean).join(' · ');
+    return text ? el('span', { className: 'duty' + (rest.startsWith('หยุด') ? ' off' : ''), textContent: text }) : null;
+}
+const driverName = (v, n) => (n > 1 ? v['driver' + n] : v.driver) || '';
+
+const hourGrids = (v) => [hourGrid(v, 1), ...[2, 3].filter((n) => v['driver' + n]).flatMap((n) => [
+    el('div', { className: 'mute second' }, 'พขร.' + n + ' ' + v['driver' + n], historyBadge(v['driver' + n]), dutyTag(v, n)),
+    hourGrid(v, n)])];
 
 function hourlyRow(v) {
     return el('div', { className: 'row plain' + (v.rounds.length ? '' : ' none') },
         el('button', { type: 'button', className: 'car', onclick: () => openVehicle(v.scc) },
             el('b', { textContent: v.scc }),
             who(v.driver),
+            dutyTag(v, 1),
             v.changes?.length ? el('span', { className: 'changed', textContent: 'แผนเปลี่ยน' }) : null,
             el('span', { className: 'tally', textContent: v.rounds.length ? 'ตรวจ ' + v.rounds.length + ' ช่อง' : 'ยังไม่ตรวจ' }),
             hideToggle(v)),
@@ -705,10 +715,12 @@ function hourlyPage(v) {
     const redraw = () => page.replaceChildren(...[
         button('← กลับหน้ารวม', closeVehicle),
         title.node,
+        dutyTag(v, 1),
         ...hourGrids(v),
         el('div', { className: 'line' },
             el('label', { className: 'field grow' }, 'พขร.1', input(v, 'driver', 'ชื่อ พขร.1', { onchange: () => title.paint() })),
-            el('label', { className: 'field grow' }, 'พขร.2 / คนโหลด', input(v, 'driver2', 'ชื่อ พขร.2 (ถ้ามี)', { onchange: () => redraw() }))),
+            el('label', { className: 'field grow' }, 'พขร.2 / คนโหลด', input(v, 'driver2', 'ชื่อ พขร.2 (ถ้ามี)', { onchange: () => redraw() })),
+            el('label', { className: 'field grow' }, 'พขร.3', input(v, 'driver3', 'ชื่อ พขร.3 (ถ้ามี)', { onchange: () => redraw() }))),
         el('div', { className: 'line' },
             el('label', {}, 'GPS ', select(v, 'gps', 'สถานะ GPS', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']])),
             el('label', {}, 'CCTV ', select(v, 'cctv', 'สถานะ CCTV', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']])),
@@ -726,10 +738,10 @@ function hourlyPage(v) {
 
 function editHour(v, hour, who) {
     const old = roundAt(v, hour, who);
-    $('hour-title').textContent = v.scc + ' · ' + String(hour).padStart(2, '0') + ':00 น.' + (who === 2 ? ' · พขร.2' : '');
+    $('hour-title').textContent = v.scc + ' · ' + String(hour).padStart(2, '0') + ':00 น.' + (who > 1 ? ' · พขร.' + who : '');
     $('hour-time').value = old ? shortTime(old) : new Date().toTimeString().slice(0, 5);
     $('hour-note').value = old?.note || '';
-    $('hour-other').value = old && !template.results.some(([code]) => code === old.place) ? old.place : '';
+    $('hour-other').value = old && !/^C\d+$/.test(old.place) && !template.results.some(([code]) => code === old.place) ? old.place : '';
     // หารถใหม่ตอนกด: ระหว่างเปิดหน้าต่างรายงานอาจถูกโหลดใหม่
     const car = () => report.vehicles.find((x) => x.scc === v.scc);
     const done = () => { save(); $('hour-dialog').close(); render(); };
@@ -742,7 +754,7 @@ function editHour(v, hour, who) {
         };
         const target = car();
         note('แก้ไข', old ? 'แก้ช่องรายชั่วโมง' : 'ลงช่องรายชั่วโมง', {
-            scc: v.scc, detail: (old ? roundText(old) + ' → ' : '') + roundText(entry) + (who === 2 ? ' · พขร.2' : '')
+            scc: v.scc, detail: (old ? roundText(old) + ' → ' : '') + roundText(entry) + (who > 1 ? ' · พขร.' + who : '')
         });
         const i = target.rounds.findIndex((r) => r.id === entry.id);
         if (i < 0) target.rounds.push(entry); else target.rounds[i] = entry;
@@ -750,9 +762,18 @@ function editHour(v, hour, who) {
         target.cctv ||= 'ปกติ';
         done();
     };
-    $('hour-results').replaceChildren(...template.results.map(([code, label]) => el('button', {
+    const result = (code, label) => el('button', {
         type: 'button', className: 'btn result' + (old?.place === code ? ' primary' : ''), onclick: () => set(code)
-    }, el('b', { textContent: code }), el('small', { textContent: label === code ? '' : label }))));
+    }, el('b', { textContent: code }), el('small', { textContent: label === code ? '' : label }));
+    // ลูกค้าแยกเป็น C1, C2 ... : เริ่มเท่าจำนวนปลายทาง (หรือเลขสูงสุดที่เคยลง) กด + เพิ่มได้
+    const names = destNames(v);
+    let customers = Math.max(1, names.length, ...v.rounds.map((r) => Number(/^C(\d+)$/.exec(r.place)?.[1] || 0)));
+    const drawResults = () => $('hour-results').replaceChildren(
+        ...template.results.filter(([code]) => code !== 'C').map(([code, label]) => result(code, label)),
+        ...Array.from({ length: customers }, (_, i) => result('C' + (i + 1), names[i] || 'ลูกค้า')),
+        el('button', { type: 'button', className: 'btn result', title: 'เพิ่มลูกค้า', onclick: () => { customers++; drawResults(); } },
+            el('b', { textContent: '+' }), el('small', { textContent: 'เพิ่มลูกค้า' })));
+    drawResults();
     $('hour-other-ok').onclick = () => { const text = $('hour-other').value.trim(); if (text) set(text); };
     $('hour-clear').hidden = !old;
     $('hour-clear').onclick = () => {
@@ -772,7 +793,7 @@ function hourlySummary() {
     for (const v of working) {
         for (const r of byTime(v.rounds)) {
             if (r.place !== 'NG' && !r.note) continue;
-            (r.place === 'NG' ? bad : notes).push('- ' + v.scc + ' ' + ((r.who === 2 ? v.driver2 : v.driver) || '') +
+            (r.place === 'NG' ? bad : notes).push('- ' + v.scc + ' ' + driverName(v, r.who || 1) +
                 ' ' + shortTime(r) + ': ' + (r.note || r.place));
         }
     }
@@ -950,10 +971,12 @@ async function importPlans(files) {
     const matched = [...vehicles].filter(([no]) => mine.has(no)).map(([no, item]) => {
         const v = mine.get(no);
         const fresh = !v.trips.length; // ยังไม่เคยมีงาน = งานใหม่ ไม่นับเป็นการเปลี่ยน
-        return { v, item, fresh, changes: fresh ? [] : diffPlan(v, item) };
+        // สถานะ/คนที่ 3 เปลี่ยนอย่างเดียวก็ต้องอัปเดต
+        const people = !fresh && PEOPLE_FIELDS.some((k) => item[k] !== undefined && item[k] !== (v[k] || ''));
+        return { v, item, fresh, people, changes: fresh ? [] : diffPlan(v, item) };
     });
     const update = report.vehicles.some((v) => v.trips.length); // เคยมีแผนแล้ว = โหมดอัปเดต
-    planPreview = matched.filter((p) => p.fresh ? p.item.driver || p.item.trips.length : p.changes.length);
+    planPreview = matched.filter((p) => p.fresh ? p.item.driver || p.item.trips.length : p.changes.length || p.people);
     for (const p of planPreview) p.created = created.has(p.v);
     const unchanged = matched.length - planPreview.length;
     status('');
@@ -970,7 +993,7 @@ async function importPlans(files) {
         historyBadge(item.driver || v.driver),
         fresh
             ? el('div', { className: 'mute', textContent: (update ? 'งานใหม่: ' : '') + destList(item.trips).map((d) => d.name).join(' | ') })
-            : el('ul', {}, ...changes.map((c) => el('li', { textContent: describe(c) })))); }));
+            : el('ul', {}, ...(changes.length ? changes.map(describe) : ['อัปเดตสถานะ พขร.']).map((text) => el('li', { textContent: text })))); }));
     $('plan-notes').replaceChildren(...[
         ...notes,
         ...(added ? ['มีรถที่ไม่มีในฟอร์ม ' + added + ' คัน จะเติมต่อท้ายให้ (ติ๊กออกได้ถ้าไม่ใช่รถของหน่วยงานนี้)'] : [])
@@ -994,6 +1017,7 @@ function applyPlans() {
         else v.risk ||= item.riskIfEmpty;
         if (item.remark !== undefined) v.remark = item.remark;
         if (item.driver2 !== undefined) v.driver2 = item.driver2;
+        for (const k of PEOPLE_FIELDS) if (item[k] !== undefined) v[k] = item[k];
         const jobsChanged = fresh || changes.some((c) => c.type !== 'driver');
         if (item.trips.length && jobsChanged) {
             const ids = new Map(v.trips.map((t) => [t.cust, t.custId]));

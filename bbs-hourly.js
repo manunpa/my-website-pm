@@ -66,6 +66,9 @@ function readLayout(book, doc) {
     const codes = [...new Set(head.map((x) => x.text)
         .filter((t) => /^[A-Z][A-Z0-9]{1,7}$/.test(t) && !/^(OK|NG|GPS|CCTV|SCC|MDVR|HUB)$/.test(t)))];
 
+    // สถานะของ พขร. แต่ละคน
+    const status = find(/^สถานะ$/)?.col;
+    const rest = find(/^สถานะวันหยุด$/)?.col;
     const gps = head.find((x) => x.text === 'GPS')?.col;
     const cctv = head.find((x) => x.text === 'CCTV')?.col;
     const number = head.find((x) => x.text === 'ลำดับ')?.col;
@@ -85,7 +88,7 @@ function readLayout(book, doc) {
     const found = head.find((x) => x.text.startsWith('บันทึกการติดตาม'));
     const heading = found ? { row: rowNum(found.row), col: found.col } : null;
 
-    return { label, car, driver, trips, hourCells, hourRow, fixed, codes, gps, cctv, number, title, heading };
+    return { label, car, driver, status, rest, trips, hourCells, hourRow, fixed, codes, gps, cctv, number, title, heading };
 }
 
 // แถวของรถแต่ละคัน: แถวป้ายที่ต่อเนื่องกัน (เจอเบอร์รถใหม่ = คันถัดไป)
@@ -233,7 +236,50 @@ function appendBlocks(doc, blocks, count) {
 const watched = (time) => (time ? Number(time.slice(0, 2)) + '.' + time.slice(3, 5) : '');
 const used = (v) => !!(v.driver || v.trips.length || v.rounds.length);
 
-function fill(book, doc, layout, blocks, report) {
+// สีของแต่ละรหัสอ่านจากคำอธิบายหัวฟอร์ม (เช่น ช่อง C สีชมพู) แล้วลงสีเดียวกันในช่องผลการตรวจ
+// รหัสที่มีสองสีในหัวฟอร์มใช้อันแรกที่เจอ
+function painter(book, doc, styles) {
+    const fills = els(els(styles, 'fills')[0], 'fill');
+    const cellXfs = els(styles, 'cellXfs')[0];
+    const xfs = els(cellXfs, 'xf');
+    const colored = (id) => {
+        const pattern = fills[id] && els(fills[id], 'patternFill')[0];
+        const color = pattern?.getAttribute('patternType') === 'solid' && els(pattern, 'fgColor')[0];
+        if (!color) return false;
+        const rgb = color.getAttribute('rgb');
+        return rgb ? !/FFFFFF$/i.test(rgb) : color.getAttribute('theme') !== '0';
+    };
+
+    const legend = new Map(); // รหัส -> fillId
+    for (const row of els(doc, 'row')) {
+        const texts = els(row, 'c').map((c) => [c, book.value(c).trim()]);
+        if (texts.some(([, t]) => t === WATCH)) break;
+        for (const [c, text] of texts) {
+            if (!/^[A-Z][A-Z0-9]{0,7}$/.test(text) || legend.has(text)) continue;
+            const id = Number(xfs[Number(c.getAttribute('s') || 0)]?.getAttribute('fillId') || 0);
+            if (colored(id)) legend.set(text, id);
+        }
+    }
+
+    const made = new Map(); // สไตล์เดิม:สี -> สไตล์ใหม่ (เส้นขอบ ฟอนต์ คงเดิม)
+    return (cell, code) => {
+        const fill = legend.get(/^C\d+$/.test(code) ? 'C' : code);
+        if (!cell || fill === undefined) return;
+        const base = Number(cell.getAttribute('s') || 0);
+        const key = base + ':' + fill;
+        if (!made.has(key)) {
+            const xf = xfs[base].cloneNode(true);
+            xf.setAttribute('fillId', String(fill));
+            xf.setAttribute('applyFill', '1');
+            cellXfs.appendChild(xf);
+            made.set(key, els(cellXfs, 'xf').length - 1);
+            cellXfs.setAttribute('count', String(made.get(key) + 1));
+        }
+        cell.setAttribute('s', String(made.get(key)));
+    };
+}
+
+function fill(book, doc, layout, blocks, report, paint) {
     const data = new Map(report.vehicles.map((v) => [v.scc, v]));
     const have = new Set(blocks.map((b) => b.plate));
     const waiting = report.vehicles.filter((v) => !have.has(v.scc) && (report.unitTitle || used(v)))
@@ -254,7 +300,7 @@ function fill(book, doc, layout, blocks, report) {
         : layout.hourCells.map((x, i) => [hours[i], x.col]));
     if (!layout.fixed) layout.hourCells.forEach((x, i) => setCell(doc, row(layout.hourRow), x.col, hours[i]));
 
-    const clear = [layout.driver, ...layout.trips, ...layout.hourCells.map((x) => x.col)];
+    const clear = [layout.driver, layout.status, layout.rest, ...layout.trips, ...layout.hourCells.map((x) => x.col)].filter(Boolean);
     // หมายเหตุลงคอลัมน์ว่างถัดจากตาราง
     const noteCol = colName(Math.max(...layout.hourCells.map((x) => colNum(x.col))) + (layout.fixed ? 2 : 1));
     blocks.forEach(({ plate, rows }, index) => {
@@ -271,6 +317,11 @@ function fill(book, doc, layout, blocks, report) {
         if (layout.cctv) setCell(doc, rows[0], layout.cctv, mark(v.cctv));
         setCell(doc, rows[0], layout.driver, v.driver || '');
         setCell(doc, rows[2], layout.driver, v.driver2 || '');
+        setCell(doc, rows[4], layout.driver, v.driver3 || '');
+        [['status', 'rest'], ['status2', 'rest2'], ['status3', 'rest3']].forEach(([status, rest], i) => {
+            if (layout.status) setCell(doc, rows[i * 2], layout.status, v[status] || '');
+            if (layout.rest) setCell(doc, rows[i * 2], layout.rest, v[rest] || '');
+        });
 
         // หลายคอลัมน์ = เที่ยวเรียงไปทางขวา คอลัมน์เดียว = เรียงลงตามแถวของคัน ที่เกินรวมช่องสุดท้าย
         const names = v.trips.map((t) => t.cust || t.ship).filter(Boolean);
@@ -283,11 +334,12 @@ function fill(book, doc, layout, blocks, report) {
 
         const notes = [];
         for (const r of v.rounds) {
-            const at = r.who === 2 ? 2 : 0;
+            const at = ((r.who || 1) - 1) * 2; // พขร. คนละคู่แถว
             const col = column.get(r.hour);
             if (!col || !rows[at + 1]) continue;
             setCell(doc, rows[at], col, watched(r.time));
             setCell(doc, rows[at + 1], col, r.place || '');
+            paint(cellAt(rows[at + 1], col), r.place || '');
             if (r.note) notes.push(r.hour + ' น. ' + r.note);
         }
         setCell(doc, rows[0], noteCol, notes.join(' / '));
@@ -340,7 +392,9 @@ export async function buildHourly(buffer, report) {
     const book = await openBook(buffer);
     const sheet = await pickSheet(book);
     if (!sheet) throw new Error('ไม่พบตารางรายชั่วโมงในฟอร์ม');
-    fill(book, sheet.doc, sheet.layout, sheet.blocks, report);
+    const styles = await book.read('xl/styles.xml');
+    fill(book, sheet.doc, sheet.layout, sheet.blocks, report, painter(book, sheet.doc, styles));
+    book.zip.file('xl/styles.xml', new XMLSerializer().serializeToString(styles));
     // ฟอร์มที่แยกมาจากไฟล์อื่นมีรายการเลือกที่ลิงก์เสีย (#REF!) ติดมา ทำให้ Excel เปิดไฟล์ไม่ได้
     const xml = new XMLSerializer().serializeToString(sheet.doc)
         .replace(/<x14:dataValidation[ >](?:(?!<\/x14:dataValidation>)[\s\S])*?#REF![\s\S]*?<\/x14:dataValidation>/g, '')
