@@ -2,7 +2,7 @@ import { requireLogin, fetchProtectedText, PRESENCE_URL, auth } from './firebase
 import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=11';
 import { readPlans, vehicleNo, sccName, PEOPLE_FIELDS } from './bbs-plan.js?v=15';
 import { readHourly, buildHourly } from './bbs-hourly.js?v=9';
-import { readImage, parseShot, readDrivers, inShift } from './bbs-ocr.js?v=2';
+import { readImage, parseShot, readGps, inShift } from './bbs-ocr.js?v=3';
 import { samePlace } from './bbs-match.js?v=1';
 import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
 import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=5';
@@ -909,7 +909,7 @@ function render() {
     for (const id of ['reset-button', 'export', 'summary-button', 'alert-button', 'plan-button', 'shot-button', 'search', 'add']) $(id).disabled = !template;
     $('template-name').textContent = template ? template.name : '';
     $('template-name').hidden = !!API_URL || !template;
-    $('shot-button').title = template?.hourly ? 'อ่านชื่อคนขับจากรูป GPS' : 'อ่านเวลาและสถานที่จากรูป';
+    $('shot-button').title = template?.hourly ? 'อ่านชื่อคนขับและสถานที่จากรูป GPS' : 'อ่านเวลาและสถานที่จากรูป';
     if (open) { $('list').replaceChildren(template?.hourly ? hourlyPage(open) : vehiclePage(open)); return; }
 
     const q = $('search').value.trim().toLowerCase();
@@ -1120,7 +1120,7 @@ function openShots() {
         $('shot-type').value = 'none';
         $('shot-state').textContent = '';
         // ฟอร์มรายชั่วโมงเอาแค่ชื่อคนขับ
-        $('shot-title').textContent = template.hourly ? 'ใส่ชื่อคนขับจากรูป GPS' : 'ลงเวลาจากรูป';
+        $('shot-title').textContent = template.hourly ? 'อ่านรูป GPS' : 'ลงเวลาจากรูป';
         drawShots();
         $('shot-dialog').showModal();
     }
@@ -1167,66 +1167,104 @@ function drawShots() {
 }
 
 function countShots() {
-    const n = shotItems.filter((x) => x.use).length;
+    const n = shotItems.filter((x) => x.use || x.useCode).length;
     $('shot-ok').textContent = shotsLeft ? 'กำลังอ่านอีก ' + shotsLeft + ' รูป…'
-        : template.hourly ? 'ใส่ชื่อ ' + n + ' คัน' : 'เพิ่ม ' + n + ' รอบ';
+        : template.hourly ? 'ใส่ข้อมูล ' + n + ' คัน' : 'เพิ่ม ' + n + ' รอบ';
     $('shot-ok').disabled = !!shotsLeft || !n;
 }
 
-// ===== รูปตาราง GPS (ฟอร์มรายชั่วโมง): ใส่ชื่อคนขับให้ตรงรถ ไม่เอาสถานะ/เวลา/สถานที่ =====
+// ===== รูปตาราง GPS (ฟอร์มรายชั่วโมง): ใส่ชื่อคนขับให้ตรงรถ และลงผลตรวจเมื่อสถานที่เข้าเงื่อนไข =====
+// ชั่วโมงในตารางของรายงานที่เปิดอยู่ ที่ตรงกับเวลาในรูป (คนละวัน/กะ = null)
+function hourOf({ date, time }) {
+    const hours = template.shiftHours(report.shift);
+    const hour = Number(time.slice(0, 2));
+    if (!hours.includes(hour)) return null;
+    const day = new Date(report.date + 'T00:00:00Z');
+    if (hour < hours[0]) day.setUTCDate(day.getUTCDate() + 1); // กะกลางคืนข้ามเที่ยงคืน
+    return day.toISOString().slice(0, 10) === date ? hour : null;
+}
+
 function drawNames() {
     $('shot-all').hidden = true;
     $('shot-list').replaceChildren(...shotItems.map((item) => {
-        const use = el('input', { type: 'checkbox', checked: item.use });
-        use.setAttribute('aria-label', 'ใส่ชื่อ ' + item.v.scc);
-        use.onchange = () => { item.use = use.checked; countShots(); };
+        const tick = (prop, label) => {
+            const node = el('input', { type: 'checkbox', checked: item[prop] });
+            node.setAttribute('aria-label', label + ' ' + item.v.scc);
+            node.onchange = () => { item[prop] = node.checked; countShots(); };
+            return node;
+        };
         const name = el('input', { value: item.name, className: 'grow' });
         name.setAttribute('aria-label', 'ชื่อ พขร. ' + item.v.scc);
         name.oninput = () => { item.name = name.value; };
         return el('div', { className: 'shot' },
-            el('label', { className: 'line' }, use, el('b', { textContent: item.v.scc }),
+            el('div', { className: 'line' }, el('b', { textContent: item.v.scc }),
                 item.warn ? el('em', { textContent: item.warn }) : null),
-            el('div', { className: 'line' }, name));
+            item.name ? el('div', { className: 'line' }, tick('use', 'ใส่ชื่อ'), name) : null,
+            item.code ? el('label', { className: 'line' }, tick('useCode', 'ลงผลตรวจ'),
+                item.code + ' เวลา ' + item.time.slice(0, 5)) : null);
     }));
     countShots();
 }
 
 async function readNames(blob) {
-    const found = await readDrivers(blob);
+    const found = await readGps(blob);
     const digits = (text) => String(text || '').replace(/\D/g, '');
-    for (const { plate, name } of found) {
-        const known = report.vehicles.find((v) => [v.scc, v.plate].some((t) => digits(t) === digits(plate)));
-        const v = known || emptyVehicle({ scc: plate, plate: '', driver: '', risk: '' });
-        if (shotItems.some((i) => i.v.scc === v.scc)) continue;
-        // มีชื่ออยู่แล้ว (เช่น จากแผน) หรือรถไม่มีในฟอร์ม → ไม่ติ๊กให้ คนเลือกเอง
-        const warn = !known ? 'ไม่มีในฟอร์ม' : v.driver === name ? 'มีชื่อนี้แล้ว'
-            : v.driver ? 'มีชื่อแล้ว: ' + v.driver : '';
-        shotItems.push({ v, name, created: !known, use: !warn, warn });
+    let outside = 0;
+    for (const row of found) {
+        const known = report.vehicles.find((v) => [v.scc, v.plate].some((t) => digits(t) === digits(row.plate)));
+        const v = known || emptyVehicle({ scc: row.plate, plate: '', driver: '', risk: '' });
+        const hour = row.code ? hourOf(row) : null;
+        if (row.code && hour === null) outside++;
+        const code = hour === null ? '' : row.code;
+        const { name, time } = row;
+        if (!name && !code) continue;
+        if (shotItems.some((i) => i.v.scc === v.scc && i.name === name && i.hour === hour)) continue;
+        // ช่องที่ลงผลแล้วไม่ทับ ชื่อที่มีอยู่แล้ว (เช่น จากแผน) และรถไม่มีในฟอร์ม ไม่ติ๊กให้
+        const taken = code && roundAt(v, hour, 1);
+        const warn = [
+            !known ? 'ไม่มีในฟอร์ม' : '',
+            name && v.driver && v.driver !== name ? 'มีชื่อแล้ว: ' + v.driver : '',
+            taken ? 'ช่อง ' + hour + ' น. ลงแล้ว' : ''
+        ].filter(Boolean).join(' · ');
+        shotItems.push({
+            v, name, hour, time, code: taken ? '' : code, created: !known, warn,
+            use: !!known && !!name && !v.driver, useCode: !!known && !!code && !taken
+        });
     }
-    $('shot-state').textContent = found.length ? '✔ พบชื่อคนขับ ' + found.length + ' คันในรูปล่าสุด ตรวจตัวสะกดก่อนกดใส่'
-        : '⚠ ไม่พบชื่อคนขับในรูปล่าสุด';
+    $('shot-state').textContent = (found.length ? '✔ อ่านได้ ' + found.length + ' แถวในรูปล่าสุด ตรวจก่อนกดใส่'
+        : '⚠ ไม่พบแถวรถในรูปล่าสุด') + (outside ? ' · เวลาอยู่นอกวัน/กะนี้ ' + outside + ' คัน ไม่ลงผลตรวจ' : '');
     drawShots();
 }
 
 function applyNames() {
     const done = [];
-    const cars = [];
-    for (const { v, name, use, created } of shotItems) {
-        if (!use || !name.trim()) continue;
+    const named = [];
+    for (const item of shotItems) {
+        const { v, use, useCode, code, hour, time, created } = item;
+        const name = use ? item.name.trim() : '';
+        if (!name && !useCode) continue;
         let car = report.vehicles.find((x) => x.scc === v.scc);
         if (!car && created) report.vehicles.push(car = v);
         if (!car) continue;
-        car.driver = name.trim();
+        if (name) { car.driver = name; named.push(car); }
+        // เช็กซ้ำตอนกด: ระหว่างเปิดอยู่อาจมีคนลงช่องนี้ไปแล้ว
+        const set = useCode && !roundAt(car, hour, 1);
+        if (set) {
+            const group = (template.groups || []).find((g) => g[2].includes(code))?.[0];
+            car.rounds.push({
+                id: 'h1-' + hour, type: 'hour', hour, who: 1, place: code, ...(group ? { group } : {}),
+                time, note: '', marks: {}
+            });
+        }
         car.pinned = true; // ยังไม่มีแผนก็ต้องขึ้นหน้าทำงาน
         car.gps ||= 'ปกติ';
         car.cctv ||= 'ปกติ';
-        done.push(car.scc + ' ' + car.driver);
-        cars.push(car);
+        done.push([car.scc, name, set ? code + ' ' + time.slice(0, 5) : ''].filter(Boolean).join(' '));
     }
-    note('นำเข้า', 'ใส่ชื่อคนขับจากรูป', { detail: done.length + ' คัน: ' + done.join(', ') });
+    note('นำเข้า', 'ใส่ข้อมูลจากรูป GPS', { detail: done.length + ' รายการ: ' + done.join(', ') });
     save();
     render();
-    shareDay(cars, ['driver']);
+    shareDay(named, ['driver']); // ผลตรวจเป็นของกะนี้ ส่งให้อีกกะเฉพาะชื่อ
 }
 
 async function readShot(blob) {

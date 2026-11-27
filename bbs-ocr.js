@@ -41,20 +41,20 @@ export async function readImage(blob) {
     return (await reader.recognize(await enlarge(blob))).data.text;
 }
 
-/** อ่านชื่อคนขับจากรูปตาราง GPS: ไอคอนสถานะหน้าเบอร์รถกวนตัวอ่าน จึงตัดคอลัมน์ซ้ายทิ้งแล้วอ่านซ้ำ */
-export async function readDrivers(blob) {
+/** อ่านตาราง GPS: ไอคอนสถานะหน้าเบอร์รถกวนตัวอ่าน จึงตัดคอลัมน์ซ้ายทิ้งแล้วอ่านซ้ำ */
+export async function readGps(blob) {
     const reader = await worker();
     const canvas = await enlarge(blob);
     const first = (await reader.recognize(canvas)).data;
     const xs = (first.words || []).filter((w) => /^\d{2}-\d{4}$/.test(w.text)).map((w) => w.bbox.x0).sort((a, b) => a - b);
-    if (!xs.length) return parseDrivers(first.text);
+    if (!xs.length) return parseGps(first.text);
     const x = Math.max(0, xs[xs.length >> 1] - 16);
     const cut = document.createElement('canvas');
     cut.width = canvas.width - x;
     cut.height = canvas.height;
     cut.getContext('2d').drawImage(canvas, -x, 0);
-    const second = parseDrivers((await reader.recognize(cut)).data.text);
-    const more = parseDrivers(first.text).filter((d) => !second.some((s) => s.plate === d.plate));
+    const second = parseGps((await reader.recognize(cut)).data.text);
+    const more = parseGps(first.text).filter((d) => !second.some((s) => s.plate === d.plate));
     return [...second, ...more];
 }
 
@@ -132,18 +132,29 @@ export function parseShot(text, vehicles) {
     });
 }
 
+// ช่อง "สถานที่" ที่ลงผลตรวจให้เลย (นอกจากนี้ไม่ลง) — ตัวอ่านรูปมักอ่าน SC เป็น 56 / 560
+const GPS_PLACES = [[/^[^A-Za-z0-9ก-๙]*[S5$8][CcG6(0O ]{0,3}\s*BRP(?![A-Za-z])/i, 'BRP']];
+
 /**
- * ตาราง Vehicle Status ของ GPS: ... หมายเลขรถ | ชื่อคนขับ | วันและเวลา ... เอาเฉพาะแถวที่มีชื่อ
- * @returns {{plate:string, name:string}[]}
+ * ตาราง Vehicle Status ของ GPS: ... หมายเลขรถ | ชื่อคนขับ | วันและเวลา | สถานที่ ...
+ * @returns {{plate:string, name:string, date:string, time:string, code:string}[]} name/code ว่าง = ไม่มี
  */
-export function parseDrivers(text) {
-    const ROW = /(?<!\d)(\d{2})\s?[-–—.]\s?(\d{4})(?!\d)(.*?)\d{1,2}\/\d{1,2}\/\d{4}/;
+export function parseGps(text) {
     return text.split('\n').flatMap((line) => {
-        const m = ROW.exec(line);
-        if (!m) return [];
+        const car = /(?<!\d)(\d{2})\s?[-–—.]\s?(\d{4})(?!\d)/.exec(line);
+        if (!car) return [];
+        const rest = line.slice(car.index + car[0].length);
+        const at = DATE_TIME.exec(rest);
+        if (!at) return [];
         // ตัดเส้นตาราง/สัญลักษณ์ที่ OCR อ่านติดมาหัวท้ายชื่อ
-        const name = m[3].replace(/^[^A-Za-zก-๙]+|[^A-Za-zก-๙.)]+$/g, '').replace(/[|\[\]_]/g, ' ').replace(/\s{2,}/g, ' ');
-        return /[A-Za-zก-๙]{2}/.test(name) ? [{ plate: m[1] + '-' + m[2], name }] : [];
+        const name = rest.slice(0, at.index).replace(/^[^A-Za-zก-๙]+|[^A-Za-zก-๙.)]+$/g, '')
+            .replace(/[|\[\]_]/g, ' ').replace(/\s{2,}/g, ' ');
+        const place = rest.slice(at.index + at[0].length).trim();
+        return [{
+            plate: car[1] + '-' + car[2], ...stamp(at),
+            name: /[A-Za-zก-๙]{2}/.test(name) ? name : '',
+            code: GPS_PLACES.find(([re]) => re.test(place))?.[1] || ''
+        }];
     });
 }
 
