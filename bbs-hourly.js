@@ -2,11 +2,16 @@
 // - คอลัมน์ป้ายแถว: ที่มีคำว่า "เวลาที่ดู / ผลการตรวจสอบ"
 // - รถ 1 คัน = แถวคู่ติดกัน (คู่ที่ 1 = พขร.1, คู่ที่ 2 = พขร.2) คั่นด้วยแถวว่าง
 // - เบอร์รถว่างได้: เป็นช่องรอเติมจากแผนงาน
+// - ฟอร์ม RSC (Other Brand): เบอร์รถอยู่แถว "Driving Pattern" เหนือคู่แถว มีรูธงาน เวลารับงาน และกลุ่มเสี่ยง
 // - ชั่วโมง: ครบ 0-23 (ตำแหน่งตายตัว) หรือช่องเรียงต่อจากเวลาเริ่มกะ (หัวตารางเปลี่ยนตามกะ)
 import { openBook, els, colOf, rowNum, colName } from './bbs-xlsx.js?v=11';
 
 const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const WATCH = 'เวลาที่ดู';
+const HEAD = 'Driving Pattern';
+// รหัสผลของฟอร์ม RSC ที่รู้ความหมาย เรียงตามที่ใช้บ่อย
+const RSC_RESULTS = [['OK', 'ขับขี่ปกติ'], ['NG', 'ผิดปกติ / เสี่ยง / ละเมิดกฎ'], ['P', 'จุดพัก / จอดพัก'],
+    ['B', 'จอดนอน / พักบนรถ'], ['พ', 'จอดพัก'], ['ป', 'เปลี่ยนมือ'], ['D', 'ดีลเลอร์ / ลูกค้า'], ['Y', 'หน่วยงาน SCA']];
 const LABEL = /^(เวลาที่ดู|ผลการตรวจสอบ)$/;
 const BASE_RESULTS = [
     ['OK', 'ขับขี่ปกติ'], ['NG', 'ผิดปกติ / เสี่ยง / ละเมิดกฎ'], ['C', 'ลูกค้า'], ['P', 'จุดพัก / จอดพัก'], ['M', 'ซ่อมบำรุง']
@@ -33,6 +38,9 @@ async function sheetPathOf(book, name) {
     return 'xl/' + link.getAttribute('Target').replace(/^\/?(xl\/)?/, '');
 }
 
+// หัวชั่วโมงที่เก็บเป็นเวลาของ Excel (1:00 = 0.04166…) → เลขชั่วโมง
+const hourText = (text) => (Number(text) > 0 && Number(text) < 1 ? String(Math.round(Number(text) * 24)) : text);
+
 function readLayout(book, doc) {
     const rows = els(doc, 'row');
     const first = rows.find((row) => els(row, 'c').some((c) => book.value(c).trim() === WATCH));
@@ -55,7 +63,7 @@ function readLayout(book, doc) {
     let hourRow = null;
     for (const row of rows.filter((r) => rowNum(r) <= rowNum(first))) {
         const found = els(row, 'c')
-            .map((c) => ({ col: colOf(c), text: book.value(c).trim() }))
+            .map((c) => ({ col: colOf(c), text: hourText(book.value(c).trim()) }))
             .filter((x) => colNum(x.col) > colNum(label) && /^([01]?\d|2[0-4])$/.test(x.text));
         if (found.length > hourCells.length) [hourCells, hourRow] = [found, rowNum(row)];
     }
@@ -88,21 +96,44 @@ function readLayout(book, doc) {
     const found = head.find((x) => x.text.startsWith('บันทึกการติดตาม'));
     const heading = found ? { row: rowNum(found.row), col: found.col } : null;
 
-    return { label, car, driver, status, rest, trips, hourCells, hourRow, fixed, codes, gps, cctv, number, title, heading };
+    // ส่วนที่มีเฉพาะฟอร์ม RSC
+    const route = find(/รูธงาน/)?.col;
+    const jobTime = find(/เวลารับงาน/)?.col;
+    const abnormal = head.find((x) => x.text === 'บันทึกความผิดปกติ')?.col;
+    // ชื่อผู้ Monitor ของแต่ละกะ อยู่ถัดจากป้ายกะ
+    const monitors = { day: after(/^กะกลางวัน/), night: after(/^กะกลางคืน/) };
+    // รหัสผลในคำอธิบายหัวฟอร์ม (แถว 2-3) รวมตัวเดียวและตัวไทย เช่น P, พ, MMTh
+    const keys = [...new Set(head.filter((x) => rowNum(x.row) <= 3 && /^([A-Za-z]{1,6}|พ|ป)$/.test(x.text)).map((x) => x.text))];
+
+    return { label, car, driver, status, rest, trips, hourCells, hourRow, fixed, codes, gps, cctv, number, title, heading,
+        route, jobTime, abnormal, monitors, keys };
 }
 
 // แถวของรถแต่ละคัน: แถวป้ายที่ต่อเนื่องกัน (เจอเบอร์รถใหม่ = คันถัดไป)
 function findBlocks(book, doc, layout) {
     const blocks = [];
     let current = null;
+    let head = []; // แถว Driving Pattern ที่รอจับคู่ (ฟอร์ม RSC)
     for (const row of els(doc, 'row')) {
         const label = textOf(book, row, layout.label);
-        if (!LABEL.test(label)) { current = null; continue; }
+        const last = head[head.length - 1];
+        // แถวที่สองของหัวเป็นช่องผสาน ไม่มีข้อความ
+        if (label === HEAD || (!label && last && head.length < 2 && rowNum(row) === rowNum(last) + 1)) {
+            head = label === HEAD ? [row] : [...head, row];
+            current = null;
+            continue;
+        }
+        if (!LABEL.test(label)) { current = null; head = []; continue; }
         const car = textOf(book, row, layout.car);
         const follows = current && !car && rowNum(row) === rowNum(current.rows[current.rows.length - 1]) + 1;
         if (follows) current.rows.push(row);
-        else if (label === WATCH) blocks.push(current = { plate: car, rows: [row] });
-        else current = null;
+        else if (label === WATCH) {
+            current = head.length
+                ? { plate: textOf(book, head[0], layout.car), rows: [row], head }
+                : { plate: car, rows: [row] };
+            blocks.push(current);
+            head = [];
+        } else current = null;
     }
     return blocks;
 }
@@ -117,10 +148,29 @@ async function pickSheet(book) {
         const blocks = layout ? findBlocks(book, doc, layout) : [];
         if (!blocks.length) continue;
         const found = { name, path, doc, layout, blocks };
+        // ฟอร์ม RSC: แท็บรายวันมีคันซ้ำได้ ใช้ชีต "ฟอร์ม" ที่ว่างเป็นต้นแบบ
+        if (blocks[0].head && name !== 'ฟอร์ม' && (await sheetNames(book)).includes('ฟอร์ม')) {
+            const blankPath = await sheetPathOf(book, 'ฟอร์ม');
+            const blank = await book.read(blankPath);
+            const blankLayout = readLayout(book, blank);
+            const blankBlocks = blankLayout ? findBlocks(book, blank, blankLayout) : [];
+            if (blankBlocks[0]?.head) return { name: 'ฟอร์ม', path: blankPath, doc: blank, layout: blankLayout, blocks: blankBlocks };
+        }
         if (blocks.some((b) => b.rows.length >= 4)) return found;
         fallback ||= found;
     }
     return fallback;
+}
+
+// ฟอร์ม RSC: ช่อง "ชื่อคนขับ" กว้างสองคอลัมน์ คอลัมน์แรกเป็นป้าย พขร.1/2 ชื่ออยู่คอลัมน์ถัดไป
+const nameColumn = (sheet) => (sheet.blocks[0].head ? colName(colNum(sheet.layout.driver) + 1) : sheet.layout.driver);
+
+// ชีตกลุ่มเสี่ยง: B=ชื่อ C=กลุ่ม E=รายละเอียด
+async function readRisk(book) {
+    if (!(await sheetNames(book)).includes('กลุ่มเสี่ยง')) return [];
+    return els(await book.read(await sheetPathOf(book, 'กลุ่มเสี่ยง')), 'row')
+        .map((row) => ({ name: textOf(book, row, 'B'), group: textOf(book, row, 'C'), detail: textOf(book, row, 'E') }))
+        .filter((x) => x.name && /^(sheep|wolf|new)/i.test(x.group));
 }
 
 // ชั่วโมงของกะ ตรงกับช่องในฟอร์ม
@@ -154,15 +204,23 @@ export async function readHourly(buffer) {
     const { layout } = sheet;
     const legend = legendOf(book, sheet.doc, await book.read('xl/styles.xml'));
     const codesOf = (kind) => [...new Set(legend.filter((x) => x.kind === kind).map((x) => x.code))];
+    const rsc = !!sheet.blocks[0].head;
+    const known = (list) => list.filter(([code]) => layout.keys.includes(code));
+    const results = rsc
+        ? [...known(RSC_RESULTS), ...layout.keys.filter((k) => !RSC_RESULTS.some(([c]) => c === k)).map((c) => [c, c])]
+        : [...BASE_RESULTS, ...layout.codes.filter((c) => !BASE_RESULTS.some(([b]) => b === c)).map((c) => [c, c])];
+    const plates = [...new Set(sheet.blocks.map((b) => b.plate).filter(Boolean))];
     return {
+        rsc,
+        risks: rsc ? await readRisk(book) : [],
         // สีปุ่มบนเว็บตามหัวฟอร์ม (รหัสที่ไม่ได้อยู่ในกลุ่มคลัง/หน่วยงาน)
         colors: Object.fromEntries(legend.filter((x) => !x.kind && x.color).map((x) => [x.code, x.color])),
         groups: [['depot', 'คลังน้ำมัน', codesOf('depot')], ['unit', 'หน่วยงาน', codesOf('unit')]].filter((g) => g[2].length),
         hourly: true,
         units: await readUnits(book),
         shiftHours: (shift) => hoursOf(layout, shift),
-        results: [...BASE_RESULTS, ...layout.codes.filter((c) => !BASE_RESULTS.some(([b]) => b === c)).map((c) => [c, c])],
-        vehicles: sheet.blocks.filter((b) => b.plate).map((b) => ({ scc: b.plate, plate: '', driver: '', risk: '' })),
+        results,
+        vehicles: plates.map((scc) => ({ scc, plate: '', driver: '', risk: '' })),
         checks: {},
         customers: {}
     };
@@ -180,6 +238,13 @@ function setCell(doc, row, col, val) {
     while (cell.firstChild) cell.removeChild(cell.firstChild);
     cell.removeAttribute('t');
     if (val === '' || val === undefined || val === null) return;
+    if (typeof val === 'boolean') {
+        const v = doc.createElementNS(NS, 'v');
+        v.textContent = val ? '1' : '0';
+        cell.setAttribute('t', 'b');
+        cell.appendChild(v);
+        return;
+    }
     if (typeof val === 'number') {
         const v = doc.createElementNS(NS, 'v');
         v.textContent = String(val);
@@ -200,17 +265,29 @@ function appendBlocks(doc, blocks, count) {
     const last = blocks[blocks.length - 1];
     const lastRow = last.rows[last.rows.length - 1];
     const separator = lastRow.nextElementSibling;
-    const source = [...last.rows, ...(separator ? [separator] : [])].map((r) => r.cloneNode(true));
-    const first = rowNum(last.rows[0]);
+    const head = last.head || [];
+    // ฟอร์ม RSC ไม่มีแถวคั่น: ชุดของคันหนึ่งคือแถวหัว + คู่แถว
+    const source = [...head, ...last.rows, ...(!head.length && separator ? [separator] : [])].map((r) => r.cloneNode(true));
+    const first = rowNum(source[0]);
     const end = first + source.length - 1;
-    while (separator?.nextSibling) separator.parentNode.removeChild(separator.nextSibling);
+    // ฟอร์ม RSC มีคำอธิบายท้ายตาราง: ยกออกก่อน แล้วเลื่อนลงไปต่อท้ายคันที่เพิ่ม
+    const tail = [];
+    if (head.length) {
+        while (lastRow.nextElementSibling) tail.push(lastRow.parentNode.removeChild(lastRow.nextElementSibling));
+    } else {
+        while (separator?.nextSibling) separator.parentNode.removeChild(separator.nextSibling);
+    }
+    const shift = count * source.length;
 
     const merges = els(doc, 'mergeCells')[0];
     const own = [];
     for (const m of merges ? els(merges, 'mergeCell') : []) {
         const p = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(m.getAttribute('ref'));
         if (!p) continue;
-        if (Number(p[2]) > end) merges.removeChild(m);
+        if (Number(p[2]) > end) {
+            if (head.length) m.setAttribute('ref', p[1] + (Number(p[2]) + shift) + ':' + p[3] + (Number(p[4]) + shift));
+            else merges.removeChild(m);
+        }
         else if (Number(p[2]) >= first) own.push(p);
     }
 
@@ -221,6 +298,13 @@ function appendBlocks(doc, blocks, count) {
             const row = original.cloneNode(true);
             row.setAttribute('r', String(at + i));
             for (const c of els(row, 'c')) c.setAttribute('r', colOf(c) + (at + i));
+            // สูตรของแถวที่คัดลอก (กลุ่มเสี่ยง) ต้องอ้างแถวของตัวเอง
+            for (const f of els(row, 'f')) {
+                f.textContent = f.textContent.replace(/\b([A-Z]{1,2})(\d+)\b/g, (ref, col, n) =>
+                    (Number(n) >= first && Number(n) <= end ? col + (Number(n) - first + at) : ref));
+                const value = els(f.parentNode, 'v')[0];
+                if (value) f.parentNode.removeChild(value);
+            }
             lastRow.parentNode.appendChild(row);
             return row;
         });
@@ -229,8 +313,16 @@ function appendBlocks(doc, blocks, count) {
             m.setAttribute('ref', p[1] + (Number(p[2]) - first + at) + ':' + p[3] + (Number(p[4]) - first + at));
             merges.appendChild(m);
         }
-        added.push({ plate: '', rows: rows.slice(0, last.rows.length) });
+        added.push({ plate: '', rows: rows.slice(head.length, head.length + last.rows.length),
+            ...(head.length ? { head: rows.slice(0, head.length) } : {}) });
         at += source.length;
+    }
+    for (const row of tail) {
+        const n = rowNum(row) + shift;
+        row.setAttribute('r', String(n));
+        for (const c of els(row, 'c')) c.setAttribute('r', colOf(c) + n);
+        lastRow.parentNode.appendChild(row);
+        at = Math.max(at, n + 1);
     }
     merges?.setAttribute('count', String(merges.children.length));
     const dim = els(doc, 'dimension')[0];
@@ -294,7 +386,9 @@ function painter(book, doc, styles) {
     };
 }
 
-function fill(book, doc, layout, blocks, report, paint) {
+function fill(book, doc, layout, blocks, report, paint, driverCol) {
+    const rsc = !!blocks[0].head;
+    const comments = []; // สถานที่ของแต่ละช่อง (ฟอร์ม RSC ใส่เป็นคอมเมนต์)
     const data = new Map(report.vehicles.map((v) => [v.scc, v]));
     const have = new Set(blocks.map((b) => b.plate));
     const waiting = report.vehicles.filter((v) => !have.has(v.scc) && (report.unitTitle || used(v)))
@@ -315,24 +409,40 @@ function fill(book, doc, layout, blocks, report, paint) {
         : layout.hourCells.map((x, i) => [hours[i], x.col]));
     if (!layout.fixed) layout.hourCells.forEach((x, i) => setCell(doc, row(layout.hourRow), x.col, hours[i]));
 
-    const clear = [layout.driver, layout.status, layout.rest, ...layout.trips, ...layout.hourCells.map((x) => x.col)].filter(Boolean);
+    const clear = [driverCol, layout.status, layout.rest, layout.route, layout.jobTime, ...layout.trips,
+        ...layout.hourCells.map((x) => x.col)].filter(Boolean);
     // หมายเหตุลงคอลัมน์ว่างถัดจากตาราง
-    const noteCol = colName(Math.max(...layout.hourCells.map((x) => colNum(x.col))) + (layout.fixed ? 2 : 1));
-    blocks.forEach(({ plate, rows }, index) => {
-        const v = data.get(plate) || { trips: [], rounds: [] };
-        for (const r of rows) {
+    const noteCol = (rsc && layout.abnormal) || colName(Math.max(...layout.hourCells.map((x) => colNum(x.col))) + (layout.fixed ? 2 : 1));
+    const written = new Set();
+    blocks.forEach(({ plate, rows, head }, index) => {
+        // คันเดียวกันที่มีสองชุดในฟอร์ม ลงเฉพาะชุดแรก
+        const v = (!written.has(plate) && data.get(plate)) || { trips: [], rounds: [] };
+        written.add(plate);
+        const top = head?.[0] || rows[0];
+        for (const r of [...(head || []), ...rows]) {
             for (const col of clear) setCell(doc, r, col, '');
+            if (rsc) setCell(doc, r, noteCol, '');
         }
-        if (layout.fixed) setCell(doc, rows[0], 'AI', '');
+        if (layout.fixed && !rsc) setCell(doc, rows[0], 'AI', '');
         const no = /^SCC(\d+)$/.exec(plate);
-        setCell(doc, rows[0], layout.car, no ? Number(no[1]) : plate);
-        if (layout.number) setCell(doc, rows[0], layout.number, plate ? index + 1 : '');
+        setCell(doc, top, layout.car, no ? Number(no[1]) : plate);
+        if (layout.number) setCell(doc, top, layout.number, plate ? index + 1 : '');
         const mark = (s) => (s === 'ปกติ' ? 'OK' : s === 'ไม่ปกติ' ? 'NG' : '');
-        if (layout.gps) setCell(doc, rows[0], layout.gps, mark(v.gps));
-        if (layout.cctv) setCell(doc, rows[0], layout.cctv, mark(v.cctv));
-        setCell(doc, rows[0], layout.driver, v.driver || '');
-        setCell(doc, rows[2], layout.driver, v.driver2 || '');
-        setCell(doc, rows[4], layout.driver, v.driver3 || '');
+        // ฟอร์ม RSC เป็นช่องติ๊ก: ยังไม่ได้เลือกให้คงค่าของฟอร์มไว้
+        for (const [col, state] of [[layout.gps, v.gps], [layout.cctv, v.cctv]]) {
+            if (!col) continue;
+            if (!rsc) setCell(doc, top, col, mark(state));
+            else if (state) setCell(doc, top, col, state === 'ปกติ');
+        }
+        setCell(doc, rows[0], driverCol, v.driver || '');
+        setCell(doc, rows[2], driverCol, v.driver2 || '');
+        setCell(doc, rows[4], driverCol, v.driver3 || '');
+        if (rsc) {
+            [['route', 'jobTime', 0], ['route2', 'jobTime2', 2]].forEach(([route, time, at]) => {
+                if (layout.route) setCell(doc, rows[at], layout.route, v[route] || '');
+                if (layout.jobTime) setCell(doc, rows[at], layout.jobTime, v[time] || '');
+            });
+        }
         [['status', 'rest'], ['status2', 'rest2'], ['status3', 'rest3']].forEach(([status, rest], i) => {
             if (layout.status) setCell(doc, rows[i * 2], layout.status, v[status] || '');
             if (layout.rest) setCell(doc, rows[i * 2], layout.rest, v[rest] || '');
@@ -352,13 +462,23 @@ function fill(book, doc, layout, blocks, report, paint) {
             const at = ((r.who || 1) - 1) * 2; // พขร. คนละคู่แถว
             const col = column.get(r.hour);
             if (!col || !rows[at + 1]) continue;
-            setCell(doc, rows[at], col, watched(r.time));
+            const time = watched(r.time);
+            setCell(doc, rows[at], col, rsc && time ? Number(time) : time); // ฟอร์ม RSC เก็บเวลาเป็นตัวเลข
             setCell(doc, rows[at + 1], col, r.place || '');
             paint(cellAt(rows[at + 1], col), r.place || '', r.group);
             if (r.note) notes.push(r.hour + ' น. ' + r.note);
+            if (rsc && r.detail) comments.push({ ref: col + rowNum(rows[at + 1]), text: r.detail });
         }
-        setCell(doc, rows[0], noteCol, notes.join(' / '));
+        setCell(doc, rsc ? top : rows[0], noteCol, notes.join(' / '));
     });
+
+    if (rsc) {
+        // ฟอร์ม RSC ไม่มีช่องวันที่ (ใช้ชื่อแท็บ) มีแค่ชื่อผู้ Monitor ของกะ
+        const at = layout.monitors[report.shift === 'night' ? 'night' : 'day'];
+        const name = report.monitor || report.checker;
+        if (at && name) setCell(doc, row(at.row), at.col, name);
+        return comments;
+    }
 
     if (report.unitTitle && layout.heading) setCell(doc, row(layout.heading.row), layout.heading.col, report.unitTitle);
     const [y, m, d] = report.date.split('-').map(Number);
@@ -369,10 +489,57 @@ function fill(book, doc, layout, blocks, report, paint) {
     put(date, (Date.UTC(y + (buddhist ? 543 : 0), m - 1, d) - Date.UTC(1899, 11, 30)) / 86400000);
     put(shift, report.shift === 'night' ? 'กะกลางคืน 20.00 น. - 08.00 น.' : 'กะกลางวัน 08.00 น. - 20.00 น.');
     put(monitor, report.monitor || report.checker || '');
+    return comments;
+}
+
+const escapeXml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// ใส่คอมเมนต์ลงชีต (แทนของเดิมของชีตนั้น): ไฟล์ comments + vmlDrawing + ความสัมพันธ์ + ชนิดไฟล์
+async function writeComments(book, path, doc, list) {
+    const relsPath = path.replace(/([^/]+)$/, '_rels/$1.rels');
+    let rels = (await book.zip.file(relsPath)?.async('string')) ||
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+    rels = rels.replace(/<Relationships([^>]*)\/>/, '<Relationships$1></Relationships>')
+        .replace(/<Relationship\b[^>]*\/(comments|vmlDrawing|threadedComment)"[^>]*\/>/g, '');
+    for (const old of els(doc, 'legacyDrawing')) old.parentNode.removeChild(old);
+    if (list.length) {
+        const BASE = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/';
+        rels = rels.replace('</Relationships>',
+            '<Relationship Id="rIdBbsC" Type="' + BASE + 'comments" Target="/xl/comments_bbs.xml"/>' +
+            '<Relationship Id="rIdBbsV" Type="' + BASE + 'vmlDrawing" Target="/xl/drawings/vmlDrawing_bbs.vml"/></Relationships>');
+        book.zip.file('xl/comments_bbs.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+            '<comments xmlns="' + NS + '"><authors><author>BBS</author></authors><commentList>' +
+            list.map((c) => '<comment ref="' + c.ref + '" authorId="0"><text><t xml:space="preserve">' + escapeXml(c.text) +
+                '</t></text></comment>').join('') + '</commentList></comments>');
+        const shapes = list.map((c, i) => {
+            const [, col, line] = /^([A-Z]+)(\d+)$/.exec(c.ref);
+            return '<v:shape id="_x0000_s' + (2049 + i) + '" type="#_x0000_t202" style="position:absolute;width:160pt;height:48pt;visibility:hidden" fillcolor="#ffffe1" o:insetmode="auto">' +
+                '<v:textbox/><x:ClientData ObjectType="Note"><x:MoveWithCells/><x:SizeWithCells/><x:AutoFill>False</x:AutoFill>' +
+                '<x:Row>' + (Number(line) - 1) + '</x:Row><x:Column>' + (colNum(col) - 1) + '</x:Column></x:ClientData></v:shape>';
+        }).join('');
+        book.zip.file('xl/drawings/vmlDrawing_bbs.vml', '<xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">' +
+            '<o:shapelayout v:ext="edit"><o:idmap v:ext="edit" data="2"/></o:shapelayout>' +
+            '<v:shapetype id="_x0000_t202" coordsize="21600,21600" o:spt="202" path="m,l,21600r21600,l21600,xe"><v:stroke joinstyle="miter"/><v:path gradientshapeok="t" o:connecttype="rect"/></v:shapetype>' +
+            shapes + '</xml>');
+
+        const legacy = doc.createElementNS(NS, 'legacyDrawing');
+        legacy.setAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'r:id', 'rIdBbsV');
+        const later = ['legacyDrawingHF', 'picture', 'oleObjects', 'controls', 'webPublishItems', 'tableParts', 'extLst'];
+        const next = Array.from(doc.documentElement.children).find((n) => later.includes(n.localName));
+        doc.documentElement.insertBefore(legacy, next || null);
+
+        let types = await book.zip.file('[Content_Types].xml').async('string');
+        if (!/Extension="vml"/i.test(types)) {
+            types = types.replace('</Types>', '<Default Extension="vml" ContentType="application/vnd.openxmlformats-officedocument.vmlDrawing"/></Types>');
+        }
+        types = types.replace('</Types>', '<Override PartName="/xl/comments_bbs.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml"/></Types>');
+        book.zip.file('[Content_Types].xml', types);
+    }
+    book.zip.file(relsPath, rels);
 }
 
 // ไฟล์รายเดือน: เหลือชีตเดียว (วันของรายงาน) ลบชีตอื่นออกจากไฟล์
-async function keepOnly(book, keepName, newName) {
+async function keepOnly(book, keepName, newName, drop = () => true) {
     const wb = await book.read('xl/workbook.xml');
     const rels = await book.read('xl/_rels/workbook.xml.rels');
     let types = await book.zip.file('[Content_Types].xml').async('string');
@@ -383,6 +550,7 @@ async function keepOnly(book, keepName, newName) {
             sheet.removeAttribute('state');
             continue;
         }
+        if (!drop(sheet.getAttribute('name'))) continue;
         const id = sheet.getAttribute('r:id');
         const link = links.find((l) => l.getAttribute('Id') === id);
         const path = 'xl/' + link.getAttribute('Target').replace(/^\/?(xl\/)?/, '');
@@ -408,7 +576,9 @@ export async function buildHourly(buffer, report) {
     const sheet = await pickSheet(book);
     if (!sheet) throw new Error('ไม่พบตารางรายชั่วโมงในฟอร์ม');
     const styles = await book.read('xl/styles.xml');
-    fill(book, sheet.doc, sheet.layout, sheet.blocks, report, painter(book, sheet.doc, styles));
+    const rsc = !!sheet.blocks[0].head;
+    const comments = fill(book, sheet.doc, sheet.layout, sheet.blocks, report, painter(book, sheet.doc, styles), nameColumn(sheet));
+    if (rsc) await writeComments(book, sheet.path, sheet.doc, comments);
     book.zip.file('xl/styles.xml', new XMLSerializer().serializeToString(styles));
     // ฟอร์มที่แยกมาจากไฟล์อื่นมีรายการเลือกที่ลิงก์เสีย (#REF!) ติดมา ทำให้ Excel เปิดไฟล์ไม่ได้
     const xml = new XMLSerializer().serializeToString(sheet.doc)
@@ -417,6 +587,16 @@ export async function buildHourly(buffer, report) {
         .replace(/<extLst>\s*<\/extLst>|<extLst\/>/g, '');
     book.zip.file(sheet.path, xml);
     if (/^\d{1,2}$/.test(sheet.name.trim())) await keepOnly(book, sheet.name, report.date.slice(8));
+    if (rsc) {
+        // เก็บชีตอ้างอิง (สูตรกลุ่มเสี่ยงใช้) ลบแท็บวันอื่น แล้วเปลี่ยน "ฟอร์ม" เป็นวันของรายงาน
+        await keepOnly(book, sheet.name, report.date.slice(8), (name) => /^\d{1,2}$/.test(name.trim()));
+        // สูตรกลุ่มเสี่ยงมีค่าเก่าค้าง ให้ Excel คำนวณใหม่ตอนเปิด
+        const wb = await book.read('xl/workbook.xml');
+        const calc = els(wb, 'calcPr')[0];
+        calc?.setAttribute('fullCalcOnLoad', '1');
+        // keepOnly เขียน workbook.xml ใหม่แล้ว อ่านจากไฟล์ใน zip อีกรอบก่อนแก้
+        book.zip.file('xl/workbook.xml', new XMLSerializer().serializeToString(wb));
+    }
     // ลำดับคำนวณเดิมอ้างสูตรที่ถูกเขียนทับหรือชีตที่ลบไปแล้ว: Excel สร้างใหม่เอง
     if (book.zip.file('xl/calcChain.xml')) {
         book.zip.remove('xl/calcChain.xml');

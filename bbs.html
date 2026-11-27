@@ -74,6 +74,8 @@ section p{margin:0 0 8px}
 body.dropping::after{content:'วางไฟล์แผนงานที่นี่';position:fixed;inset:10px;z-index:9;display:grid;place-items:center;border:3px dashed var(--ink);border-radius:16px;background:color-mix(in srgb,var(--panel) 88%,transparent);font-size:18px;font-weight:600;pointer-events:none}
 .duty{font-size:12px;color:var(--mute);margin-left:6px}
 .duty.off{color:var(--no);font-weight:600}
+.risk{display:inline-block;margin-left:6px;padding:0 7px;font-size:12px;border:1px solid #b07400;color:#b07400;border-radius:6px}
+.risk.wolf{border-color:var(--no);color:var(--no)}
 .hide{align-self:center;display:inline-flex;padding:3px;color:var(--mute);cursor:pointer;border-radius:5px}
 .hide:hover{color:var(--ink)}
 .hide svg{width:15px;height:15px}
@@ -224,6 +226,8 @@ dialog em{font-style:normal;color:var(--no)}
       <button class="btn" id="alert-button" type="button" title="จัดข้อความแจ้งเหตุสำหรับส่ง LINE" disabled><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17.5v.01"/></svg>แจ้งเหตุ</button>
     </div>
     <p class="mute tools" id="count"></p>
+    <p class="tools line" id="rsc-filters" hidden><label><input type="checkbox" id="only-pending"> ค้างตรวจชั่วโมงนี้</label><label><input type="checkbox" id="only-risk"> กลุ่มเสี่ยง</label></p>
+    <datalist id="driver-names"></datalist>
     <p class="mute tools" id="history-note" hidden>โหลดประวัติพฤติกรรม พขร. ไม่ได้ (ป้าย ⚠ จะไม่แสดง)</p>
     <div id="list"></div>
     <p class="tools"><label><input type="checkbox" id="show-all"> แสดงรถที่ไม่มีงาน / ซ่อนไว้ (<span id="hidden-count">0</span>)</label></p>
@@ -250,6 +254,8 @@ dialog em{font-style:normal;color:var(--no)}
     <h3 id="hour-title"></h3>
     <div class="line"><label class="field">เวลาที่ดู<input type="time" id="hour-time"></label>
       <label class="field grow">หมายเหตุ (ใส่ก่อนเลือกผล)<input id="hour-note" placeholder="พฤติกรรมเสี่ยง / ชมเชย"></label></div>
+    <label class="field" id="hour-detail-field" hidden>สถานที่ (ลงเป็นคอมเมนต์ในช่อง)<input id="hour-detail" placeholder="ตำบล - อำเภอ - จังหวัด"></label>
+    <p class="bad" id="hour-error" hidden>เลือก NG ต้องกรอกหมายเหตุก่อน</p>
     <div class="results" id="hour-results"></div>
     <div class="line"><input id="hour-other" class="grow" placeholder="ผลอื่น เช่น GS, ACS" aria-label="ผลอื่น"><button class="btn" id="hour-other-ok" type="button">ใช้</button></div>
     <div class="line" style="margin:0">
@@ -330,6 +336,6 @@ dialog em{font-style:normal;color:var(--no)}
   });
 })();
 </script>
-<script type="module" src="./bbs.js?v=58"></script>
+<script type="module" src="./bbs.js?v=59"></script>
 </body>
 </html>

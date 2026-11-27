@@ -1,11 +1,11 @@
 import { requireLogin, fetchProtectedText, PRESENCE_URL, auth } from './firebase-guard.js?v=20261122-cut';
 import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=11';
 import { readPlans, vehicleNo, sccName, PEOPLE_FIELDS } from './bbs-plan.js?v=15';
-import { readHourly, buildHourly } from './bbs-hourly.js?v=9';
+import { readHourly, buildHourly } from './bbs-hourly.js?v=10';
 import { readImage, parseShot, readGps, inShift } from './bbs-ocr.js?v=3';
 import { samePlace } from './bbs-match.js?v=1';
 import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
-import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=5';
+import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=6';
 import { destList, diffPlan, mergeChanges, describe, roundsChanged } from './bbs-diff.js?v=2';
 import { HISTORY_URL, nameKey, indexHistory, thaiDate } from './bbs-history.js?v=1';
 import { createLog } from './bbs-log.js?v=1';
@@ -137,6 +137,7 @@ async function loadForms() {
 
 // "รายงาน…พขร. BBS BFPL WO-LLK วันที่/เดือน/ปี.xlsx" → "BBS BFPL WO-LLK"
 const shortName = (name) => name.replace(/\.xlsx$/i, '').split('วันที่')[0]
+    .replace(/^.*แบบฟอร์มบันทึกการตรวจสอบ\s*/, '').replace(/\s+25\d\d.*$/, '')
     .replace(/^รายงานติดตามพฤติกรรมพขร\.?\s*/, '').replace(/^ผ่าน\s*CCTV[\s\-]*/i, '')
     .replace(/\s*(January|February|March|April|May|June|July|August|September|October|November|December)\s*\d{4}/i, '')
     .trim() || name;
@@ -679,12 +680,29 @@ function hourGrid(v, who) {
             el('b', { textContent: r ? r.place : '–' }),
             el('small', { textContent: r ? shortTime(r) : '' }));
         node.setAttribute('aria-label', v.scc + ' ' + hour + ' นาฬิกา ' + (r ? r.place : 'ยังไม่ตรวจ'));
-        if (r?.note) { node.title = r.note; node.classList.add('noted'); }
+        if (r?.note || r?.detail) { node.title = [r.detail, r.note].filter(Boolean).join(' · '); node.classList.add('noted'); }
         return node;
     }));
     grid.style.setProperty('--n', hours.length);
     return grid;
 }
+
+// ===== ฟอร์ม RSC: กลุ่มเสี่ยงจากชีตในฟอร์ม =====
+const plainName = (name) => String(name || '').replace(/^\s*(นางสาว|น\.ส\.|นาย|นาง)/, '').replace(/\s+/g, '');
+const riskOf = (name) => (name && template.risks?.find((x) => plainName(x.name) === plainName(name))) || null;
+const risky = (v) => [1, 2].some((n) => { const r = riskOf(driverName(v, n)); return r && !/^sheep/i.test(r.group); });
+function riskTag(name) {
+    const r = template.rsc && riskOf(name);
+    if (!r || /^sheep/i.test(r.group)) return null;
+    return el('span', { className: 'risk' + (/^wolf/i.test(r.group) ? ' wolf' : ''),
+        textContent: r.group + (r.detail ? ' · ' + r.detail : '') });
+}
+// ชั่วโมงปัจจุบัน ถ้าอยู่ในกะที่เปิดอยู่
+const nowHour = () => {
+    const hour = new Date().getHours();
+    return template.shiftHours(report.shift).includes(hour) ? hour : null;
+};
+const checkedAt = (v, hour) => (hour === null ? v.rounds.length > 0 : v.rounds.some((r) => r.hour === hour));
 
 // "Sheep · หยุด/ลา" ของ พขร. คนนั้น (หยุด = ตัวแดงเหมือนในฟอร์ม)
 function dutyTag(v, n) {
@@ -696,7 +714,7 @@ function dutyTag(v, n) {
 const driverName = (v, n) => (n > 1 ? v['driver' + n] : v.driver) || '';
 
 const hourGrids = (v) => [hourGrid(v, 1), ...[2, 3].filter((n) => v['driver' + n]).flatMap((n) => [
-    el('div', { className: 'mute second' }, 'พขร.' + n + ' ' + v['driver' + n], historyBadge(v['driver' + n]), dutyTag(v, n)),
+    el('div', { className: 'mute second' }, 'พขร.' + n + ' ' + v['driver' + n], riskTag(v['driver' + n]), historyBadge(v['driver' + n]), dutyTag(v, n)),
     hourGrid(v, n)])];
 
 function hourlyRow(v) {
@@ -704,13 +722,23 @@ function hourlyRow(v) {
         el('button', { type: 'button', className: 'car', onclick: () => openVehicle(v.scc) },
             el('b', { textContent: v.scc }),
             who(v.driver),
+            riskTag(v.driver),
             dutyTag(v, 1),
             v.changes?.length ? el('span', { className: 'changed', textContent: 'แผนเปลี่ยน' }) : null,
             el('span', { className: 'tally', textContent: v.rounds.length ? 'ตรวจ ' + v.rounds.length + ' ช่อง' : 'ยังไม่ตรวจ' }),
             hideToggle(v)),
         v.remark ? el('div', { className: 'jobs' }, el('em', { textContent: v.remark })) : null,
+        v.route || v.jobTime ? el('div', { className: 'jobs mute' },
+            [v.route && 'รูธ ' + v.route, v.jobTime && 'รับงาน ' + v.jobTime].filter(Boolean).join(' · ')) : null,
         destinations(v),
         ...hourGrids(v));
+}
+
+// ช่องชื่อ พขร.: ฟอร์ม RSC เลือกจากรายชื่อกลุ่มเสี่ยงได้
+function driverInput(v, prop, placeholder, onchange) {
+    const node = input(v, prop, placeholder, { onchange });
+    if (template.rsc) node.setAttribute('list', 'driver-names');
+    return node;
 }
 
 function hourlyPage(v) {
@@ -719,12 +747,17 @@ function hourlyPage(v) {
     const redraw = () => page.replaceChildren(...[
         button('← กลับหน้ารวม', closeVehicle),
         title.node,
+        riskTag(v.driver),
         dutyTag(v, 1),
         ...hourGrids(v),
         el('div', { className: 'line' },
-            el('label', { className: 'field grow' }, 'พขร.1', input(v, 'driver', 'ชื่อ พขร.1', { onchange: () => title.paint() })),
-            el('label', { className: 'field grow' }, 'พขร.2 / คนโหลด', input(v, 'driver2', 'ชื่อ พขร.2 (ถ้ามี)', { onchange: () => redraw() })),
-            el('label', { className: 'field grow' }, 'พขร.3', input(v, 'driver3', 'ชื่อ พขร.3 (ถ้ามี)', { onchange: () => redraw() }))),
+            el('label', { className: 'field grow' }, 'พขร.1', driverInput(v, 'driver', 'ชื่อ พขร.1', () => redraw())),
+            el('label', { className: 'field grow' }, template.rsc ? 'พขร.2' : 'พขร.2 / คนโหลด', driverInput(v, 'driver2', 'ชื่อ พขร.2 (ถ้ามี)', () => redraw())),
+            // ฟอร์ม RSC มีช่องให้ พขร. 2 คน
+            template.rsc ? null : el('label', { className: 'field grow' }, 'พขร.3', driverInput(v, 'driver3', 'ชื่อ พขร.3 (ถ้ามี)', () => redraw()))),
+        ...(template.rsc ? [['', '1'], ['2', '2']].map(([n, who]) => el('div', { className: 'line' },
+            el('label', { className: 'field grow' }, 'รูธงาน พขร.' + who, input(v, 'route' + n, 'รูธงาน พขร.' + who)),
+            el('label', { className: 'field' }, 'เวลารับงานจริง (ที่ VL)', input(v, 'jobTime' + n, 'เวลารับงาน พขร.' + who, { type: 'time' })))) : []),
         el('div', { className: 'line' },
             el('label', {}, 'GPS ', select(v, 'gps', 'สถานะ GPS', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']])),
             el('label', {}, 'CCTV ', select(v, 'cctv', 'สถานะ CCTV', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']])),
@@ -735,7 +768,7 @@ function hourlyPage(v) {
             input(t, 'cust', 'Trips ' + (i + 1), { className: 'grow', onchange: () => redraw() }),
             button('ลบ', () => { noteTripDelete(v, t); v.trips.splice(i, 1); save(); redraw(); }))),
         button('+ เพิ่มงาน', () => { note('นำเข้า', 'เพิ่มงาน', { scc: v.scc }); v.trips.push({ ship: '', custId: '', cust: '' }); save(); redraw(); })
-    ]);
+    ].filter(Boolean));
     redraw();
     return page;
 }
@@ -745,16 +778,25 @@ function editHour(v, hour, who) {
     $('hour-title').textContent = v.scc + ' · ' + String(hour).padStart(2, '0') + ':00 น.' + (who > 1 ? ' · พขร.' + who : '');
     $('hour-time').value = old ? shortTime(old) : new Date().toTimeString().slice(0, 5);
     $('hour-note').value = old?.note || '';
+    $('hour-detail').value = old?.detail || '';
+    $('hour-detail-field').hidden = !template.rsc;
+    $('hour-error').hidden = true;
     $('hour-other').value = old && !/^C\d+$/.test(old.place) && !template.results.some(([code]) => code === old.place) ? old.place : '';
     // หารถใหม่ตอนกด: ระหว่างเปิดหน้าต่างรายงานอาจถูกโหลดใหม่
     const car = () => report.vehicles.find((x) => x.scc === v.scc);
     const done = () => { save(); $('hour-dialog').close(); render(); };
     const set = (place, group) => {
+        const detail = template.rsc ? $('hour-detail').value.trim() : '';
+        if (template.rsc && place === 'NG' && !$('hour-note').value.trim()) {
+            $('hour-error').hidden = false;
+            $('hour-note').focus();
+            return;
+        }
         // id ตามช่อง: สองเครื่องลงช่องเดียวกันจะเหลืออันที่แก้ล่าสุด
         const entry = {
             id: 'h' + who + '-' + hour, type: 'hour', hour, who, place, ...(group ? { group } : {}),
             time: ($('hour-time').value || new Date().toTimeString().slice(0, 5)) + ':00',
-            note: $('hour-note').value.trim(), marks: {}
+            note: $('hour-note').value.trim(), ...(detail ? { detail } : {}), marks: {}
         };
         const target = car();
         note('แก้ไข', old ? 'แก้ช่องรายชั่วโมง' : 'ลงช่องรายชั่วโมง', {
@@ -788,9 +830,10 @@ function editHour(v, hour, who) {
     let customers = Math.max(1, names.length, ...v.rounds.map((r) => Number(/^C(\d+)$/.exec(r.place)?.[1] || 0)));
     const drawResults = () => $('hour-results').replaceChildren(
         ...template.results.filter(([code]) => code !== 'C' && !grouped.has(code)).map(([code, label]) => result(code, label)),
-        ...Array.from({ length: customers }, (_, i) => result('C' + (i + 1), '')),
-        el('button', { type: 'button', className: 'btn result', title: 'เพิ่มลูกค้า', onclick: () => { customers++; drawResults(); } },
-            el('b', { textContent: '+' })),
+        ...(template.rsc ? [] : [
+            ...Array.from({ length: customers }, (_, i) => result('C' + (i + 1), '')),
+            el('button', { type: 'button', className: 'btn result', title: 'เพิ่มลูกค้า', onclick: () => { customers++; drawResults(); } },
+                el('b', { textContent: '+' }))]),
         ...groups.flatMap(([group, title, codes]) => [
             el('small', { className: 'grouphead', textContent: title }),
             ...codes.map((code) => result(code, code, group))]));
@@ -893,7 +936,7 @@ function vehiclePage(v) {
 // คันที่ต้องแสดง: มีงาน เพิ่มเข้ามาเอง หรือมีรอบตรวจที่ลงเอง
 // (รอบ quiet = ลงจากรูปให้รถที่ไม่มีงาน เก็บไว้ในรายงานแต่ไม่ดึงขึ้นหน้าทำงาน)
 // กดซ่อนเอง (เช่น แผนใส่ข้อความอื่นมาแทนงาน) ไม่นับว่ามีงาน
-const hasWork = (v) => !v.hidden && (v.trips.length > 0 || !!v.pinned || v.rounds.some((r) => !r.quiet));
+const hasWork = (v) => !v.hidden && (!!template?.rsc || v.trips.length > 0 || !!v.pinned || v.rounds.some((r) => !r.quiet));
 
 function render() {
     $('checker').value = report.checker || '';
@@ -917,6 +960,8 @@ function render() {
     const shown = report.vehicles.filter((v) => (q
         ? [v.scc, v.plate, v.driver, v.driver2].join(' ').toLowerCase().includes(q)
         : $('show-all').checked || hasWork(v)))
+        .filter((v) => !template?.rsc || ((!$('only-pending').checked || !checkedAt(v, nowHour())) &&
+            (!$('only-risk').checked || risky(v))))
         .sort((x, y) => Number(!hasWork(x)) - Number(!hasWork(y)) ||
             x.scc.localeCompare(y.scc, undefined, { numeric: true }));
     $('list').replaceChildren(...(shown.length
@@ -926,6 +971,15 @@ function render() {
     $('count').textContent = template
         ? 'ยังไม่ตรวจ ' + working.filter((v) => !v.rounds.length).length + ' จาก ' + working.length + ' คัน' : '';
     $('hidden-count').textContent = String(report.vehicles.length - working.length);
+    $('rsc-filters').hidden = !template?.rsc;
+    if (template?.rsc) {
+        const hour = nowHour();
+        const done = working.filter((v) => checkedAt(v, hour)).length;
+        const bad = working.reduce((n, v) => n + v.rounds.filter((r) => r.place === 'NG').length, 0);
+        $('count').textContent = 'รถ ' + working.length + ' คัน · ' +
+            (hour === null ? '' : String(hour).padStart(2, '0') + ':00 ') +
+            'ตรวจแล้ว ' + done + ' · ค้าง ' + (working.length - done) + ' · NG ' + bad;
+    }
 }
 
 async function useTemplate(buffer, name) {
@@ -936,6 +990,7 @@ async function useTemplate(buffer, name) {
     const last = units.findIndex((u) => u.title === localStorage.getItem('bbs-unit'));
     if (units.length) $('unit').value = String(Math.max(0, last));
     useUnit();
+    $('driver-names').replaceChildren(...(template.risks || []).map((x) => el('option', { value: x.name })));
 }
 
 // รายชื่อรถตั้งต้นตามหน่วยงานย่อยที่เลือก
@@ -969,7 +1024,7 @@ async function knownVehicles() {
 
 // ===== ฟอร์มรายชั่วโมง: กะเป็นแค่ช่วงของคนดู แผนและชื่อ พขร. นับทั้งวัน จึงใส่ให้อีกกะของวันเดียวกันด้วย =====
 const DAY_FIELDS = ['plate', 'driver', 'driver2', 'driver3', 'risk', 'remark', 'trips', 'changes',
-    'status', 'rest', 'status2', 'rest2', 'status3', 'rest3'];
+    'status', 'rest', 'status2', 'rest2', 'status3', 'rest3', 'route', 'route2', 'jobTime', 'jobTime2'];
 
 async function shareDay(cars, fields) {
     if (!template.hourly || !cars.length) return;
@@ -1566,6 +1621,7 @@ function bindAlert() {
 
 // ชื่อไฟล์ส่งออกตามชื่อฟอร์ม โดยตัดคำว่า "วันที่/เดือน..." ท้ายชื่อออก
 function baseName() {
+    if (template.rsc) return template.name.replace(/\.xlsx$/i, '').replace(/\s+25\d\d.*$/, '');
     if (template.hourly) return 'รายงานติดตามพฤติกรรมพขร ผ่าน CCTV ' + (unit()?.name || shortName(template.name));
     const name = API_URL ? template.name.replace(/\.xlsx$/i, '').split('วันที่')[0].trim() : '';
     return name || 'รายงานติดตามพฤติกรรมพขร. BBS';
@@ -1621,7 +1677,7 @@ function bind() {
     }
     $('search').addEventListener('change', () => { if ($('search').value.trim()) note('ดู', 'ค้นหา', { detail: $('search').value.trim() }); });
     $('search').addEventListener('input', render);
-    $('show-all').addEventListener('change', render);
+    for (const id of ['show-all', 'only-pending', 'only-risk']) $(id).addEventListener('change', render);
     $('plan-button').addEventListener('click', () => $('plan').click());
     const readFiles = async (files) => {
         if (!files.length) return;

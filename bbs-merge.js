@@ -5,7 +5,8 @@
 // - ล้างแล้วเริ่มใหม่: report.resetAt ฝั่งที่ล้างทีหลังชนะทั้งรายงาน ของก่อนล้างทิ้ง
 
 const INFO = ['plate', 'driver', 'risk', 'gps', 'cctv', 'trips', 'dest', 'changes', 'pinned', 'driver2', 'remark', 'hidden',
-    'driver3', 'status', 'rest', 'status2', 'rest2', 'status3', 'rest3'];
+    'driver3', 'status', 'rest', 'status2', 'rest2', 'status3', 'rest3',
+    'route', 'route2', 'jobTime', 'jobTime2'];
 
 // เรียง key ก่อนเทียบ ข้อมูลเดียวกันแต่ลำดับต่างต้องถือว่าเท่ากัน
 const stable = (value) => JSON.stringify(value, (key, v) => (v && typeof v === 'object' && !Array.isArray(v)
