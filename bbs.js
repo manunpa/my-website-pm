@@ -168,10 +168,28 @@ function newReport() {
     };
 }
 
-// สีของจุด: แดง = พลาด, เหลือง = ยังไม่ถึงชีต, เขียว = เรียบร้อย
+// ไอคอนสถานะ: ฐานข้อมูล = รอส่ง, เมฆลูกศรขึ้น = กำลังส่ง/โหลด, เมฆถูก = เรียบร้อย, เมฆขีดทับ = พลาด
+const CLOUD = 'M7 18a4.5 4.5 0 0 1-.4-9A6 6 0 0 1 18 10a4 4 0 0 1 0 8';
+const STATE_ART = {
+    wait: '<ellipse class="d1" cx="12" cy="6" rx="8" ry="3"/><path class="d2" d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path class="d3" d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
+    send: '<path d="' + CLOUD + 'h-1M7 18h1"/><path class="arrow" d="M12 21v-8M9 16l3-3 3 3"/>',
+    done: '<g class="pop"><path d="' + CLOUD + 'M7 18h3"/><path class="check" d="M13 18l2.5 2.5L20 16"/></g>',
+    bad: '<g class="off"><path d="' + CLOUD + 'M7 18h11"/><path class="slash" d="M3 3l18 18"/></g>'
+};
+let shownState = '';
+// เปลี่ยนรูปเฉพาะตอนสถานะเปลี่ยน ไม่ให้การเคลื่อนไหวเริ่มใหม่ทุกข้อความ
+function stateIcon(kind) {
+    if (kind === shownState) return;
+    shownState = kind;
+    $('status-icon').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+        STATE_ART[kind] + '</svg>';
+}
+
 function status(text, bad = false, title = '') {
     const wait = !bad && /รอคิว|กำลัง/.test(text);
-    $('status').className = 'save-state ' + (bad ? 'bad' : wait ? 'wait' : 'done');
+    const kind = bad ? 'bad' : !wait ? 'done' : title === 'Cached' ? 'wait' : 'send';
+    $('status').className = 'save-state ' + kind;
+    stateIcon(kind);
     $('status').hidden = !text;
     $('status-title').textContent = title || (bad ? 'มีปัญหา' : wait ? 'กำลังทำงาน' : 'เสร็จแล้ว');
     $('status-detail').textContent = text;
