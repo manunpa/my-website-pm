@@ -5,7 +5,7 @@ import {
   loadOffshore, DMF_CREDIT, PLATFORM_GROUP, PLATFORM_COLOR, areaColor, areaPopupHtml, platformDetailsHtml, windyLink,
   ADMIN_CREDIT, loadAdmin, adminReady, areaOf, formatArea, areaSearchText
 } from './maps-layers.js?v=20261125';
-import { initEventRoute } from './event-route.js?v=20261127b';
+import { initEventRoute } from './event-route.js?v=20261127c';
 import { setProtectedFetch, getGoogleBase, openStreetView, closeStreetView, onGoogleAuthFail } from './maps-google.js?v=20261125';
 setProtectedFetch(fetchProtectedText);
 /* API ชุดที่ 1: Geofence — โค้ดอยู่ที่ apps-script/geofence.gs (URL เดิม ...uVCF ยังเปิดไว้ให้ my-web-p3 ใช้) */
