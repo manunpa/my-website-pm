@@ -33,18 +33,19 @@ export function distToLineM(lat, lng, line) {
 }
 
 /**
- * ctx: { map, getPoints(), popupHtml(p), esc(s), toast(msg), copy(text), unlock() }
- * คืน { refresh() } ให้เรียกหลังข้อมูลพิกัดเปลี่ยน — นอกช่วงวันคืนตัวเปล่าที่ไม่ทำอะไร
+ * ctx: { map, getPoints(), popupHtml(p), esc(s), toast(msg), copy(text), unlock(), redraw() }
+ * คืน { refresh(), focus(), close() }: refresh = เรียกหลังข้อมูลพิกัดเปลี่ยน · focus = ตอนนี้ต้องซ่อนหมุดปกติไหม
+ * คืน — นอกช่วงวันคืนตัวเปล่าที่ไม่ทำอะไร
  */
 export function initEventRoute(ctx) {
   const forced = /[?&]event=marathon\b/.test(location.search);
   const now = Date.now();
   const sidebar = document.getElementById('sidebar'), list = document.getElementById('pointList');
-  if ((!forced && (now < START || now >= END)) || !sidebar || !list) return { refresh() {} };
+  if ((!forced && (now < START || now >= END)) || !sidebar || !list) return { refresh() {}, focus: () => false, close() {} };
 
   const { map, esc } = ctx;
   const on = new Set(ROUTES.map(r => r[0]));
-  let radius = 300, withStations = false, show = true, found = [];
+  let radius = 300, withStations = false, show = true, hideOthers = true, focused = false, found = [];
 
   const style = document.createElement('style');
   style.textContent = '.evroute .along{max-height:38vh;overflow:auto}.evroute summary{color:#d6336c}' +
@@ -65,11 +66,21 @@ export function initEventRoute(ctx) {
   document.getElementById('mapStack')?.prepend(chip);
   chip.addEventListener('click', () => {
     if (sidebar.classList.contains('collapsed')) document.getElementById('sidebarToggle')?.click();
-    box.open = true; show = true; render(); fit();
+    box.open = true; show = true; render(); syncFocus(); fit();
   });
 
   const lineLayer = L.layerGroup(), nearLayer = L.layerGroup();
   const renderer = L.svg({ padding: .5 });
+
+  // เปิดแผงงานวิ่งอยู่ = ซ่อนหมุดอื่น เหลือเส้นทางกับจุดใกล้แนว · ปิดแผง = กลับเหมือนเดิม
+  function syncFocus() {
+    const next = box.open && show && hideOthers;
+    if (next === focused) return;
+    focused = next;
+    if (focused) map.closePopup();
+    ctx.redraw();
+  }
+  box.addEventListener('toggle', syncFocus);
 
   const activeRoutes = () => ROUTES.filter(r => on.has(r[0]));
   function fit() {
@@ -132,6 +143,7 @@ export function initEventRoute(ctx) {
         `<button type="button" data-radius="${r}" class="${r === radius ? 'on' : ''}">${r >= 1000 ? r / 1000 + ' กม.' : r + ' ม.'}</button>`).join('') + '</div>' +
       `<label class="planner-focus"><input type="checkbox" data-ev="st"${withStations ? ' checked' : ''}> รวมปั๊มน้ำมัน</label>` +
       `<label class="planner-focus"><input type="checkbox" data-ev="show"${show ? ' checked' : ''}> แสดงบนแผนที่</label>` +
+      `<label class="planner-focus"><input type="checkbox" data-ev="hide"${hideOthers ? ' checked' : ''}> ซ่อนหมุดอื่นที่ไม่เกี่ยว</label>` +
       '<div class="planner-actions"><button type="button" class="planbtn" data-ev="fit">ดูทั้งเส้นทาง</button>' +
       `<button type="button" class="planbtn" data-ev="copy"${found.length ? '' : ' disabled'}>คัดลอกรายชื่อ</button></div>` +
       `<p class="planner-count">${!loaded ? 'กำลังรอข้อมูลพิกัด…' : found.length ? `พบ ${found.length} จุด (เรียงจากใกล้สุด)` : 'ไม่พบจุดในระยะที่เลือก'}</p>` +
@@ -145,7 +157,7 @@ export function initEventRoute(ctx) {
     if (b.dataset.day) {
       on.clear();
       ROUTES.forEach(r => { if (b.dataset.day === 'all' || CLOSE_DAY[r[0]] === Number(b.dataset.day)) on.add(r[0]); });
-      show = true; render(); fit();
+      show = true; render(); syncFocus(); fit();
     }
     else if (b.dataset.route) { on.has(b.dataset.route) ? on.delete(b.dataset.route) : on.add(b.dataset.route); render(); }
     else if (b.dataset.radius) { radius = Number(b.dataset.radius); render(); }
@@ -159,8 +171,9 @@ export function initEventRoute(ctx) {
   });
   body.addEventListener('change', e => {
     if (e.target.dataset.ev === 'st') { withStations = e.target.checked; render(); }
-    else if (e.target.dataset.ev === 'show') { show = e.target.checked; render(); }
+    else if (e.target.dataset.ev === 'show') { show = e.target.checked; render(); syncFocus(); }
+    else if (e.target.dataset.ev === 'hide') { hideOthers = e.target.checked; syncFocus(); }
   });
   render();
-  return { refresh: render };
+  return { refresh: render, focus: () => focused, close() { box.open = false; syncFocus(); } };
 }

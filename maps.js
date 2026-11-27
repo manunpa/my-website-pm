@@ -5,7 +5,7 @@ import {
   loadOffshore, DMF_CREDIT, PLATFORM_GROUP, PLATFORM_COLOR, areaColor, areaPopupHtml, platformDetailsHtml, windyLink,
   ADMIN_CREDIT, loadAdmin, adminReady, areaOf, formatArea, areaSearchText
 } from './maps-layers.js?v=20261125';
-import { initEventRoute } from './event-route.js?v=20261127';
+import { initEventRoute } from './event-route.js?v=20261127b';
 import { setProtectedFetch, getGoogleBase, openStreetView, closeStreetView, onGoogleAuthFail } from './maps-google.js?v=20261125';
 setProtectedFetch(fetchProtectedText);
 /* API ชุดที่ 1: Geofence — โค้ดอยู่ที่ apps-script/geofence.gs (URL เดิม ...uVCF ยังเปิดไว้ให้ my-web-p3 ใช้) */
@@ -22,7 +22,7 @@ const NO_SUPPLIER = '(ไม่ระบุ Supplier)';
 let markerById = new Map();
 // งานออฟชอร์ (โหลดครั้งแรกที่เปิดชั้น) — id แท่นผลิตเริ่มที่ PLAT_ID0 ไม่ชนกับ Geofence/ปั๊ม
 const PLAT_ID0 = 1e7;
-let eventRoute = { refresh(){} };
+let eventRoute = { refresh(){}, focus:()=>false, close(){} };
 let offRows = [], offAreas = null, offStatus = 'idle';
 // แผนเส้นทาง: stops = จุดแวะ (จุดแรกคือต้นทาง), vias = จุดผ่านที่ลากเส้นทาง, route = เส้นทางที่คำนวณ, along = ปั๊มตามทาง
 let plan = { stops: [], vias: [], route: null, along: null, base: null };
@@ -651,6 +651,7 @@ function selectPoint(id){
 }
 // พาไปที่หมุด ถ้าหมุดซ่อนอยู่ในกลุ่ม (ตัวเลข) จะซูม/กางกลุ่มออกจนเห็นหมุดนั้นแล้วค่อยเปิดป๊อปอัป
 function revealMarker(id){
+  if(eventRoute.focus()) eventRoute.close(); // เลือกจากรายการหลัก → เอาหมุดปกติกลับมา
   const m=markerById.get(id);
   if(!m) return;
   unlockFollow(); // กำลังติดตามอยู่ → หยุดล็อกกลางจอ ไม่งั้นแผนที่จะถูกดึงกลับมาหาตัวเรา
@@ -684,6 +685,7 @@ const stationRows = () => allRows.filter(p=>p.kind==='station'&&(activeBrand==='
 // วาดหมุดใหม่เฉพาะชั้นที่เปลี่ยน (อีกชั้นไม่ต้องวาดใหม่ เปิด/ปิดชั้นจึงเร็ว)
 function renderLayer(group,rows,on){
   group.clearLayers();
+  on=on&&!eventRoute.focus();
   markerById.forEach((m,id)=>{ if(m.__grp===group) markerById.delete(id); });
   if(on){ group.addLayers(rows.filter(validPoint).map(p=>buildMarker(p,group))); if(!map.hasLayer(group)) map.addLayer(group); }
   else if(map.hasLayer(group)) map.removeLayer(group);
@@ -709,7 +711,7 @@ function renderStationLayer(){
 const renderPlatLayer = () => renderLayer(platClusters,offRows,showOff&&showPlat&&!planFocusActive());
 function renderAreaLayer(){
   if(areaLayer){ map.removeLayer(areaLayer); areaLayer=null; }
-  if(!showOff||!showAreas||!offAreas) return;
+  if(!showOff||!showAreas||!offAreas||eventRoute.focus()) return;
   areaLayer=L.geoJSON(offAreas,{
     style:f=>({color:areaColor(f.properties),weight:1.4,dashArray:'6 4',fillColor:areaColor(f.properties),fillOpacity:.1}),
     onEachFeature:(f,layer)=>layer.bindPopup(areaPopupHtml(f.properties,esc),{maxWidth:300})
@@ -1853,7 +1855,8 @@ $('rainBar')?.addEventListener('input',e=>{
 renderPlanner();
 renderRain();
 // ชั่วคราว 27–29 พ.ย. 2569: แนวเส้นทางงานวิ่ง (ดู event-route.js) — ต้องสร้างก่อนโหลดข้อมูล
-eventRoute = initEventRoute({ map, getPoints:()=>allRows, popupHtml:pointPopupHtml, esc, toast, copy:copyText, unlock:unlockFollow });
+eventRoute = initEventRoute({ map, getPoints:()=>allRows, popupHtml:pointPopupHtml, esc, toast, copy:copyText, unlock:unlockFollow,
+  redraw:()=>{ renderGeoLayer(); renderStationLayer(); renderPlatLayer(); renderAreaLayer(); afterLayerChange(); } });
 
 // ===== Firebase: ตรวจสิทธิ์ / Logout / ตัด Session (ดู firebase-guard.js) =====
 // โหลดข้อมูลหลังยืนยันตัวตนแล้วเท่านั้น
