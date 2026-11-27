@@ -124,7 +124,11 @@ function renderLog() {
     html += `<div class="round">แก้เมื่อ ${esc(typeof r.when === 'number' ? stamp(r.when) : r.when)} · ${r.list.length} รายการ</div>`;
     html += '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;overflow:auto">';
     html += '<table class="log"><tr><th>ชื่อ</th><th>วันที่</th><th>เดิม → ใหม่</th></tr>' + r.list.map((c) => `<tr><td>${esc(c.name)}</td>` + (c.i === undefined ? `<td colspan="2">${esc(c.text)}</td>` : `<td>${esc(dayLabel(c.i))}</td><td>${chip(c.from)} → ${chip(c.to)}</td>`) + '</tr>').join('') + '</table>';
-    if (r.impact.length) html += '<table class="log"><tr><th>กำลังคนวันที่</th><th>เช้า</th><th>ดึก</th></tr>' + r.impact.map((x) => `<tr><td>${esc(dayLabel(x.i))}</td><td>${delta(x.d)}</td><td>${delta(x.n)}</td></tr>`).join('') + '</table>';
+    // กำลังคน: แสดงเฉพาะกะและวันที่ตัวเลขเปลี่ยน กะที่ไม่เกี่ยวไม่ต้องขึ้น
+    const moved = ([a, b]) => a !== b;
+    const hit = r.impact.filter((x) => moved(x.d) || moved(x.n));
+    const shifts = [['d', 'เช้า'], ['n', 'ดึก']].filter(([k]) => hit.some((x) => moved(x[k])));
+    if (hit.length) html += '<table class="log"><tr><th>กำลังคนวันที่</th>' + shifts.map(([, t]) => `<th>${t}</th>`).join('') + '</tr>' + hit.map((x) => `<tr><td>${esc(dayLabel(x.i))}</td>` + shifts.map(([k]) => `<td>${moved(x[k]) ? delta(x[k]) : ''}</td>`).join('') + '</tr>').join('') + '</table>';
     html += '</div>';
   }
   $('log').innerHTML = html;
