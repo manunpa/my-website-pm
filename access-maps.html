@@ -417,11 +417,11 @@ body{position:relative;isolation:isolate}
       <div class="brandmark">⌖</div>
       <div><h1>Access Maps</h1><small>GEOFENCE MONITORING</small></div>
     </div>
-    <div class="top-status"><span class="live-dot"></span><span id="statusText">กำลังเชื่อมต่อข้อมูล...</span></div>
+    <div class="top-status"><span class="live-dot"></span><span id="statusText">กำลังเชื่อมต่อ Server...</span></div>
     <div class="actions">
       <button class="iconbtn" id="sidebarToggle" title="เปิด/ซ่อนรายการ">☰ <span style="font-size:11px">รายการ</span></button>
       <button class="iconbtn" id="themeToggle" title="เปลี่ยนธีม"><span id="themeIcon">☾</span></button>
-      <button class="iconbtn" id="refreshBtn" title="โหลดข้อมูลใหม่">↻</button>
+      <button class="iconbtn" id="refreshBtn" title="Pull ข้อมูลใหม่">↻</button>
       <!-- ปุ่มออกจากระบบ: maps.js ผูก event ด้วย id="logoutBtn" (ต้องใช้ชื่อนี้ให้ตรงกัน) -->
       <button class="iconbtn logout" id="logoutBtn" title="ออกจากระบบ">⇥ <span style="font-size:11px">ออกจากระบบ</span></button>
     </div>
@@ -435,8 +435,8 @@ body{position:relative;isolation:isolate}
       </div>
       <!-- วางแผนเส้นทาง (พับไว้) — maps.js วาดเนื้อหาใน #plannerBody -->
       <details class="planner" id="planner"><summary><span>🛣 วางแผนเส้นทาง</span> <span id="plannerCount" class="muted"></span></summary><div class="planner-body" id="plannerBody"></div></details>
-      <div class="pointlist" id="pointList"><div class="empty"><span class="loading"></span>กำลังโหลดรายการพิกัด</div></div>
-      <div class="sidefoot"><span id="sourceLabel">Google Sheets API</span><span id="lastUpdated">—</span></div>
+      <div class="pointlist" id="pointList"><div class="empty"><span class="loading"></span>กำลัง Pull รายการพิกัด</div></div>
+      <div class="sidefoot"><span id="sourceLabel">Server</span><span id="lastUpdated">—</span></div>
     </aside>
     <section class="maparea">
       <div id="map"></div>
@@ -474,6 +474,6 @@ body{position:relative;isolation:isolate}
 
 <!-- ต้องเปิดผ่านเว็บเซิร์ฟเวอร์ (http/https) ไม่ใช่ file:// เพราะใช้ type="module" -->
 <!-- ?v= บังคับให้มือถือโหลด maps.js ตัวใหม่ทันทีหลังอัปเดต (เปลี่ยนเลขทุกครั้งที่แก้ maps.js) -->
-<script type="module" src="./maps.js?v=20261127-msearch"></script>
+<script type="module" src="./maps.js?v=20261128-words"></script>
 </body>
 </html>

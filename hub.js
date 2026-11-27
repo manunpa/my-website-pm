@@ -360,7 +360,7 @@ function addShiftCard(owner) {
   card.dataset.kw = "ตาราง กะ วันทำงาน เวร";
   card.querySelector(".icon").textContent = "📅";
   card.querySelector("strong").textContent = "ตารางวันทำงาน";
-  card.querySelector(".label span").textContent = "อัปเดตข้อมูลทุก 1 ชั่วโมง";
+  card.querySelector(".label span").textContent = "Sync ข้อมูลทุก 1 ชั่วโมง";
   grid.querySelector('a.btn[href="bbs.html"]').after(card); // อยู่ถัดจากบันทึก BBS
   function unlock() {
     card.href = "shifts.html";

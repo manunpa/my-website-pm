@@ -161,7 +161,7 @@ header a{margin-left:0}
       </div>
     </div>
     <div class="col">
-      <section class="panel"><h2>หน้าที่เปิดอยู่</h2><div id="pages"><p class="empty">กำลังโหลด…</p></div></section>
+      <section class="panel"><h2>หน้าที่เปิดอยู่</h2><div id="pages"><p class="empty">กำลัง Pull จาก Server…</p></div></section>
       <section class="panel" id="peopleBox" hidden><h2>ใครออนไลน์อยู่</h2><div class="people" id="people"></div></section>
       <section class="panel"><h2>ความเคลื่อนไหว (ตั้งแต่เปิดหน้านี้)</h2><ul class="feed" id="feed"></ul><p class="empty" id="quiet">ยังไม่มีคนเข้าหรือออก</p></section>
     </div>
@@ -185,7 +185,7 @@ header a{margin-left:0}
       <section class="panel wide"><h2>รายการล่าสุด</h2><div class="scroll" id="logLatest"></div></section>
     </div>
   </div>
-  <footer><p id="state" role="status">กำลังโหลด…</p><span class="next" id="next"></span></footer>
+  <footer><p id="state" role="status">กำลัง Pull จาก Server…</p><span class="next" id="next"></span></footer>
 </div>
 <script type="module">
 import { requireLogin, fetchProtectedText, PRESENCE_URL } from './firebase-guard.js?v=20261122-cut';
@@ -536,7 +536,7 @@ async function refresh() {
     activity = data.activity || null;
     drawActivity();
     if (!$('history').disabled) drawHistorySwitch(data.showHistory);
-    say('อัปเดต ' + new Date().toTimeString().slice(0, 8) + ' น.');
+    say('Synced ' + new Date().toTimeString().slice(0, 8) + ' น.');
   } catch (err) {
     say(err.message, true);
   }

@@ -37,7 +37,7 @@ function extract(json){
     const m = pickSheet(r,'Mileage'), a = pickSheet(r,'Alarm');
     if(m && a) return {mileage:m, alarm:a};
   }
-  throw new Error('รูปแบบข้อมูลจาก API ไม่ตรงกับที่คาดไว้ ต้องมีทั้งชีต Mileage และ Alarm');
+  throw new Error('รูปแบบข้อมูลจาก Server ไม่ตรงกับที่คาดไว้ ต้องมีทั้งชีต Mileage และ Alarm');
 }
 
 // ====== วันที่ / เดือน ======
@@ -65,7 +65,7 @@ const monthLabel = k => new Date(+k.slice(0,4), +k.slice(5)-1, 1).toLocaleDateSt
 let RAW = null, sortKey = 'rate', sortDir = -1, query = '';
 async function load(){
   const stampEl = $('stamp');
-  if(stampEl) stampEl.textContent = 'กำลังโหลดข้อมูล...';
+  if(stampEl) stampEl.textContent = 'กำลัง Pull จาก Server…';
   try{
     // แนบ Firebase ID token ไปให้ Apps Script ตรวจ (apps-script/alert-mileage.gs)
     const json = JSON.parse(await fetchProtectedText(API_URL));
@@ -74,14 +74,14 @@ async function load(){
     RAW.mileage.forEach(r => r.__ym = monthOfMileage(r));
     RAW.alarm.forEach(r => r.__ym = monthOfAlarm(r));
     setupFilters();
-    if(stampEl) stampEl.textContent = 'อัปเดตล่าสุด ' + new Date().toLocaleString('th-TH') +
+    if(stampEl) stampEl.textContent = 'Synced ล่าสุด ' + new Date().toLocaleString('th-TH') +
       ' • ระยะทาง ' + fmt(RAW.mileage.length) + ' แถว • แจ้งเตือน ' + fmt(RAW.alarm.length) + ' รายการ';
     render();
   }catch(e){
     const appEl = $('app');
-    if(appEl) appEl.innerHTML = '<div class="panel msg err">โหลดข้อมูลไม่สำเร็จ: ' + esc(e.message) +
+    if(appEl) appEl.innerHTML = '<div class="panel msg err">Pull failed: ' + esc(e.message) +
       '<br><span class="sub">ลองกดรีเฟรชหน้า หรือออกจากระบบแล้วล็อกอินใหม่</span></div>';
-    if(stampEl) stampEl.textContent = 'โหลดข้อมูลไม่สำเร็จ';
+    if(stampEl) stampEl.textContent = 'Pull failed';
   }
 }
 

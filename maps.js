@@ -463,9 +463,9 @@ function normalizeRows(payload){
   let rows=payload;
   if(payload && !Array.isArray(payload)){
     rows=payload.data??payload.rows??payload.values??payload.result??payload.records??payload.items??payload.geofences??payload.locations;
-    if(!rows && payload.success===false) throw new Error(payload.message||'API แจ้งว่าไม่สำเร็จ');
+    if(!rows && payload.success===false) throw new Error(payload.message||'Server แจ้งว่าไม่สำเร็จ');
   }
-  if(!Array.isArray(rows)) throw new Error('รูปแบบข้อมูล API ไม่ใช่รายการแถว กรุณาตรวจสอบผลลัพธ์จาก Google Apps Script');
+  if(!Array.isArray(rows)) throw new Error('รูปแบบข้อมูลจาก Server ไม่ใช่รายการแถว กรุณาตรวจสอบผลลัพธ์ของ API');
   if(rows.length && Array.isArray(rows[0])){
     const headers=rows[0].map(v=>String(v).trim());
     rows=rows.slice(1).map(r=>Object.fromEntries(headers.map((h,i)=>[h,r[i]])));
@@ -996,40 +996,40 @@ async function loadData(){
     if(!allRows.length){
       [cMain,cSt]=await Promise.all([cacheGet(API_URL), STATIONS_API_URL?cacheGet(STATIONS_API_URL):null]);
       if(cMain){
-        try{ applyData(cMain,cSt,true); fromCache=true; setStatus('ข้อมูลที่บันทึกไว้ · กำลังอัปเดต...'); }
+        try{ applyData(cMain,cSt,true); fromCache=true; setStatus('ข้อมูล Cache · กำลัง Sync...'); }
         catch(e){ console.error(e); cMain=null; }
       }
     }
     if(!fromCache&&!allRows.length){
-      setStatus('กำลังโหลดข้อมูล...');
-      if($('pointList')) $('pointList').innerHTML='<div class="empty"><span class="loading"></span>กำลังโหลดรายการพิกัด</div>';
-    }else if(!fromCache) setStatus('กำลังอัปเดตข้อมูล...');
+      setStatus('กำลัง Pull จาก Server…');
+      if($('pointList')) $('pointList').innerHTML='<div class="empty"><span class="loading"></span>กำลัง Pull รายการพิกัด</div>';
+    }else if(!fromCache) setStatus('กำลัง Sync ข้อมูล...');
     // 2) ดึงข้อมูลล่าสุดจาก API ทั้ง 2 ชุดพร้อมกัน — ถ้าชุดปั๊มล้มเหลว ชุดหลักยังแสดงได้
     const [mainRes,stRes]=await Promise.allSettled([fetchText(API_URL), STATIONS_API_URL?fetchText(STATIONS_API_URL):Promise.resolve(null)]);
     if(mainRes.status==='rejected'){
-      if(allRows.length){ console.error(mainRes.reason); setStatus('อัปเดตไม่สำเร็จ · ใช้ข้อมูลที่บันทึกไว้'); toast('อัปเดตข้อมูลไม่สำเร็จ — แสดงข้อมูลที่บันทึกไว้ล่าสุด',4500); return; }
+      if(allRows.length){ console.error(mainRes.reason); setStatus('Sync failed · ใช้ข้อมูล Cache'); toast('อัปเดตข้อมูลไม่สำเร็จ — แสดงข้อมูลที่บันทึกไว้ล่าสุด',4500); return; }
       throw mainRes.reason;
     }
     const mainText=mainRes.value;
-    if(stRes.status==='rejected'){ console.error(stRes.reason); toast('โหลดข้อมูลปั๊มน้ำมันไม่สำเร็จ',4000); }
+    if(stRes.status==='rejected'){ console.error(stRes.reason); toast('Pull ข้อมูลปั๊มน้ำมันไม่สำเร็จ',4000); }
     const stText=stRes.status==='fulfilled'?stRes.value:cSt;
     // 3) วาดใหม่เฉพาะเมื่อข้อมูลเปลี่ยนจากที่แสดงอยู่ (ไม่เปลี่ยน = ไม่กระพริบ ไม่ขยับแผนที่)
     const changed=!fromCache||mainText!==cMain||stText!==cSt;
     if(changed){
       const stOk=applyData(mainText,stText,!fromCache&&!hadRows);
-      if(!stOk) toast('โหลดข้อมูลปั๊มน้ำมันไม่สำเร็จ',4000);
+      if(!stOk) toast('Pull ข้อมูลปั๊มน้ำมันไม่สำเร็จ',4000);
     }
     cachePut(API_URL,mainText);
     if(stRes.status==='fulfilled'&&stRes.value) cachePut(STATIONS_API_URL,stRes.value);
-    setStatus('เชื่อมต่อข้อมูลแล้ว');
+    setStatus('Synced กับ Server');
     if($('lastUpdated')) $('lastUpdated').textContent=new Date().toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
-    if(!fromCache) toast(`โหลดข้อมูลสำเร็จ ${allRows.length.toLocaleString('th-TH')} รายการ`);
-    else if(changed) toast('อัปเดตข้อมูลล่าสุดแล้ว',2500);
+    if(!fromCache) toast(`Pull สำเร็จ ${allRows.length.toLocaleString('th-TH')} รายการ`);
+    else if(changed) toast('Synced ข้อมูลล่าสุดแล้ว',2500);
   }catch(err){
     console.error(err);
-    setStatus('โหลดข้อมูลไม่สำเร็จ');
-    if($('pointList')) $('pointList').innerHTML=`<div class="empty">ไม่สามารถโหลดข้อมูลได้<br><br>${esc(err.message)}<br><br>ลองกดรีเฟรชหน้า หรือออกจากระบบแล้วล็อกอินใหม่</div>`;
-    toast('โหลดข้อมูลไม่สำเร็จ — ตรวจสอบ URL, สิทธิ์ Web App และ CORS',5000);
+    setStatus('Pull failed');
+    if($('pointList')) $('pointList').innerHTML=`<div class="empty">Pull จาก Server ไม่ได้<br><br>${esc(err.message)}<br><br>ลองกดรีเฟรชหน้า หรือออกจากระบบแล้วล็อกอินใหม่</div>`;
+    toast('Pull failed — ตรวจสอบ URL, สิทธิ์ Web App และ CORS',5000);
   }finally{if($('refreshBtn')) $('refreshBtn').disabled=false}
 }
 
@@ -1695,7 +1695,7 @@ function removeVia(i){
 function clearVias(){ if(plan.route) routePlan(plan.stops,[],true); else { plan={...plan,vias:[]}; planChanged(false); } }
 function planFuel(radiusKm=defaultRadius()){
   if(!plan.route) return;
-  if(!allRows.some(p=>p.kind==='station')){ toast('ยังไม่มีข้อมูลปั๊มน้ำมัน ลองกด ↻ โหลดข้อมูลใหม่',5000); return; }
+  if(!allRows.some(p=>p.kind==='station')){ toast('ยังไม่มีข้อมูลปั๊มน้ำมัน ลองกด ↻ Pull ข้อมูลใหม่',5000); return; }
   plan={...plan,along:alongFor(plan.route,radiusKm)};
   alongLimit=ALONG_SHOW;
   planChanged(true);

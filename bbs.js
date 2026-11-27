@@ -108,7 +108,7 @@ async function openForm(id) {
     const info = forms.find((f) => f.id === id);
     let saved = await idb('readonly', (s) => s.get('form:' + id)).catch(() => null);
     if (!saved || (info && info.updated > saved.updated)) {
-        busy('กำลังดึงฟอร์มจาก Google Drive');
+        busy('กำลัง Pull ฟอร์มจาก Server');
         const res = await call({ action: 'form', id });
         saved = { buffer: fromBase64(res.data), name: res.name, updated: res.updated };
         await idb('readwrite', (s) => s.put(saved, 'form:' + id)).catch(() => {});
@@ -119,7 +119,7 @@ async function openForm(id) {
 }
 
 async function loadForms() {
-    busy('กำลังดึงรายชื่อหน่วยงานจาก Google Drive');
+    busy('กำลัง Pull รายชื่อหน่วยงานจาก Server');
     let problem = null;
     try {
         forms = (await call({ action: 'forms' })).forms;

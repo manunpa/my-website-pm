@@ -174,7 +174,7 @@ function buildChecked(j){
 async function load(){
   const dotEl = $('dot'), stTextEl = $('stText'), stTimeEl = $('stTime');
   if(dotEl) dotEl.className = 'dot'; 
-  if(stTextEl) stTextEl.textContent = 'กำลังอัปเดต...';
+  if(stTextEl) stTextEl.textContent = 'กำลัง Sync...';
   try{
     if(CONFIG.API_URL){
       // แนบ Firebase ID token ไปให้ Apps Script ตรวจ (apps-script/leo.gs) — URL เดิม ...XBkH3V ยังเปิดไว้ให้ my-web-p3
@@ -191,12 +191,12 @@ async function load(){
       ROWS = build(DEMO.split('\n').map(l => l.split('|'))); mode = 'demo';
     }
     if(dotEl) dotEl.className = 'dot ' + (mode === 'live' ? 'live' : 'demo');
-    if(stTextEl) stTextEl.textContent = mode === 'live' ? 'เชื่อมต่อ Google Sheets แล้ว' : 'ข้อมูลตัวอย่าง (ยังไม่ตั้งค่า API)';
-    if(stTimeEl) stTimeEl.textContent = '· อัปเดตล่าสุด ' + new Date().toLocaleString('th-TH', {dateStyle:'medium', timeStyle:'medium'});
+    if(stTextEl) stTextEl.textContent = mode === 'live' ? 'Synced กับ Server' : 'ข้อมูลตัวอย่าง (ยังไม่ได้เชื่อม Server)';
+    if(stTimeEl) stTimeEl.textContent = '· Synced ล่าสุด ' + new Date().toLocaleString('th-TH', {dateStyle:'medium', timeStyle:'medium'});
     fillSelects(); render();
   }catch(e){
     if(dotEl) dotEl.className = 'dot err';
-    if(stTextEl) stTextEl.textContent = 'อัปเดตไม่สำเร็จ: ' + e.message;
+    if(stTextEl) stTextEl.textContent = 'Sync failed: ' + e.message;
   }
 }
 function fillSelects(){

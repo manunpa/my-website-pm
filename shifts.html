@@ -90,7 +90,7 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 const CLS = { D: 'D', N: 'N', DO: 'DO', AL: 'AL', 'พร': 'V', 'ป': 'L', 'ก': 'L', 'ข': 'L' };
 
 // ตารางมาจาก shift-sync/sync.ps1 → apps-script/shifts.gs หน้านี้ดูอย่างเดียว
-let data = { title: 'กำลังโหลด...', days: [], week: [], people: [] };
+let data = { title: 'กำลัง Pull จาก Server…', days: [], week: [], people: [] };
 let rounds = []; // ใหม่สุดอยู่บน
 let changes = [];
 
@@ -251,7 +251,7 @@ $('tomorrow').onclick = async (e) => {
   dayTab = Number(day);
   const date = new Date(dayNow.getFullYear(), dayNow.getMonth(), dayNow.getDate() + dayTab);
   try { await fetchMonth(monthKey(date)); }
-  catch (err) { $('info').textContent = 'โหลดไม่สำเร็จ: ' + err.message; }
+  catch (err) { $('info').textContent = 'Pull failed: ' + err.message; }
   renderTomorrow();
 };
 $('t').onmouseover = (e) => { hover = spot(e); paint(); };
@@ -276,7 +276,7 @@ function show(res) {
   data = res.data || { title: "ยังไม่มีตาราง", days: [], week: [], people: [] };
   rounds = res.rounds;
   render();
-  $("info").textContent = res.version ? "บันทึกล่าสุด " + stamp(res.version) : "";
+  $("info").textContent = res.version ? "Synced ล่าสุด " + stamp(res.version) : "";
 }
 
 function fillMonths(keys, selected) {
@@ -301,7 +301,7 @@ async function loadTomorrow(available) {
     renderTomorrow(months, now);
   } catch (e) {
     $("tomorrow").hidden = false;
-    $("tomorrow").textContent = "โหลดสรุปกำลังพลไม่สำเร็จ: " + e.message;
+    $("tomorrow").textContent = "Pull สรุปกำลังพลไม่สำเร็จ: " + e.message;
   }
 }
 
@@ -316,14 +316,14 @@ async function start() {
     show(key ? await call({ action: "get", key }) : { rounds: [] });
     await loadTomorrow(months);
   } catch (e) {
-    $("info").textContent = "โหลดไม่สำเร็จ: " + e.message;
+    $("info").textContent = "Pull failed: " + e.message;
   }
 }
 
 $("month").onchange = async (e) => {
-  $("info").textContent = "กำลังโหลด...";
+  $("info").textContent = "กำลัง Pull จาก Server…";
   try { show(await call({ action: "get", key: e.target.value })); }
-  catch (err) { $("info").textContent = "โหลดไม่สำเร็จ: " + err.message; }
+  catch (err) { $("info").textContent = "Pull failed: " + err.message; }
 };
 
 // เจ้าของดูได้เสมอ คนอื่นดูได้เมื่อปลดล็อกแล้ว — เซิร์ฟเวอร์เป็นคนตัดสิน
