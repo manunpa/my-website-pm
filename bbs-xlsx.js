@@ -379,7 +379,8 @@ function fillReport(book, doc, report, style) {
     for (const [scc, rows] of byScc) {
         const v = data.get(scc) || { trips: [], rounds: [] };
         const extra = v.extra || []; // แผนเปลี่ยน/ยกเลิกงาน ลงคอลัมน์รายละเอียดพฤติกรรม
-        const need = Math.max(v.trips.length, v.rounds.length, extra.length, 2);
+        // พขร.2 ลงคอลัมน์ E แถวที่ 3 ใต้กลุ่มเสี่ยง
+        const need = Math.max(v.trips.length, v.rounds.length, extra.length, v.driver2 ? 3 : 2);
         // ข้อมูลเกินแถวของฟอร์ม → แทรกแถวใหม่ (รูปแบบเดียวกัน) ก่อนแถวสุดท้ายของคันนั้น
         // คันที่มีแค่ 2 แถวต้องต่อท้าย ไม่งั้นทะเบียน (แถวที่ 2) จะถูกดันลงไปล่างสุด
         const append = rows.length < 3;
@@ -405,6 +406,7 @@ function fillReport(book, doc, report, style) {
         for (const col of ['C', 'D']) style.sameFont(cellAt(rows[0], col), cellAt(rows[0], 'J'));
         setCell(doc, rows[0], 'E', v.driver || '');
         if (rows[1]) setCell(doc, rows[1], 'E', v.risk || '');
+        if (v.driver2) setCell(doc, rows[2], 'E', v.driver2);
         v.trips.forEach((t, i) => {
             setCell(doc, rows[i], 'F', t.ship || '');
             setCell(doc, rows[i], 'G', t.custId || '');

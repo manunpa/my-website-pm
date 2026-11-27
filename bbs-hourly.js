@@ -3,7 +3,7 @@
 // - รถ 1 คัน = แถวคู่ติดกัน (คู่ที่ 1 = พขร.1, คู่ที่ 2 = พขร.2) คั่นด้วยแถวว่าง
 // - เบอร์รถว่างได้: เป็นช่องรอเติมจากแผนงาน
 // - ชั่วโมง: ครบ 0-23 (ตำแหน่งตายตัว) หรือช่องเรียงต่อจากเวลาเริ่มกะ (หัวตารางเปลี่ยนตามกะ)
-import { openBook, els, colOf, rowNum, colName } from './bbs-xlsx.js?v=10';
+import { openBook, els, colOf, rowNum, colName } from './bbs-xlsx.js?v=11';
 
 const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const WATCH = 'เวลาที่ดู';

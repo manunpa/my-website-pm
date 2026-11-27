@@ -1,7 +1,7 @@
 import { requireLogin, fetchProtectedText, PRESENCE_URL, auth } from './firebase-guard.js?v=20261122-cut';
-import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=10';
-import { readPlans, vehicleNo, sccName, PEOPLE_FIELDS } from './bbs-plan.js?v=14';
-import { readHourly, buildHourly } from './bbs-hourly.js?v=8';
+import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=11';
+import { readPlans, vehicleNo, sccName, PEOPLE_FIELDS } from './bbs-plan.js?v=15';
+import { readHourly, buildHourly } from './bbs-hourly.js?v=9';
 import { readImage, parseShot, inShift } from './bbs-ocr.js?v=1';
 import { samePlace } from './bbs-match.js?v=1';
 import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
@@ -617,7 +617,10 @@ function titleOf(v, withPlate) {
     const paint = () => node.replaceChildren(...[
         v.scc + ' ',
         withPlate && v.plate ? el('span', { className: 'plate', textContent: v.plate }) : null,
-        ' ' + (v.driver || ''), historyBadge(v.driver)
+        ' ' + (v.driver || ''), historyBadge(v.driver),
+        // ฟอร์มรายชั่วโมงมีชื่อ พขร.2 เหนือตารางชั่วโมงอยู่แล้ว
+        !template?.hourly && v.driver2 ? ' / ' + v.driver2 : null,
+        !template?.hourly && v.driver2 ? historyBadge(v.driver2) : null
     ].filter(Boolean));
     paint();
     return { node, paint };
@@ -658,6 +661,7 @@ function vehicleRow(v) {
             v.changes?.length ? el('span', { className: 'changed', textContent: 'แผนเปลี่ยน' }) : null,
             el('span', { className: 'tally', textContent: v.rounds.length ? 'ตรวจ ' + v.rounds.length + ' รอบ' : 'ยังไม่ตรวจ' }),
             hideToggle(v)),
+        v.driver2 ? el('span', { className: 'mute second' }, 'พขร.2 ' + v.driver2, historyBadge(v.driver2)) : null,
         destinations(v),
         v.rounds.length ? el('span', { className: 'logs' }, ...byTime(v.rounds).map(roundLine)) : null);
 }
@@ -843,6 +847,7 @@ function vehiclePage(v) {
         const editing = v.rounds[openRound.get(v.scc)];
         const title = titleOf(v, true);
         const driver = input(v, 'driver', 'ชื่อ พขร.', { className: 'grow', onchange: () => title.paint() });
+        const driver2 = input(v, 'driver2', 'ชื่อ พขร.2 (ถ้ามี)', { className: 'grow', onchange: () => title.paint() });
         const info = el('details', { className: 'info', open: infoOpen },
             el('summary', { textContent: 'ข้อมูลคนขับและงาน (' + v.trips.length + ' งาน)' }),
             el('div', { className: 'line' },
@@ -850,6 +855,7 @@ function vehiclePage(v) {
                 input(v, 'risk', 'กลุ่มเสี่ยง เช่น L ปกติ'),
                 el('label', {}, 'GPS ', select(v, 'gps', 'สถานะ GPS', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']])),
                 el('label', {}, 'CCTV ', select(v, 'cctv', 'สถานะ CCTV', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']]))),
+            el('div', { className: 'line' }, driver2),
             ...v.trips.map((t, i) => tripView(v, t, i, redraw)),
             button('+ เพิ่มงาน', () => { note('นำเข้า', 'เพิ่มงาน', { scc: v.scc }); v.trips.push({ ship: '', custId: '', cust: '' }); save(); redraw(); }));
         info.addEventListener('toggle', () => { infoOpen = info.open; });
@@ -909,7 +915,7 @@ function render() {
     const q = $('search').value.trim().toLowerCase();
     // เรียงตามเบอร์รถ (คันที่มีงานก่อน)
     const shown = report.vehicles.filter((v) => (q
-        ? [v.scc, v.plate, v.driver].join(' ').toLowerCase().includes(q)
+        ? [v.scc, v.plate, v.driver, v.driver2].join(' ').toLowerCase().includes(q)
         : $('show-all').checked || hasWork(v)))
         .sort((x, y) => Number(!hasWork(x)) - Number(!hasWork(y)) ||
             x.scc.localeCompare(y.scc, undefined, { numeric: true }));
@@ -986,6 +992,8 @@ async function importPlans(files) {
     }
     const matched = [...vehicles].filter(([no]) => mine.has(no)).map(([no, item]) => {
         const v = mine.get(no);
+        // ฟอร์มรายรอบ: พขร.2 ส่วนใหญ่พิมพ์เอง แผนที่ไม่มีคนที่ 2 ต้องไม่ลบชื่อที่พิมพ์ไว้
+        if (!template.hourly && !item.driver2) delete item.driver2;
         const fresh = !v.trips.length; // ยังไม่เคยมีงาน = งานใหม่ ไม่นับเป็นการเปลี่ยน
         // สถานะ/คนที่ 3 เปลี่ยนอย่างเดียวก็ต้องอัปเดต
         const people = !fresh && ['driver2', ...PEOPLE_FIELDS].some((k) => item[k] !== undefined && item[k] !== (v[k] || ''));

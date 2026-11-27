@@ -172,7 +172,8 @@ function writeRounds_(key, report) {
     }
     v.rounds.forEach(function (r) {
       const marks = Object.keys(r.marks || {});
-      rows.push([key, report.formName || '', report.date, report.shift, v.scc, v.plate, v.driver, r.time, r.place,
+      rows.push([key, report.formName || '', report.date, report.shift, v.scc, v.plate,
+        [v.driver, v.driver2].filter(Boolean).join(' / '), r.time, r.place,
         marks.filter(function (c) { return r.marks[c] === 'P'; }).join(' '),
         marks.filter(function (c) { return r.marks[c] === 'O'; }).join(' '),
         r.note || ''].map(safe_));
