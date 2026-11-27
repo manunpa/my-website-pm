@@ -2,13 +2,14 @@
 // - คอลัมน์ป้ายแถว: ที่มีคำว่า "เวลาที่ดู / ผลการตรวจสอบ"
 // - รถ 1 คัน = แถวคู่ติดกัน (คู่ที่ 1 = พขร.1, คู่ที่ 2 = พขร.2) คั่นด้วยแถวว่าง
 // - เบอร์รถว่างได้: เป็นช่องรอเติมจากแผนงาน
-// - ฟอร์ม RSC (Other Brand): เบอร์รถอยู่แถว "Driving Pattern" เหนือคู่แถว มีรูธงาน เวลารับงาน และกลุ่มเสี่ยง
+// - ฟอร์ม RSC (Other Brand, TOYOTA): เบอร์รถอยู่แถว "Driving Pattern" เหนือคู่แถว มีรูธงาน เวลารับงาน และกลุ่มเสี่ยง
 // - ชั่วโมง: ครบ 0-23 (ตำแหน่งตายตัว) หรือช่องเรียงต่อจากเวลาเริ่มกะ (หัวตารางเปลี่ยนตามกะ)
 import { openBook, els, colOf, rowNum, colName } from './bbs-xlsx.js?v=11';
 
 const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const WATCH = 'เวลาที่ดู';
 const HEAD = 'Driving Pattern';
+const BLANK = /^(แบบ)?ฟอร์ม$/; // ชีตเปล่าของฟอร์ม RSC
 // รหัสผลของฟอร์ม RSC ที่รู้ความหมาย เรียงตามที่ใช้บ่อย
 const RSC_RESULTS = [['OK', 'ขับขี่ปกติ'], ['NG', 'ผิดปกติ / เสี่ยง / ละเมิดกฎ'], ['P', 'จุดพัก / จอดพัก'],
     ['B', 'จอดนอน / พักบนรถ'], ['พ', 'จอดพัก'], ['ป', 'เปลี่ยนมือ'], ['D', 'ดีลเลอร์ / ลูกค้า'], ['Y', 'หน่วยงาน SCA']];
@@ -98,15 +99,16 @@ function readLayout(book, doc) {
 
     // ส่วนที่มีเฉพาะฟอร์ม RSC
     const route = find(/รูธงาน/)?.col;
-    const jobTime = find(/เวลารับงาน/)?.col;
-    const abnormal = head.find((x) => x.text === 'บันทึกความผิดปกติ')?.col;
+    const jobTime = find(/เวลารับงาน|เวลาออก/);
+    const abnormal = head.find((x) => /^(บันทึกความผิดปกติ|หมายเหตุ\s*OK)/.test(x.text))?.col;
+    const adas = head.find((x) => x.text === 'ADAS-DMS')?.col;
     // ชื่อผู้ Monitor ของแต่ละกะ อยู่ถัดจากป้ายกะ
     const monitors = { day: after(/^กะกลางวัน/), night: after(/^กะกลางคืน/) };
     // รหัสผลในคำอธิบายหัวฟอร์ม (แถว 2-3) รวมตัวเดียวและตัวไทย เช่น P, พ, MMTh
     const keys = [...new Set(head.filter((x) => rowNum(x.row) <= 3 && /^([A-Za-z]{1,6}|พ|ป)$/.test(x.text)).map((x) => x.text))];
 
     return { label, car, driver, status, rest, trips, hourCells, hourRow, fixed, codes, gps, cctv, number, title, heading,
-        route, jobTime, abnormal, monitors, keys };
+        route, jobTime: jobTime?.col, jobLabel: jobTime?.text.replace(/\s+/g, ' '), abnormal, adas, monitors, keys };
 }
 
 // แถวของรถแต่ละคัน: แถวป้ายที่ต่อเนื่องกัน (เจอเบอร์รถใหม่ = คันถัดไป)
@@ -149,12 +151,13 @@ async function pickSheet(book) {
         if (!blocks.length) continue;
         const found = { name, path, doc, layout, blocks };
         // ฟอร์ม RSC: แท็บรายวันมีคันซ้ำได้ ใช้ชีต "ฟอร์ม" ที่ว่างเป็นต้นแบบ
-        if (blocks[0].head && name !== 'ฟอร์ม' && (await sheetNames(book)).includes('ฟอร์ม')) {
-            const blankPath = await sheetPathOf(book, 'ฟอร์ม');
+        const blankName = blocks[0].head && !BLANK.test(name) && (await sheetNames(book)).find((n) => BLANK.test(n));
+        if (blankName) {
+            const blankPath = await sheetPathOf(book, blankName);
             const blank = await book.read(blankPath);
             const blankLayout = readLayout(book, blank);
             const blankBlocks = blankLayout ? findBlocks(book, blank, blankLayout) : [];
-            if (blankBlocks[0]?.head) return { name: 'ฟอร์ม', path: blankPath, doc: blank, layout: blankLayout, blocks: blankBlocks };
+            if (blankBlocks[0]?.head) return { name: blankName, path: blankPath, doc: blank, layout: blankLayout, blocks: blankBlocks };
         }
         if (blocks.some((b) => b.rows.length >= 4)) return found;
         fallback ||= found;
@@ -196,13 +199,44 @@ async function readUnits(book) {
     return [...units.values()];
 }
 
+// คำอธิบายรหัสบนหัวฟอร์ม RSC: แต่ละรหัสมีสีของตัวเอง และความหมายคือข้อความถัดไปในแถวเดียวกัน
+// รหัสเดียวกันคนละสี = คนละความหมาย (เช่น LCB จุดรับสินค้า กับ LCB ดีลเลอร์)
+function paletteOf(book, doc, styles) {
+    const KEY = /^([A-Za-z]{1,6}|พ|ป)$/;
+    const fills = els(els(styles, 'fills')[0], 'fill');
+    const xfs = els(els(styles, 'cellXfs')[0], 'xf');
+    const colorOf = (cell) => {
+        const fill = fills[Number(xfs[Number(cell.getAttribute('s') || 0)]?.getAttribute('fillId') || 0)];
+        const pattern = fill && els(fill, 'patternFill')[0];
+        const front = pattern?.getAttribute('patternType') === 'solid' && els(pattern, 'fgColor')[0];
+        const rgb = front ? (front.getAttribute('rgb') || '').slice(-6).toLowerCase() : '';
+        return rgb && rgb !== 'ffffff' ? '#' + rgb : '';
+    };
+    const found = [];
+    for (const row of els(doc, 'row').filter((r) => rowNum(r) === 2 || rowNum(r) === 3)) {
+        let waiting = [];
+        for (const cell of els(row, 'c')) {
+            const text = book.value(cell).trim();
+            if (!text) continue;
+            if (KEY.test(text)) { waiting.push({ code: text, color: colorOf(cell) }); continue; }
+            const meaning = text.replace(/\s+/g, ' ');
+            for (const item of waiting) {
+                if (!found.some((x) => x.code === item.code && x.color === item.color)) found.push({ ...item, meaning });
+            }
+            waiting = [];
+        }
+    }
+    return found;
+}
+
 /** คืน null ถ้าไฟล์ไม่ใช่ฟอร์มแบบรายชั่วโมง */
 export async function readHourly(buffer) {
     const book = await openBook(buffer);
     const sheet = await pickSheet(book);
     if (!sheet) return null;
     const { layout } = sheet;
-    const legend = legendOf(book, sheet.doc, await book.read('xl/styles.xml'));
+    const styles = await book.read('xl/styles.xml');
+    const legend = legendOf(book, sheet.doc, styles);
     const codesOf = (kind) => [...new Set(legend.filter((x) => x.kind === kind).map((x) => x.code))];
     const rsc = !!sheet.blocks[0].head;
     const known = (list) => list.filter(([code]) => layout.keys.includes(code));
@@ -213,6 +247,9 @@ export async function readHourly(buffer) {
     return {
         rsc,
         risks: rsc ? await readRisk(book) : [],
+        palette: rsc ? paletteOf(book, sheet.doc, styles) : [],
+        adas: rsc && !!layout.adas,
+        jobLabel: layout.jobLabel || '',
         // สีปุ่มบนเว็บตามหัวฟอร์ม (รหัสที่ไม่ได้อยู่ในกลุ่มคลัง/หน่วยงาน)
         colors: Object.fromEntries(legend.filter((x) => !x.kind && x.color).map((x) => [x.code, x.color])),
         groups: [['depot', 'คลังน้ำมัน', codesOf('depot')], ['unit', 'หน่วยงาน', codesOf('unit')]].filter((g) => g[2].length),
@@ -468,6 +505,10 @@ function fill(book, doc, layout, blocks, report, paint, driverCol) {
         const v = (rsc ? assigned.get(block) : !written.has(plate) && data.get(plate)) || { trips: [], rounds: [] };
         written.add(plate);
         const top = head?.[0] || rows[0];
+        const before = new Map(); // ผลเดิมในช่อง ใช้ดูว่าต้องลงสีใหม่ไหม
+        if (rsc && !block.added) {
+            for (const r of rows) for (const x of layout.hourCells) before.set(rowNum(r) + x.col, textOf(book, r, x.col));
+        }
         for (const r of [...(head || []), ...rows]) {
             // รูธบรรทัดที่สอง (แถวผลการตรวจ) ของชุดเดิมคงไว้
             const second = rsc && !block.added && (r === rows[1] || r === rows[3]);
@@ -483,7 +524,7 @@ function fill(book, doc, layout, blocks, report, paint, driverCol) {
         }
         const mark = (s) => (s === 'ปกติ' ? 'OK' : s === 'ไม่ปกติ' ? 'NG' : '');
         // ฟอร์ม RSC เป็นช่องติ๊ก: ยังไม่ได้เลือกให้คงค่าของฟอร์มไว้
-        for (const [col, state] of [[layout.gps, v.gps], [layout.cctv, v.cctv]]) {
+        for (const [col, state] of [[layout.gps, v.gps], [layout.cctv, v.cctv], [rsc && layout.adas, v.adas]]) {
             if (!col) continue;
             if (!rsc) setCell(doc, top, col, mark(state));
             else if (state) setCell(doc, top, col, state === 'ปกติ');
@@ -519,7 +560,7 @@ function fill(book, doc, layout, blocks, report, paint, driverCol) {
             const time = watched(r.time);
             setCell(doc, rows[at], col, rsc && time ? Number(time) : time); // ฟอร์ม RSC เก็บเวลาเป็นตัวเลข
             setCell(doc, rows[at + 1], col, r.place || '');
-            paint(cellAt(rows[at + 1], col), r.place || '', r.group, r.color);
+            if (before.get(rowNum(rows[at + 1]) + col) !== (r.place || '')) paint(cellAt(rows[at + 1], col), r.place || '', r.group, r.color);
             const text = r.note && r.hour + ' น. ' + r.note;
             if (text && !String(v.abnormal || '').includes(text)) notes.push(text);
             if (rsc && r.detail) comments.push({ ref: col + rowNum(rows[at + 1]), text: r.detail });
@@ -660,7 +701,7 @@ export async function buildHourly(buffer, report, { prior } = {}) {
     if (!rsc && /^\d{1,2}$/.test(sheet.name.trim())) await keepOnly(book, sheet.name, report.date.slice(8));
     if (rsc) {
         // เก็บชีตอ้างอิง (สูตรกลุ่มเสี่ยงใช้) ลบแท็บวันอื่น แล้วเปลี่ยน "ฟอร์ม" เป็นวันของรายงาน
-        await keepOnly(book, sheet.name, report.date.slice(8), (name) => /^(\d{1,2}|ฟอร์ม)$/.test(name.trim()));
+        await keepOnly(book, sheet.name, report.date.slice(8), (name) => /^\d{1,2}$/.test(name.trim()) || BLANK.test(name.trim()));
         // สูตรกลุ่มเสี่ยงมีค่าเก่าค้าง ให้ Excel คำนวณใหม่ตอนเปิด
         const wb = await book.read('xl/workbook.xml');
         const calc = els(wb, 'calcPr')[0];

@@ -1,12 +1,12 @@
 import { requireLogin, fetchProtectedText, PRESENCE_URL, auth } from './firebase-guard.js?v=20261122-cut';
 import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=11';
 import { readPlans, vehicleNo, sccName, PEOPLE_FIELDS } from './bbs-plan.js?v=17';
-import { readHourly, buildHourly, baseCar, plainName } from './bbs-hourly.js?v=14';
-import { readPrior } from './bbs-prior.js?v=2';
+import { readHourly, buildHourly, baseCar, plainName } from './bbs-hourly.js?v=15';
+import { readPrior } from './bbs-prior.js?v=3';
 import { readImage, parseShot, readGps, inShift } from './bbs-ocr.js?v=3';
 import { samePlace } from './bbs-match.js?v=1';
 import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
-import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=7';
+import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=8';
 import { destList, diffPlan, mergeChanges, describe, roundsChanged } from './bbs-diff.js?v=2';
 import { HISTORY_URL, nameKey, indexHistory, thaiDate } from './bbs-history.js?v=1';
 import { createLog } from './bbs-log.js?v=1';
@@ -763,10 +763,11 @@ function hourlyPage(v) {
             template.rsc ? null : el('label', { className: 'field grow' }, 'พขร.3', driverInput(v, 'driver3', 'ชื่อ พขร.3 (ถ้ามี)', () => redraw()))),
         ...(template.rsc ? [['', '1'], ['2', '2']].map(([n, who]) => el('div', { className: 'line' },
             el('label', { className: 'field grow' }, 'รูธงาน พขร.' + who, input(v, 'route' + n, 'รูธงาน พขร.' + who)),
-            el('label', { className: 'field' }, 'เวลารับงานจริง (ที่ VL)', input(v, 'jobTime' + n, 'เวลารับงาน พขร.' + who, { type: 'time' })))) : []),
+            el('label', { className: 'field' }, template.jobLabel || 'เวลารับงาน', input(v, 'jobTime' + n, 'เวลารับงาน พขร.' + who, { type: 'time' })))) : []),
         el('div', { className: 'line' },
             el('label', {}, 'GPS ', select(v, 'gps', 'สถานะ GPS', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']])),
             el('label', {}, 'CCTV ', select(v, 'cctv', 'สถานะ CCTV', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']])),
+            template.adas ? el('label', {}, 'ADAS-DMS ', select(v, 'adas', 'สถานะ ADAS-DMS', [['', '-'], ['ปกติ', 'ปกติ'], ['ไม่ปกติ', 'ไม่ปกติ']])) : null,
             input(v, 'remark', 'หมายเหตุแผน', { className: 'grow' })),
         destinations(v, redraw),
         el('h3', { textContent: 'งานตามแผน' }),
@@ -813,7 +814,7 @@ function editHour(v, hour, who) {
     // หารถใหม่ตอนกด: ระหว่างเปิดหน้าต่างรายงานอาจถูกโหลดใหม่
     const car = () => report.vehicles.find((x) => x.scc === v.scc);
     const done = () => { save(); $('hour-dialog').close(); render(); };
-    const set = (place, group) => {
+    const set = (place, group, picked) => {
         const detail = template.rsc ? $('hour-detail').value.trim() : '';
         if (template.rsc && place === 'NG' && !$('hour-note').value.trim()) {
             $('hour-error').hidden = false;
@@ -821,7 +822,7 @@ function editHour(v, hour, who) {
             return;
         }
         // สีของตัวเลือกที่เก็บเองติดไปกับช่อง เครื่องอื่นและไฟล์ส่งออกจึงเห็นสีเดียวกัน
-        const color = choices().find((x) => x.code === place)?.color || (old?.place === place ? old.color : '');
+        const color = picked ?? (choices().find((x) => x.code === place)?.color || (old?.place === place ? old.color : ''));
         // id ตามช่อง: สองเครื่องลงช่องเดียวกันจะเหลืออันที่แก้ล่าสุด
         const entry = {
             id: 'h' + who + '-' + hour, type: 'hour', hour, who, place, ...(group ? { group } : {}), ...(color ? { color } : {}),
@@ -858,8 +859,30 @@ function editHour(v, hour, who) {
     // ลูกค้าแยกเป็น C1, C2 ... : เริ่มเท่าจำนวนปลายทาง (หรือเลขสูงสุดที่เคยลง) กด + เพิ่มได้
     const names = destNames(v);
     let customers = Math.max(1, names.length, ...v.rounds.map((r) => Number(/^C(\d+)$/.exec(r.place)?.[1] || 0)));
+    // ฟอร์ม RSC: ปุ่มตามคำอธิบายบนหัวฟอร์ม รหัสที่ใช้ร่วมความหมายเดียวกันอยู่ใต้หัวข้อนั้น
+    const legendButtons = () => {
+        const meanings = [...new Set(template.palette.map((x) => x.meaning))];
+        const of = (meaning) => template.palette.filter((x) => x.meaning === meaning);
+        const twice = (code) => template.palette.filter((x) => x.code === code).length > 1;
+        const pick = ({ code, color, meaning }, caption) => {
+            const chosen = old?.place === code && (!twice(code) || (old.color || '') === color);
+            const node = el('button', { type: 'button', title: meaning, onclick: () => set(code, undefined, color),
+                className: 'btn result' + (chosen ? ' primary' : '') }, el('b', { textContent: code }),
+            caption ? el('small', { textContent: caption }) : null);
+            node.setAttribute('aria-label', code + ' ' + meaning);
+            if (color) { node.classList.add('tinted'); node.style.setProperty('--c', color); }
+            return node;
+        };
+        return [
+            ...meanings.filter((m) => of(m).length === 1)
+                .map((m) => pick(of(m)[0], twice(of(m)[0].code) ? m.split(/[,\s]+/)[0].replace(/^การจอดที่ไม่ใช่.*/, 'จอดผิดจุด') : '')),
+            ...meanings.filter((m) => of(m).length > 1)
+                .flatMap((m) => [el('small', { className: 'grouphead', textContent: m }), ...of(m).map((x) => pick(x))])
+        ];
+    };
     const drawResults = () => $('hour-results').replaceChildren(
-        ...template.results.filter(([code]) => code !== 'C' && !grouped.has(code)).map(([code, label]) => result(code, label)),
+        ...(template.palette?.length ? legendButtons()
+            : template.results.filter(([code]) => code !== 'C' && !grouped.has(code)).map(([code, label]) => result(code, label))),
         ...(template.rsc ? [] : [
             ...Array.from({ length: customers }, (_, i) => result('C' + (i + 1), '')),
             el('button', { type: 'button', className: 'btn result', title: 'เพิ่มลูกค้า', onclick: () => { customers++; drawResults(); } },
@@ -1084,7 +1107,7 @@ async function knownVehicles() {
 
 // ===== ฟอร์มรายชั่วโมง: กะเป็นแค่ช่วงของคนดู แผนและชื่อ พขร. นับทั้งวัน จึงใส่ให้อีกกะของวันเดียวกันด้วย =====
 const DAY_FIELDS = ['plate', 'driver', 'driver2', 'driver3', 'risk', 'remark', 'trips', 'changes',
-    'status', 'rest', 'status2', 'rest2', 'status3', 'rest3', 'route', 'route2', 'jobTime', 'jobTime2'];
+    'status', 'rest', 'status2', 'rest2', 'status3', 'rest3', 'route', 'route2', 'jobTime', 'jobTime2', 'adas'];
 
 async function shareDay(cars, fields) {
     if (!template.hourly || template.rsc || !cars.length) return; // RSC มีรายงานเดียวต่อวัน
@@ -1302,7 +1325,7 @@ async function importPrior(file) {
         if (!v) doc.vehicles.push(v = emptyVehicle({ scc: car.scc, plate: '', driver: '', risk: '' }));
         const [first = {}, second = {}] = car.people;
         const values = { driver: first.driver, route: first.route, jobTime: first.jobTime, driver2: second.driver,
-            route2: second.route, jobTime2: second.jobTime, gps: car.gps, cctv: car.cctv, abnormal: car.abnormal };
+            route2: second.route, jobTime2: second.jobTime, gps: car.gps, cctv: car.cctv, adas: car.adas, abnormal: car.abnormal };
         for (const [k, value] of Object.entries(values)) if (value) v[k] = value;
         v.prior = true;
         v.pinned = true;
@@ -1310,7 +1333,10 @@ async function importPrior(file) {
         for (const r of rounds) {
             const id = 'h' + r.who + '-' + r.hour;
             if (v.rounds.some((x) => x.id === id)) continue; // ที่ลงบนเว็บแล้วไม่ทับ
+            // สีของรหัสที่มีหลายความหมาย อ่านจากสีช่องในไฟล์
+            const color = template.palette?.some((x) => x.code === r.place && x.color === r.fill) ? r.fill : '';
             v.rounds.push({ id, type: 'hour', hour: r.hour, who: r.who, place: r.place, time: r.time ? r.time + ':00' : '',
+                ...(color ? { color } : {}),
                 note: '', ...(r.detail ? { detail: r.detail } : {}), marks: {}, quiet: true });
         }
     };

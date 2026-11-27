@@ -2,6 +2,7 @@
 // แท็บ 1 วัน = ชั่วโมง 0-23 ของวันปฏิทินนั้น ชื่อแท็บ = วันที่ ส่วนเดือน/ปีอยู่ในชื่อไฟล์ ("11 เดือน พฤศจิกายน ... 2569")
 import { openBook, els, colOf, rowNum } from './bbs-xlsx.js?v=11';
 
+
 const ODS_TABLE = 'urn:oasis:names:tc:opendocument:xmlns:table:1.0';
 const ODS_TEXT = 'urn:oasis:names:tc:opendocument:xmlns:text:1.0';
 const ODS_OFFICE = 'urn:oasis:names:tc:opendocument:xmlns:office:1.0';
@@ -56,7 +57,11 @@ async function xlsxGrid(buffer, pick) {
     for (const row of els(await book.read(path), 'row')) {
         for (const c of els(row, 'c')) {
             const text = book.value(c).trim();
-            if (text) at(rowNum(row), colNum(colOf(c))).text = text;
+            if (!text) continue;
+            const cell = at(rowNum(row), colNum(colOf(c)));
+            cell.text = text;
+            const rgb = book.look(c).fill;
+            cell.color = /^[0-9a-f]{6}$/i.test(rgb) ? '#' + rgb.toLowerCase() : '';
         }
     }
     const relsPath = path.replace(/([^/]+)$/, '_rels/$1.rels');
@@ -116,6 +121,12 @@ function clock(text) {
     return m && Number(m[1]) < 24 && Number(m[2]) < 60 ? two(m[1]) + ':' + m[2] : '';
 }
 
+// แถว "เวลาที่ดู" พิมพ์เป็นตัวเลข ชม.นาที เสมอ (0.1 = 00:10) ยกเว้นทศนิยมยาวที่เป็นเวลาของ Excel
+function watchTime(text) {
+    const n = Number(text);
+    return n > 0 && n < 1 && Math.abs(n * 100 - Math.round(n * 100)) < 1e-6 ? clock(n.toFixed(2).replace('.', ':')) : clock(text);
+}
+
 /** @returns {{sheet:string, date:string, cars:object[]}} cars = คันละ 1 ชุดแถวตามลำดับในแท็บ */
 export async function readPrior(file, date) {
     const buffer = await file.arrayBuffer();
@@ -130,8 +141,10 @@ export async function readPrior(file, date) {
     const find = (re) => columns(header[1], re);
     const cols = {
         car: find(/^หมายเลขรถ/), gps: find(/MDVR/), driver: find(/ชื่อคนขับ/) + 1, route: find(/รูธงาน/),
-        jobTime: find(/เวลารับงาน/), label: find(/สถานะ\s*การติดตาม/), abnormal: find(/บันทึกความผิดปกติ/)
+        jobTime: find(/เวลารับงาน|เวลาออก/), label: find(/สถานะ\s*การติดตาม/), abnormal: find(/บันทึกความผิดปกติ|หมายเหตุ\s*OK/)
     };
+    // ADAS-DMS อยู่ในหัวแถวที่สอง (มีเฉพาะฟอร์ม TOYOTA)
+    const adas = columns(grid.rows.get(header[0] + 1) || new Map(), /^ADAS/);
 
     const cars = [];
     let car = null;
@@ -141,7 +154,7 @@ export async function readPrior(file, date) {
         if (label === 'Driving Pattern') {
             const no = /SC\s*\d{3}[^\n]*/i.exec(text(cols.car))?.[0].replace(/\s+/g, ' ').trim() || '';
             const flag = (value) => (/^(1|true|ok)$/i.test(value) ? 'ปกติ' : /^(0|false|ng)$/i.test(value) ? 'ไม่ปกติ' : '');
-            car = { car: no, gps: flag(text(cols.gps)), cctv: flag(text(cols.gps + 1)), people: [], rounds: [], abnormal: '', pairs: 0 };
+            car = { car: no, gps: flag(text(cols.gps)), cctv: flag(text(cols.gps + 1)), adas: adas ? flag(text(adas)) : '', people: [], rounds: [], abnormal: '', pairs: 0 };
             if (no) cars.push(car);
         }
         if (!car) continue;
@@ -159,8 +172,11 @@ export async function readPrior(file, date) {
             if (!cell || !(cell.text || cell.note)) continue;
             let round = car.rounds.find((r) => r.who === car.pairs && r.hour === hour);
             if (!round) car.rounds.push(round = { who: car.pairs, hour, time: '', place: '', detail: '' });
-            if (watch) round.time = clock(cell.text);
-            else round.place = cell.text;
+            if (watch) round.time = watchTime(cell.text);
+            else {
+                round.place = cell.text;
+                round.fill = cell.color || '';
+            }
             if (cell.note) round.detail = [round.detail, cell.note].filter(Boolean).join(' · ');
         }
     }
