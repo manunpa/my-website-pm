@@ -142,17 +142,18 @@ body.detail #setup,body.detail .tools{display:none}
 .save-state small{display:block;font-size:12.5px;color:var(--mute);line-height:1.4;overflow-wrap:anywhere}
 .cloud{display:inline-flex;flex:none;color:var(--ok)}
 .cloud svg{width:30px;height:30px;overflow:visible}
-.save-state.wait .cloud{color:#b07400}.save-state.send .cloud{color:#2563c9}.save-state.bad .cloud{color:var(--no)}
-:root[data-theme=dark] .save-state.send .cloud{color:#6ea8ff}
+.save-state.wait .cloud{color:#b07400}.save-state.send .cloud,.save-state.load .cloud{color:#2563c9}.save-state.bad .cloud{color:var(--no)}
+:root[data-theme=dark] .save-state.send .cloud,:root[data-theme=dark] .save-state.load .cloud{color:#6ea8ff}
 .save-state.bad b{color:var(--no)}
 .cloud .d1,.cloud .d2,.cloud .d3{animation:stack 1.5s ease-in-out infinite}.cloud .d2{animation-delay:.15s}.cloud .d3{animation-delay:.3s}
-.cloud .arrow{animation:rise 1s ease-in-out infinite}
+.cloud .arrow{animation:rise 1s ease-in-out infinite}.cloud .arrow.down{animation-name:fall}
 .cloud .pop{transform-origin:12px 12px;animation:pop .45s ease-out}
 .cloud .check{stroke-dasharray:12;animation:check .5s ease-out both}
 .cloud .off{transform-origin:12px 12px;animation:shake .4s ease-in-out .35s 2}
 .cloud .slash{stroke-dasharray:26;animation:slash .4s ease-out both}
 @keyframes stack{0%,60%,100%{transform:translateY(0);opacity:1}30%{transform:translateY(-1.8px);opacity:.55}}
 @keyframes rise{0%{transform:translateY(4px);opacity:0}40%{opacity:1}100%{transform:translateY(-3px);opacity:0}}
+@keyframes fall{0%{transform:translateY(-4px);opacity:0}40%{opacity:1}100%{transform:translateY(3px);opacity:0}}
 @keyframes pop{0%{transform:scale(.7)}60%{transform:scale(1.15)}100%{transform:scale(1)}}
 @keyframes check{from{stroke-dashoffset:12}to{stroke-dashoffset:0}}
 @keyframes slash{from{stroke-dashoffset:26}to{stroke-dashoffset:0}}
@@ -374,6 +375,6 @@ dialog em{font-style:normal;color:var(--no)}
   });
 })();
 </script>
-<script type="module" src="./bbs.js?v=70"></script>
+<script type="module" src="./bbs.js?v=71"></script>
 </body>
 </html>

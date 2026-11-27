@@ -173,6 +173,7 @@ const CLOUD = 'M7 18a4.5 4.5 0 0 1-.4-9A6 6 0 0 1 18 10a4 4 0 0 1 0 8';
 const STATE_ART = {
     wait: '<ellipse class="d1" cx="12" cy="6" rx="8" ry="3"/><path class="d2" d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path class="d3" d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
     send: '<path d="' + CLOUD + 'h-1M7 18h1"/><path class="arrow" d="M12 21v-8M9 16l3-3 3 3"/>',
+    load: '<path d="' + CLOUD + 'h-1M7 18h1"/><path class="arrow down" d="M12 13v8M9 18l3 3 3-3"/>',
     done: '<g class="pop"><path d="' + CLOUD + 'M7 18h3"/><path class="check" d="M13 18l2.5 2.5L20 16"/></g>',
     bad: '<g class="off"><path d="' + CLOUD + 'M7 18h11"/><path class="slash" d="M3 3l18 18"/></g>'
 };
@@ -187,7 +188,7 @@ function stateIcon(kind) {
 
 function status(text, bad = false, title = '') {
     const wait = !bad && /รอคิว|กำลัง/.test(text);
-    const kind = bad ? 'bad' : !wait ? 'done' : title === 'Cached' ? 'wait' : 'send';
+    const kind = bad ? 'bad' : !wait ? 'done' : title === 'Cached' ? 'wait' : title === 'Loading' ? 'load' : 'send';
     $('status').className = 'save-state ' + kind;
     stateIcon(kind);
     $('status').hidden = !text;
