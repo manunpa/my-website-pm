@@ -32,11 +32,11 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
-<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#f4f7fb;--panel:#fff;--panel2:#f8fafc;--text:#182230;--muted:#718096;--border:#e5eaf1;--accent:#4776ff;--accent2:#8b5cf6;--shadow:0 8px 28px #1d355710;--top:#ffffffeb;--map-filter:none}
 body.dark{--bg:#0b1220;--panel:#111b2b;--panel2:#162235;--text:#e8eef8;--muted:#91a0b8;--border:#26354a;--accent:#6d91ff;--accent2:#b08cff;--shadow:0 8px 28px #0004;--top:#111b2beF}
-*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;font-family:Inter,Kanit,sans-serif;background:var(--bg);color:var(--text);overflow:hidden}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;font-family:var(--font);background:var(--bg);color:var(--text);overflow:hidden}
 button,input{font:inherit}button{cursor:pointer}
 .app{height:100dvh;display:flex;flex-direction:column}
 .topbar{height:78px;flex:0 0 78px;background:var(--top);backdrop-filter:blur(18px);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:22px;padding:0 24px;z-index:1000}
@@ -112,9 +112,9 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 .legend-dot{width:8px;height:8px;border-radius:50%;background:#4776ff}
 .legend-dot.cluster{background:#8b5cf6}
 .coordinates{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;flex-shrink:0}
-.leaflet-container{font-family:Inter,Kanit,sans-serif}
+.leaflet-container{font-family:var(--font)}
 .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--panel);color:var(--text)}
-.leaflet-popup-content{font-family:Inter,Kanit,sans-serif;font-size:12px}
+.leaflet-popup-content{font-family:var(--font);font-size:12px}
 .popup-title{font-weight:700;margin-bottom:5px}
 .popup-coord{font-size:10px;color:var(--muted)}
 .ptt-detail{font-size:11px;line-height:1.45;margin:2px 0 6px}
@@ -139,7 +139,7 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 /* ป้ายระยะทางบนเส้นประ (5 จุดที่ใกล้ที่สุด) */
 .distlabel-wrap{background:none;border:0;width:0!important;height:0!important}
 .distlabel{position:absolute;left:0;top:0;transform:translate(-50%,-50%);white-space:nowrap;padding:1px 6px;border-radius:8px;
-  font:600 10px/1.5 Inter,Kanit,sans-serif;font-variant-numeric:tabular-nums;color:#4776ff;background:var(--panel);border:1px solid #4776ff66;box-shadow:0 1px 4px #0002;pointer-events:none}
+  font:600 10px/1.5 var(--font);font-variant-numeric:tabular-nums;color:#4776ff;background:var(--panel);border:1px solid #4776ff66;box-shadow:0 1px 4px #0002;pointer-events:none}
 .distlabel.first{color:#fff;background:#e05260;border-color:#e05260;font-size:11px}
 /* อันดับ 2 = สีเหลือง (ตัวอักษรเข้มให้อ่านง่ายบนพื้นเหลือง) */
 .distlabel.second{color:#3d2e00;background:#f2b705;border-color:#d9a300;font-size:10.5px}
@@ -181,7 +181,7 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 .stpin div{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;border:2px solid #fff;box-shadow:0 2px 4px #0005;box-sizing:border-box}
 .stpin svg{display:block}
 .stcluster{background:none;border:0}
-.stcluster div{display:flex;align-items:center;justify-content:center;gap:2px;border-radius:50%;background:#0f2f3d;color:#fff;font:700 11px/1 Inter,Kanit,sans-serif;border:3px solid #00a3e0;box-shadow:0 0 0 4px #00a3e033,0 2px 6px #0005;box-sizing:border-box}
+.stcluster div{display:flex;align-items:center;justify-content:center;gap:2px;border-radius:50%;background:#0f2f3d;color:#fff;font:700 11px/1 var(--font);border:3px solid #00a3e0;box-shadow:0 0 0 4px #00a3e033,0 2px 6px #0005;box-sizing:border-box}
 .stcluster b{font-size:10px;font-weight:400}
 .layercard{text-align:left;cursor:pointer;font:inherit;color:inherit;transition:.15s;border-width:1.5px}
 .layercard:hover{border-color:var(--accent)}
@@ -215,12 +215,12 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 .popbtn:hover{border-color:var(--accent)}
 .leaflet-container a.popbtn.primary,.popbtn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .marker-cluster-small,.marker-cluster-medium,.marker-cluster-large{background-color:#4776ff30}
-.marker-cluster-small div,.marker-cluster-medium div,.marker-cluster-large div{background:linear-gradient(135deg,#4776ff,#8b5cf6);color:white;font-family:Inter,sans-serif;font-weight:800;box-shadow:0 3px 12px #4776ff40}
+.marker-cluster-small div,.marker-cluster-medium div,.marker-cluster-large div{background:linear-gradient(135deg,#4776ff,#8b5cf6);color:white;font-family:var(--font);font-weight:800;box-shadow:0 3px 12px #4776ff40}
 .nearhint{margin:4px 4px 8px;padding:9px 11px;border-radius:10px;font-size:11px;color:var(--accent);background:color-mix(in srgb,var(--accent) 9%,transparent)}
 .nearhead{padding:10px 10px 12px;margin-bottom:4px;border-bottom:1px solid var(--border)}
 .neartitle{font-size:13px;font-weight:700}
 .nearsub{font-size:10px;color:var(--muted);margin-top:4px;font-variant-numeric:tabular-nums}
-.pin.rank{font-weight:800;font-size:14px;font-family:Inter,sans-serif}
+.pin.rank{font-weight:800;font-size:14px;font-family:var(--font)}
 .pointrow.nearest .pin.rank{background:#e05260;color:#fff}
 .pointrow.second .pin.rank{background:#f2b705;color:#3d2e00}
 .dist{display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0;font-variant-numeric:tabular-nums;line-height:1.1}
@@ -295,7 +295,7 @@ body{position:relative;isolation:isolate}
 /* หมุดจุดแวะ / จุดผ่าน / เส้นทาง */
 .route-hit{cursor:copy}
 .stop-marker,.via-marker{background:none;border:0}
-.stop-marker span{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#1a73e8;border:2px solid #fff;box-sizing:border-box;color:#fff;font:700 12px/1 Inter,sans-serif;box-shadow:0 2px 6px #0007}
+.stop-marker span{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#1a73e8;border:2px solid #fff;box-sizing:border-box;color:#fff;font:700 12px/1 var(--font);box-shadow:0 2px 6px #0007}
 .via-marker span{display:block;width:18px;height:18px;border-radius:50%;background:#fff;border:3px solid #1a73e8;box-sizing:border-box;box-shadow:0 2px 6px #0007;cursor:grab}
 /* วางแผนเส้นทาง (พับไว้ในแถบรายการ) */
 .planner{flex:none;margin:8px 8px 0;min-width:309px;border:1px solid var(--border);border-radius:12px;background:var(--panel);max-height:55%;overflow:auto}
@@ -407,28 +407,150 @@ body{position:relative;isolation:isolate}
 .sv-msg span{max-width:440px}
 .sv-msg .popbtn{flex:none;margin-top:6px}
 .sv-foot{position:absolute;left:10px;bottom:10px;padding:2px 8px;border-radius:6px;background:var(--top);color:var(--muted);font-size:10px;pointer-events:none}
+
+/* ===================== UI ใหม่: แผนที่เต็มจอ แผงลอย ===================== */
+:root{--font:'IBM Plex Sans Thai',system-ui,sans-serif;--mono:'IBM Plex Mono',ui-monospace,monospace;
+  --bg:#f3f3f1;--panel:#fff;--panel2:#f3f3f1;--text:#1a1a1a;--muted:#74746e;--border:#e2e2de;--accent:#2563c9;--ink:#1a1a1a;
+  --shadow:0 6px 24px rgba(0,0,0,.10);--top:#fff;--gap:12px;--side-w:0px;--top-gap:12px}
+body.dark{--bg:#121212;--panel:#1c1c1c;--panel2:#262626;--text:#ececea;--muted:#9a9a95;--border:#333;--accent:#6ea8ff;--ink:#ececea;--shadow:0 6px 24px rgba(0,0,0,.45);--top:#1c1c1c}
+html,body{font-family:var(--font)}
+.app{position:fixed;inset:0;padding:0;display:block;height:auto}
+.main{position:absolute;inset:0;display:block}
+.maparea{position:absolute;inset:0}
+body.dark .maparea,body.dark .leaflet-container{background:#161616}
+.mono,.statvalue,.pointcoord,.dist,.coordinates,#lastUpdated,.count{font-family:var(--mono)}
+
+/* แผงรายการ (คอม): ลอยซ้าย */
+.main .sidebar{position:absolute;left:var(--gap);top:var(--gap);bottom:var(--gap);width:340px;min-width:0;z-index:1000;
+  background:var(--panel)!important;border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);
+  transition:transform .28s cubic-bezier(.2,.8,.2,1),opacity .2s;animation:panelin .35s ease-out}
+.main .sidebar.collapsed{width:340px;min-width:0;transform:translateX(calc(-100% - 24px));opacity:0;pointer-events:none}
+@keyframes panelin{from{transform:translateX(-16px);opacity:0}}
+.main:has(.sidebar:not(.collapsed)){--side-w:352px}
+.sidehead,.pointlist,.sidefoot,.planner{min-width:0!important}
+.sidehead{padding:6px 14px 12px;border-bottom:1px solid var(--border)}
+.side-brand{display:flex;align-items:center;gap:8px;padding:6px 0 10px}
+.side-brand b{font-size:16px;font-weight:600;letter-spacing:-.2px}
+.side-brand .back{display:grid;place-items:center;width:32px;height:32px;margin-left:-6px;border-radius:9px;color:var(--text);text-decoration:none}
+.side-brand .back:hover{background:var(--panel2)}
+.top-status{margin-left:auto;font-family:var(--mono);font-size:11px;gap:6px;color:var(--muted);min-width:0;overflow:hidden}
+.top-status #statusText{overflow:hidden;text-overflow:ellipsis}
+.live-dot{width:7px;height:7px;flex:none;background:#1b9e5a;box-shadow:none;animation:beat 2s ease-in-out infinite}
+@keyframes beat{50%{opacity:.25}}
+.side-title{margin-bottom:10px}
+.side-title h2{font-size:13px;font-weight:600;color:var(--muted)}
+.count{color:var(--text);background:var(--panel2);border-radius:999px;padding:3px 9px;font-weight:500}
+.searchwrap input{height:40px;border-radius:10px;background:var(--panel);font-size:13px}
+.searchwrap input:focus{border-color:var(--ink);box-shadow:0 0 0 3px color-mix(in srgb,var(--ink) 10%,transparent)}
+.searchwrap span{top:11px}
+.filterline{gap:6px;margin-top:10px}
+.chip{font-size:12px;color:var(--text);border-radius:999px;padding:4px 11px;background:var(--panel)!important;transition:transform .12s,background .15s,color .15s}
+.chip:active{transform:scale(.94)}
+.chip.active{background:var(--ink)!important;border-color:var(--ink);color:var(--panel)}
+.supplierselect{border-radius:10px;height:34px;font-size:12px;background:var(--panel)}
+.pointlist{padding:4px 0!important;background:none!important}
+.pointrow{border-radius:0;border:0;border-bottom:1px solid var(--border);padding:10px 14px;gap:10px;animation:rowin .25s ease-out both;transition:background .15s,padding-left .15s}
+.pointrow:nth-child(2){animation-delay:25ms}.pointrow:nth-child(3){animation-delay:50ms}.pointrow:nth-child(4){animation-delay:75ms}
+.pointrow:nth-child(5){animation-delay:100ms}.pointrow:nth-child(6){animation-delay:125ms}.pointrow:nth-child(7){animation-delay:150ms}
+.pointrow:nth-child(8){animation-delay:175ms}.pointrow:nth-child(n+9){animation-delay:200ms}
+@keyframes rowin{from{opacity:0;transform:translateX(-10px)}}
+.pointrow:hover{background:var(--panel2);border-color:var(--border);padding-left:18px}
+.pointrow.selected{background:var(--panel2);border-color:var(--border);box-shadow:inset 3px 0 0 var(--ink)}
+.pin{width:30px;height:30px;border-radius:9px;font-size:14px}
+.pointname{font-size:13px;font-weight:500}
+.pointcoord{font-size:11px;margin-top:2px}
+.dist b{font-size:14px;font-weight:500}
+.sidefoot{background:none!important;font-size:11px;padding:10px 14px}
+.planner{margin:8px 10px 0;border-radius:12px}
+.nearhead,.nearhint,.view-sum{margin-left:10px;margin-right:10px}
+.grab{display:none}
+
+/* เครื่องมือขวาบน */
+.tools{position:absolute;z-index:1000;right:var(--gap);top:var(--top-gap);display:flex;flex-direction:column;padding:3px;
+  background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow)}
+.tools .iconbtn{width:40px;height:40px;min-width:0;padding:0;border:0;border-radius:10px;background:none;transition:transform .12s,background .15s}
+.tools .iconbtn:hover{background:var(--panel2);transform:none}
+.tools .iconbtn:active{transform:scale(.86)}
+.tools svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.tools .sep{height:1px;margin:3px 6px;background:var(--border)}
+.tools .sun{display:none}body.dark .tools .sun{display:block}body.dark .tools .moon{display:none}
+#themeIcon{display:none}
+#refreshBtn:disabled{opacity:1;cursor:progress}
+#refreshBtn:disabled svg{animation:spin .8s linear infinite}
+.logout{color:#c0362c}
+
+/* ปุ่มและการ์ดบนแผนที่ */
+.mapcontrols{top:var(--top-gap);left:calc(var(--side-w) + var(--gap));right:68px;transition:left .28s cubic-bezier(.2,.8,.2,1)}
+.mapbottom{left:calc(var(--side-w) + var(--gap));transition:left .28s cubic-bezier(.2,.8,.2,1)}
+.nearbar{left:calc(50% + var(--side-w) / 2);top:calc(var(--top-gap) + var(--ctl-h,46px) + 10px)}
+.map-stack{left:calc(50% + var(--side-w) / 2)}
+.toast{left:calc(50% + var(--side-w) / 2);border-radius:999px;background:var(--ink);color:var(--panel);border:0;animation:toastin .25s ease-out}
+@keyframes toastin{from{opacity:0;transform:translate(-50%,8px)}}
+.recenter{left:calc(50% + var(--side-w) / 2);background:var(--ink);color:var(--panel);box-shadow:var(--shadow)}
+.floating-card,.map-switcher,.nearbar,.route-chip,.rain-bar{background:var(--panel);backdrop-filter:none;border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow)}
+.mapbtn{font-size:12px;font-weight:500;border-radius:9px}
+.mapbtn.active{background:var(--ink);color:var(--panel)}
+.mapstats{gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.mapstats .floating-card.layercard{display:inline-flex;align-items:center;gap:7px;min-width:0;padding:7px 13px;border-radius:999px;border-width:1px;opacity:1;transition:background .15s,color .15s,transform .12s}
+.layercard:active{transform:scale(.95)}
+.layercard .statlabel{font-size:12px;font-weight:500;color:inherit;display:flex;align-items:center}
+.layercard .statvalue{font-size:12px;font-weight:500;margin:0;letter-spacing:0;color:var(--muted)}
+.layercard .lc-check{width:8px;height:8px;border-radius:50%;border:1.5px solid var(--accent);background:none!important;margin-right:7px}
+.layercard.st .lc-check{border-color:#00a3e0}.layercard.off .lc-check{border-color:#0e7490}
+.layercard.on .lc-check{background:var(--accent)!important}.layercard.st.on .lc-check{background:#00a3e0!important}.layercard.off.on .lc-check{background:#0e7490!important}
+.layercard.on .lc-check::after{content:none}
+.layercard.on{background:var(--ink);color:var(--panel);border-color:var(--ink)!important}
+.layercard.on .statvalue{color:color-mix(in srgb,var(--panel) 70%,transparent)}
+.locatebtn{border-radius:12px;box-shadow:var(--shadow)}
+.leaflet-bar{border:1px solid var(--border)!important;border-radius:12px!important;overflow:hidden;box-shadow:var(--shadow)!important}
+.leaflet-control-attribution{background:color-mix(in srgb,var(--panel) 80%,transparent)!important}
+
+/* มือถือ: ค้นหาลอยบน แผ่นรายการเลื่อนจากล่าง */
+@media(max-width:850px){
+  :root{--gap:10px;--peek:calc(104px + env(safe-area-inset-bottom));--top-gap:calc(62px + env(safe-area-inset-top))}
+  .main:has(.sidebar:not(.collapsed)){--side-w:0px}
+  .msearch{position:absolute;z-index:1400;left:10px;right:10px;top:calc(10px + env(safe-area-inset-top));padding:0;background:none;border:0}
+  .msearch .searchwrap input{height:44px;border-radius:14px;box-shadow:var(--shadow);background:var(--panel)}
+  .msearch .searchwrap span{top:13px}.msearch .searchwrap .searchclear{top:7px}
+  .mhits{left:0;right:0;top:calc(100% + 6px);border-radius:14px}
+  .maparea{bottom:calc(var(--peek) - 18px)}
+  .maparea::after{background:rgba(0,0,0,.18)}
+  .main .sidebar{left:0;right:0;top:auto;bottom:0;width:auto;height:min(62dvh,560px);border-radius:20px 20px 0 0;border-bottom:0;
+    transform:none;opacity:1;pointer-events:auto;z-index:1300;transition:height .3s cubic-bezier(.2,.8,.2,1);padding-bottom:env(safe-area-inset-bottom);animation:sheetin .35s ease-out}
+  .main .sidebar.collapsed{width:auto;min-width:0;height:var(--peek);transform:none;opacity:1;pointer-events:auto}
+  @keyframes sheetin{from{transform:translateY(40px);opacity:0}}
+  .grab{display:block;width:100%;height:22px;margin:0;padding:0;border:0;background:none;position:relative;touch-action:none;cursor:grab}
+  .grab::after{content:'';position:absolute;left:50%;top:8px;width:44px;height:5px;margin-left:-22px;border-radius:3px;background:var(--border)}
+  .sidehead{padding-top:0}
+  .side-brand{padding-top:2px}
+  .sidebar.collapsed .side-brand,.sidebar.collapsed .side-title{cursor:pointer}
+  .sidebar.collapsed .filterline,.sidebar.collapsed .planner,.sidebar.collapsed .pointlist,.sidebar.collapsed .sidefoot{visibility:hidden}
+  .top-status{display:flex}
+  .side-title{margin-bottom:6px}
+  .tools #sidebarToggle{display:none}
+  .tools{top:var(--top-gap)}
+  .tools .iconbtn{width:44px;height:44px}
+  .mapcontrols{left:var(--gap);right:66px}
+  .mapbottom{bottom:calc(28px + env(safe-area-inset-bottom) - env(safe-area-inset-bottom))}
+  .maparea .leaflet-bottom{bottom:18px}
+  .map-stack{left:10px;bottom:calc(var(--bot-h,40px) + 34px)}
+  .pointrow{min-height:56px}
+  .chip{padding:7px 12px}
+}
+@media(prefers-reduced-motion:reduce){.main .sidebar,.pointrow,.toast,.live-dot,#refreshBtn:disabled svg{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
 <div class="app">
-  <header class="topbar">
-    <a class="iconbtn hubbtn" href="Access-Hub.html" title="กลับหน้า Hub">← <span style="font-size:11px">Hub</span></a>
-    <div class="brand">
-      <div class="brandmark">⌖</div>
-      <div><h1>Access Maps</h1><small>GEOFENCE MONITORING</small></div>
-    </div>
-    <div class="top-status"><span class="live-dot"></span><span id="statusText">กำลังเชื่อมต่อ Server...</span></div>
-    <div class="actions">
-      <button class="iconbtn" id="sidebarToggle" title="เปิด/ซ่อนรายการ">☰ <span style="font-size:11px">รายการ</span></button>
-      <button class="iconbtn" id="themeToggle" title="เปลี่ยนธีม"><span id="themeIcon">☾</span></button>
-      <button class="iconbtn" id="refreshBtn" title="Pull ข้อมูลใหม่">↻</button>
-      <!-- ปุ่มออกจากระบบ: maps.js ผูก event ด้วย id="logoutBtn" (ต้องใช้ชื่อนี้ให้ตรงกัน) -->
-      <button class="iconbtn logout" id="logoutBtn" title="ออกจากระบบ">⇥ <span style="font-size:11px">ออกจากระบบ</span></button>
-    </div>
-  </header>
   <main class="main">
     <aside class="sidebar" id="sidebar">
+      <button type="button" class="grab" id="sheetGrab" aria-label="ขยายหรือย่อรายการ"></button>
       <div class="sidehead">
+        <div class="side-brand">
+          <a class="back" href="Access-Hub.html" title="กลับหน้า Hub" aria-label="กลับหน้า Hub"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+          <b>Access Maps</b>
+          <div class="top-status"><span class="live-dot"></span><span id="statusText">กำลังเชื่อมต่อ Server...</span></div>
+        </div>
         <div class="side-title"><h2 id="sideTitleText">รายการ Geofence</h2><span class="count" id="pointCount">0 จุด</span></div>
         <div class="searchwrap"><span>⌕</span><input id="searchInput" placeholder="ค้นหาชื่อ หรือวางพิกัด เช่น 13.75, 100.50" autocomplete="off" enterkeyhint="search"><button type="button" class="searchclear" id="searchClear" title="ล้างการค้นหา" aria-label="ล้างการค้นหา" hidden>✕</button></div>
         <div class="filterline"><button class="chip active" data-filter="all">ทั้งหมด</button><button class="chip" data-filter="valid">มีพิกัด</button><button class="chip" data-filter="invalid">พิกัดไม่ครบ</button><button class="chip" data-filter="dup" title="Geofence ที่ชื่อหรือพิกัดซ้ำกัน">ข้อมูลซ้ำ</button><button class="chip" data-filter="view" title="เฉพาะจุดในขอบเขตแผนที่ เรียงจากใกล้กึ่งกลางจอ">ในจอนี้</button><select class="supplierselect" id="supplierSelect" title="กรองตาม Supplier"><option value="all">Supplier: ทั้งหมด</option></select><select class="supplierselect" id="brandSelect" title="กรองแบรนด์ปั๊มน้ำมัน" hidden><option value="all">⛽ ปั๊ม: ทุกแบรนด์</option></select></div>
@@ -465,10 +587,36 @@ body{position:relative;isolation:isolate}
       </div>
       <div class="toast" id="toast"></div>
     </section>
+    <!-- เครื่องมือขวาบน: id เดิมที่ maps.js ผูกไว้ (sidebarToggle / themeToggle / refreshBtn / logoutBtn) -->
+    <nav class="tools" aria-label="เครื่องมือ">
+      <button class="iconbtn" id="sidebarToggle" title="เปิด/ซ่อนรายการ" aria-label="เปิด/ซ่อนรายการ"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg></button>
+      <button class="iconbtn" id="themeToggle" title="เปลี่ยนธีม" aria-label="เปลี่ยนธีม"><span id="themeIcon">☾</span><svg viewBox="0 0 24 24" aria-hidden="true"><path class="moon" d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/><g class="sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></g></svg></button>
+      <button class="iconbtn" id="refreshBtn" title="Pull ข้อมูลใหม่" aria-label="Pull ข้อมูลใหม่"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.5 6.2L3 16M3 21v-5h5"/></svg></button>
+      <span class="sep"></span>
+      <button class="iconbtn logout" id="logoutBtn" title="ออกจากระบบ" aria-label="ออกจากระบบ"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H4"/></svg></button>
+    </nav>
   </main>
 </div>
 
-<script src="./ghost-fibers.js?v=3" defer></script>
+<!-- มือถือ: แตะ/ปัดขีดบนแผ่นรายการ = กดปุ่มรายการเดิม (maps.js จัดการเปิด/ปิด) -->
+<script>
+(function () {
+  var side = document.getElementById('sidebar'), grab = document.getElementById('sheetGrab'), y = null;
+  var toggle = function () { document.getElementById('sidebarToggle').click(); };
+  var open = function (want) { if (side.classList.contains('collapsed') === want) toggle(); };
+  grab.addEventListener('pointerdown', function (e) { y = e.clientY; grab.setPointerCapture(e.pointerId); });
+  grab.addEventListener('pointerup', function (e) {
+    if (y === null) return;
+    var moved = y - e.clientY; y = null;
+    if (Math.abs(moved) < 12) toggle(); else open(moved > 0);
+  });
+  // ตอนย่ออยู่ แตะหัวแผ่นเพื่อขยาย (ยกเว้นปุ่มกลับ)
+  side.addEventListener('click', function (e) {
+    if (!side.classList.contains('collapsed') || innerWidth > 850 || e.target.closest('a,button,input,select')) return;
+    if (e.target.closest('.side-brand,.side-title')) toggle();
+  });
+})();
+</script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
