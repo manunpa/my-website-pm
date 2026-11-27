@@ -1,5 +1,6 @@
 // อ่านไฟล์แผนงานจากหน่วยงาน ดึงเฉพาะ "วันที่ + กะ" ที่เลือกบนหน้าเว็บ (อ่านในเบราว์เซอร์ ไม่อัปโหลดไปไหน)
 // รองรับ 3 แบบ: 1.1 Daily Report LLK / Plan Operation (SHELL LLK) / Confirm fleet SRC
+// และแบบฟอร์มการจ่ายงาน Other Brand (.ods หรือ .xlsx ชีตชื่อ วัน_เดือน)
 import { openBook, els, colOf, rowNum } from './bbs-xlsx.js?v=11';
 
 const THAI_MONTHS = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
@@ -44,7 +45,7 @@ async function daySheet(buffer, day) {
     const targets = Object.fromEntries(Array.from(rels.getElementsByTagName('Relationship'))
         .map((r) => [r.getAttribute('Id'), 'xl/' + r.getAttribute('Target').replace(/^\/?(xl\/)?/, '')]));
     const sheet = els(workbook, 'sheet').find((s) => {
-        const m = /^\s*0?(\d{1,2})\s*([.\-]\s*\d{0,2})?\s*$/.exec(s.getAttribute('name'));
+        const m = /^\s*0?(\d{1,2})\s*([.\-_]\s*\d{0,2})?\s*$/.exec(s.getAttribute('name'));
         return s.getAttribute('state') !== 'hidden' && m && Number(m[1]) === day;
     });
     if (!sheet) return null;
@@ -57,7 +58,110 @@ async function daySheet(buffer, day) {
     }));
 }
 
-// "ก // ข" + "111 / 222" → 2 งาน ถ้าจำนวนไม่เท่ากันเก็บรวมเป็นงานเดียว
+// ===== ไฟล์ .ods: อ่านชีต "วัน_เดือน" ให้ได้แถวรูปเดียวกับ daySheet =====
+const ODS_TABLE = 'urn:oasis:names:tc:opendocument:xmlns:table:1.0';
+const ODS_TEXT = 'urn:oasis:names:tc:opendocument:xmlns:text:1.0';
+
+async function odsSheet(buffer, day, month) {
+    const zip = await window.JSZip.loadAsync(buffer);
+    const xml = await zip.file('content.xml').async('string');
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    const table = Array.from(doc.getElementsByTagNameNS(ODS_TABLE, 'table')).find((t) => {
+        const m = /^\s*(\d{1,2})_(\d{1,2})\s*$/.exec(t.getAttributeNS(ODS_TABLE, 'name'));
+        return m && Number(m[1]) === day && Number(m[2]) === month;
+    });
+    if (!table) return null;
+    const repeat = (node, name) => Number(node.getAttributeNS(ODS_TABLE, name) || 1);
+    const rows = [];
+    let n = 1;
+    for (const row of Array.from(table.getElementsByTagNameNS(ODS_TABLE, 'table-row'))) {
+        const cells = new Map();
+        let col = 1;
+        for (const cell of Array.from(row.children)) {
+            const times = repeat(cell, 'number-columns-repeated');
+            // เอาเฉพาะข้อความในช่อง ไม่เอาคอมเมนต์
+            const text = Array.from(cell.children).filter((c) => c.namespaceURI === ODS_TEXT && c.localName === 'p')
+                .map((c) => c.textContent).join(' ').replace(/\s+/g, ' ').trim();
+            if (text) for (let i = 0; i < times; i++) cells.set(col + i, text);
+            col += times;
+        }
+        const times = repeat(row, 'number-rows-repeated');
+        if (cells.size) for (let i = 0; i < times; i++) rows.push({ n: n + i, cells });
+        n += times;
+    }
+    return rows;
+}
+
+// ===== แบบฟอร์มการจ่ายงาน Other Brand: แผนทั้งวัน คันละหลายแถว (คนละงาน) =====
+const isDispatch = (row) => {
+    const texts = [...row.cells.values()];
+    return texts.includes('เบอร์รถ') && texts.some((t) => /พขร\.?\s*1/.test(t)) && texts.includes('รายละเอียดงาน');
+};
+const clock = (text) => {
+    const m = /^(\d{1,2})[.:](\d{2})/.exec(text || '');
+    return m && Number(m[1]) < 24 ? m[1].padStart(2, '0') + ':' + m[2] : '';
+};
+const unique = (list) => [...new Set(list.filter(Boolean))];
+
+/** คืน { cars: Map<"SC001" | "SC001 (2)", ข้อมูล>, loose: จำนวนแถวงานที่ไม่ระบุรถ } */
+function readDispatch(rows, header) {
+    const col = (re) => [...header.cells].find(([, t]) => re.test(t))?.[0];
+    const cols = {
+        car: col(/^เบอร์รถ$/), brand: col(/^Brand$/i), driver: col(/พขร\.?\s*1/), driver2: col(/พขร\.?\s*2/),
+        detail: col(/^รายละเอียดงาน/), from: col(/^สถานที่รับงาน/), planned: col(/^เวลารับงาน.*Plan/i),
+        actual: col(/^เวลารับงาน.*Actual/i), to: col(/^สถานที่ลงสินค้า/)
+    };
+    const person = (text) => (!text || /^(แจ้งแล้ว|leader|\d+)$/i.test(text) ? '' : text);
+    const crews = new Map(); // คัน -> ชุดคนขับ (คันเดียวกันคนขับคนละชุด = คนละรายการ)
+    let crew = null;
+    let loose = 0;
+    let last = header.n;
+    for (const row of rows.filter((r) => r.n > header.n)) {
+        const at = (key) => row.cells.get(cols[key]) || '';
+        const gap = row.n > last + 1;
+        last = row.n;
+        // แถวคั่น (เหลือแต่สูตรสรุปท้ายแถว) = จบงานของคันนั้น
+        if (gap || !['car', 'brand', 'detail', 'from', 'to'].some(at)) crew = null;
+        const no = /^SC\s*(\d{3})\b/i.exec(at('car'))?.[1];
+        if (no) {
+            const car = 'SC' + no;
+            const driver = person(at('driver'));
+            const driver2 = person(at('driver2'));
+            const list = crews.get(car) || [];
+            crews.set(car, list);
+            const id = (driver + '|' + driver2).replace(/\s|นาย/g, '');
+            crew = list.find((c) => c.id === id);
+            if (!crew) list.push(crew = { id, driver, driver2, jobs: [], brands: [], from: [], planned: '', actual: '' });
+        }
+        const name = at('to') || at('detail');
+        if (!crew) {
+            if (name) loose++;
+            continue;
+        }
+        crew.brands.push(at('brand'));
+        crew.from.push(at('from'));
+        crew.planned ||= clock(at('planned'));
+        crew.actual ||= clock(at('actual'));
+        if (name) crew.jobs.push({ ship: /^F\d{6,}$/i.test(at('detail')) ? at('detail') : '', custId: '', cust: name });
+    }
+    const cars = new Map();
+    for (const [car, list] of crews) {
+        list.filter((c) => c.jobs.length).forEach((c, i) => {
+            const route = unique(c.jobs.map((j) => j.cust)).join(' / ');
+            const remark = [unique(c.brands).join(', '), unique(c.from).length ? 'ต้นทาง ' + unique(c.from).join(', ') : '',
+                c.planned ? 'รับงาน (แผน) ' + c.planned : ''].filter(Boolean).join(' · ');
+            cars.set(i ? car + ' (' + (i + 1) + ')' : car, {
+                driver: c.driver, driver2: c.driver2, risk: '', riskIfEmpty: '', remark, route,
+                ...(c.driver2 ? { route2: route } : {}),
+                ...(c.actual ? { jobTime: c.actual } : {}),
+                trips: c.jobs
+            });
+        });
+    }
+    return { cars, loose };
+}
+
+// "ก // ข" + "111 / 222"  → 2 งาน ถ้าจำนวนไม่เท่ากันเก็บรวมเป็นงานเดียว
 function splitTrips(ship, cust) {
     const ships = ship.split(/\/+/).map((s) => s.trim()).filter(Boolean);
     const custs = cust.split(/\/{2,}/).map((s) => s.trim()).filter(Boolean);
@@ -313,6 +417,7 @@ export const PEOPLE_FIELDS = ['driver3', 'status', 'rest', 'status2', 'rest2', '
 export async function readPlans(files, date, shift) {
     const vehicles = new Map();
     const notes = [];
+    let dispatch = false; // แผน Other Brand ใช้เบอร์รถ SC001 เป็นตัวจับคู่
     const add = (no, item) => {
         const v = vehicles.get(no) || { driver: '', risk: '', riskIfEmpty: '', trips: [] };
         v.plate ||= item.plate || '';
@@ -341,8 +446,22 @@ export async function readPlans(files, date, shift) {
     for (const file of files) {
         const say = (text) => notes.push(file.name + ': ' + text);
         try {
-            const rows = await daySheet(await file.arrayBuffer(), Number(date.slice(8)));
-            if (!rows) { say('ไม่มีชีตของวันที่ ' + Number(date.slice(8))); continue; }
+            const buffer = await file.arrayBuffer();
+            const [day, month2] = [Number(date.slice(8)), Number(date.slice(5, 7))];
+            const rows = /\.ods$/i.test(file.name) ? await odsSheet(buffer, day, month2) : await daySheet(buffer, day);
+            if (!rows) { say('ไม่มีชีตของวันที่ ' + day + (/\.ods$/i.test(file.name) ? '/' + month2 : '')); continue; }
+            const dispatchHead = rows.slice(0, 8).find(isDispatch);
+            if (dispatchHead) {
+                // วันที่ในหัวชีตมักค้างของเดิม ยึดชื่อชีตเป็นหลัก แล้วเตือนให้ตรวจ
+                const written = headerDate(rows);
+                if (written && written !== date) say('หัวชีตเขียนวันที่ ' + written.split('-').reverse().join('/') + ' ใช้ตามชื่อชีต ตรวจก่อนกดตกลง');
+                const { cars, loose } = readDispatch(rows, dispatchHead);
+                for (const [car, item] of cars) vehicles.set(car, item);
+                if (loose) say('มีงานที่ยังไม่ระบุรถ ' + loose + ' แถว ไม่ได้ดึง');
+                if (!cars.size) say('ยังไม่มีงานที่ระบุรถในวันนี้');
+                dispatch = true;
+                continue;
+            }
             const has = (row, re) => [...row.cells.values()].some((t) => re.test(t));
             const journey = rows.slice(0, 8).find((r) => has(r, /^SCC$/) && has(r, /^ใช้รถจริง$/));
             // JC Report ไม่มีวันที่ในหัวชีต: วัน = ชื่อชีต เดือน/ปี = ชื่อไฟล์ (เช่น 11_2026)
@@ -374,5 +493,5 @@ export async function readPlans(files, date, shift) {
     for (const [no, what] of misplaced) notes.push(sccName(no) + ': อ่าน ' + [...what].join(', ') + ' จากช่องที่ใส่ผิดที่ ตรวจก่อนกดตกลง');
     // รถจอดซ่อม/ไม่มีงาน ไม่ต้องเติมอะไร
     for (const [no, v] of vehicles) if (!v.driver && !v.trips.length) vehicles.delete(no);
-    return { vehicles, notes };
+    return { vehicles, notes, dispatch };
 }

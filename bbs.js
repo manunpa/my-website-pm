@@ -1,7 +1,7 @@
 import { requireLogin, fetchProtectedText, PRESENCE_URL, auth } from './firebase-guard.js?v=20261122-cut';
 import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=11';
-import { readPlans, vehicleNo, sccName, PEOPLE_FIELDS } from './bbs-plan.js?v=15';
-import { readHourly, buildHourly } from './bbs-hourly.js?v=10';
+import { readPlans, vehicleNo, sccName, PEOPLE_FIELDS } from './bbs-plan.js?v=16';
+import { readHourly, buildHourly } from './bbs-hourly.js?v=11';
 import { readImage, parseShot, readGps, inShift } from './bbs-ocr.js?v=3';
 import { samePlace } from './bbs-match.js?v=1';
 import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
@@ -936,7 +936,9 @@ function vehiclePage(v) {
 // คันที่ต้องแสดง: มีงาน เพิ่มเข้ามาเอง หรือมีรอบตรวจที่ลงเอง
 // (รอบ quiet = ลงจากรูปให้รถที่ไม่มีงาน เก็บไว้ในรายงานแต่ไม่ดึงขึ้นหน้าทำงาน)
 // กดซ่อนเอง (เช่น แผนใส่ข้อความอื่นมาแทนงาน) ไม่นับว่ามีงาน
-const hasWork = (v) => !v.hidden && (!!template?.rsc || v.trips.length > 0 || !!v.pinned || v.rounds.some((r) => !r.quiet));
+// ฟอร์ม RSC ก่อนอัปแผนแสดงทุกคันในฟอร์ม พอมีแผนแล้วเหลือเฉพาะคันที่มีงาน
+const unplanned = () => !!template?.rsc && !report.vehicles.some((x) => x.trips.length);
+const hasWork = (v) => !v.hidden && (unplanned() || v.trips.length > 0 || !!v.pinned || v.rounds.some((r) => !r.quiet));
 
 function render() {
     $('checker').value = report.checker || '';
@@ -1070,20 +1072,30 @@ async function importPlans(files) {
     const when = date.split('-').reverse().join('/')
         + (template.hourly ? ' ทั้งวัน' : shift === 'night' ? ' กะกลางคืน' : ' กะกลางวัน');
     status('กำลังอ่านแผนงาน…');
-    const { vehicles, notes } = await readPlans(files, date, shift);
+    const { vehicles, notes, dispatch } = await readPlans(files, date, shift);
+    if (vehicles.size && dispatch !== !!template.rsc) {
+        status('แผนงานนี้ไม่ตรงกับหน่วยงานที่เลือกอยู่', true);
+        return;
+    }
+    // ฟอร์ม RSC จับคู่ด้วยเบอร์ SC001 (ท้ายชื่อในฟอร์ม เช่น DTC ไม่นับ)
+    const keyOfCar = (scc) => (template.rsc ? scc.replace(/^(SC\d{3})\s*(DTC|10W)$/i, '$1') : vehicleNo(scc));
+    const nameOfCar = (key) => (template.rsc ? key : sccName(key));
+    const inForm = new Set(template.vehicles.map((v) => keyOfCar(v.scc)));
     note('นำเข้า', 'เปิดไฟล์แผนงาน', { detail: [...files].map((f) => f.name).join(', ') });
-    const mine = new Map(report.vehicles.map((v) => [vehicleNo(v.scc), v]));
+    const mine = new Map(report.vehicles.map((v) => [keyOfCar(v.scc), v]));
     // รถในแผนที่ยังไม่มีในรายงาน (รถย้ายเข้าใหม่ หรือฟอร์มกลาง) สร้างเพิ่มให้ ทะเบียนค้นจากฟอร์มอื่นใน Drive
     const created = new Set();
     if ([...vehicles.keys()].some((no) => !mine.has(no))) {
         status('กำลังค้นทะเบียนรถจากฟอร์มอื่น…');
-        const known = await knownVehicles();
+        const known = template.rsc ? new Map() : await knownVehicles();
         for (const [no, item] of vehicles) {
             if (mine.has(no)) continue;
             const info = known.get(no) || {};
-            const v = emptyVehicle({ scc: sccName(no), plate: item.plate || info.plate || '', driver: '', risk: '' });
+            const v = emptyVehicle({ scc: nameOfCar(no), plate: item.plate || info.plate || '', driver: '', risk: '' });
             mine.set(no, v);
-            created.add(v);
+            // คันเดิมแต่คนขับอีกชุด (SC001 (2)) ไม่นับว่าเป็นรถใหม่
+            if (!template.rsc || !inForm.has(no.replace(/ \(\d+\)$/, ''))) created.add(v);
+            else v.fromPlan = true;
         }
     }
     const matched = [...vehicles].filter(([no]) => mine.has(no)).map(([no, item]) => {
@@ -1092,7 +1104,7 @@ async function importPlans(files) {
         if (!template.hourly && !item.driver2) delete item.driver2;
         const fresh = !v.trips.length; // ยังไม่เคยมีงาน = งานใหม่ ไม่นับเป็นการเปลี่ยน
         // สถานะ/คนที่ 3 เปลี่ยนอย่างเดียวก็ต้องอัปเดต
-        const people = !fresh && ['driver2', ...PEOPLE_FIELDS].some((k) => item[k] !== undefined && item[k] !== (v[k] || ''));
+        const people = !fresh && ['driver2', 'route', 'route2', 'jobTime', ...PEOPLE_FIELDS].some((k) => item[k] !== undefined && item[k] !== (v[k] || ''));
         // ฟอร์มรายชั่วโมง: ส่งแผนมาใหม่ให้แทนของเดิม ทั้งจำนวนเที่ยวและหมายเหตุ
         const rounds = !fresh && template.hourly && roundsChanged(v.trips, item.trips);
         const remark = !fresh && item.remark !== undefined && item.remark !== (v.remark || '');
@@ -1100,7 +1112,11 @@ async function importPlans(files) {
     });
     const update = report.vehicles.some((v) => v.trips.length); // เคยมีแผนแล้ว = โหมดอัปเดต
     planPreview = matched.filter((p) => p.fresh ? p.item.driver || p.item.trips.length : p.changes.length || p.people || p.rounds || p.remark);
-    for (const p of planPreview) p.created = created.has(p.v);
+    for (const p of planPreview) {
+        p.created = created.has(p.v);
+        p.extra = !!p.v.fromPlan;
+        delete p.v.fromPlan;
+    }
     const unchanged = matched.length - planPreview.length;
     status('');
     $('plan-title').textContent = 'แผนงาน ' + when + ': ' + (update
@@ -1136,9 +1152,10 @@ function applyPlans() {
     // เปลี่ยนวันที่/ฟอร์มระหว่างเปิดสรุป → ไม่เติมผิดรายงาน
     if ($('plan-dialog').dataset.key !== (report.key || keyOf())) return;
     const at = new Date().toTimeString().slice(0, 5);
-    for (const { v, item, fresh, changes, rounds, created, skip } of planPreview) {
+    for (const { v, item, fresh, changes, rounds, created, extra, skip } of planPreview) {
         if (skip) continue;
-        if (created && !report.vehicles.some((x) => x.scc === v.scc)) report.vehicles.push(v);
+        for (const k of ['route', 'route2', 'jobTime']) if (item[k]) v[k] = item[k];
+        if ((created || extra) && !report.vehicles.some((x) => x.scc === v.scc)) report.vehicles.push(v);
         if (item.driver) v.driver = item.driver;
         if (item.risk) v.risk = item.risk;
         else v.risk ||= item.riskIfEmpty;
@@ -1704,9 +1721,9 @@ function bind() {
         dragging(false);
         if (!hasFiles(e) || !ready()) return;
         e.preventDefault(); // ไม่ให้เบราว์เซอร์เปิดไฟล์แทนหน้านี้
-        const files = [...e.dataTransfer.files].filter((f) => /\.xlsx$/i.test(f.name));
+        const files = [...e.dataTransfer.files].filter((f) => /\.(xlsx|ods)$/i.test(f.name));
         if (files.length) readFiles(files);
-        else status('ลากได้เฉพาะไฟล์แผนงาน .xlsx', true);
+        else status('ลากได้เฉพาะไฟล์แผนงาน .xlsx หรือ .ods', true);
     });
     $('plan-ok').addEventListener('click', () => { applyPlans(); $('plan-dialog').close(); });
     $('plan-cancel').addEventListener('click', () => $('plan-dialog').close());

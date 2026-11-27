@@ -425,7 +425,8 @@ function fill(book, doc, layout, blocks, report, paint, driverCol) {
         }
         if (layout.fixed && !rsc) setCell(doc, rows[0], 'AI', '');
         const no = /^SCC(\d+)$/.exec(plate);
-        setCell(doc, top, layout.car, no ? Number(no[1]) : plate);
+        // "SC001 (2)" คือคันเดิมคนขับอีกชุด ในฟอร์มเขียนเบอร์รถเฉยๆ
+        setCell(doc, top, layout.car, no ? Number(no[1]) : rsc ? plate.replace(/ \(\d+\)$/, '') : plate);
         if (layout.number) setCell(doc, top, layout.number, plate ? index + 1 : '');
         const mark = (s) => (s === 'ปกติ' ? 'OK' : s === 'ไม่ปกติ' ? 'NG' : '');
         // ฟอร์ม RSC เป็นช่องติ๊ก: ยังไม่ได้เลือกให้คงค่าของฟอร์มไว้
