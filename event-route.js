@@ -53,8 +53,8 @@ export function initEventRoute(ctx) {
     '.evroute .swatch{display:inline-block;width:14px;height:4px;border-radius:2px;margin-right:5px;vertical-align:middle}' +
     '.evroute .along li{display:flex;align-items:center;gap:2px}.evroute .along li>button:first-child{flex:1;min-width:0}' +
     '.evroute .along li.off>button:first-child{opacity:.45}.evroute .along button.eye{display:block;width:auto;flex:none;font-size:10px;color:var(--muted);border:1px solid var(--border)}' +
-    '.leaflet-tooltip.evlabel{padding:1px 5px;font:600 10px/1.4 Inter,Kanit,sans-serif;background:var(--panel);color:var(--text);border-color:#d6336c88;cursor:pointer}' +
-    '.evlabel::before{display:none}' +
+    '.evlabel{box-sizing:border-box;padding:0 5px;font:600 10px/16px Inter,Kanit,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' +
+    'background:var(--panel);color:var(--text);border:1px solid #d6336c88;border-radius:5px;box-shadow:0 1px 3px #0003;cursor:pointer}' +
     '.evchip{height:32px;padding:0 12px;border-radius:12px;border:1px solid #d6336c;background:var(--top);color:var(--text);font-size:11.5px;font-weight:600;box-shadow:var(--shadow);align-self:center}';
   document.head.appendChild(style);
 
@@ -87,7 +87,7 @@ export function initEventRoute(ctx) {
   }
   const visible = () => found.filter(f => !hidden.has(keyOf(f.p)));
 
-  const lineLayer = L.layerGroup(), nearLayer = L.layerGroup();
+  const lineLayer = L.layerGroup(), nearLayer = L.layerGroup(), labelLayer = L.layerGroup();
   const renderer = L.svg({ padding: .5 });
 
   // เปิดแผงงานวิ่งอยู่ = ซ่อนหมุดอื่น เหลือเส้นทางกับจุดใกล้แนว · ปิดแผง = กลับเหมือนเดิม
@@ -138,20 +138,59 @@ export function initEventRoute(ctx) {
     L.popup({ maxWidth: 300, minWidth: 230 }).setLatLng([p.lat, p.lng]).setContent(content).openOn(map);
     if (matchMedia('(max-width:850px)').matches) document.getElementById('sidebarToggle')?.click();
   }
+  // ป้ายชื่อ: วางทีละอันในตำแหน่งว่าง (ขวา/ซ้ายของหมุด แล้วขยับขึ้นลง) ไม่ให้ทับกัน ป้ายที่ถูกขยับมีเส้นโยงกลับหาหมุด
+  // ที่แน่นจนไม่มีที่ว่าง จะไม่แสดงป้าย (ชี้ที่หมุดหรือซูมเข้าเพื่อดูชื่อ)
+  const measure = document.createElement('canvas').getContext('2d');
+  const H = 18, STEPS = [0];
+  for (let i = 1; i <= 12; i++) STEPS.push(-i * H, i * H);
+  function drawLabels() {
+    labelLayer.clearLayers();
+    if (!show || !labels) return;
+    const view = map.getSize();
+    const dots = visible().map(f => ({ p: f.p, c: map.latLngToContainerPoint([f.p.lat, f.p.lng]) }))
+      .filter(({ c }) => c.x > -20 && c.y > -20 && c.x < view.x + 20 && c.y < view.y + 20);
+    const taken = dots.map(({ c }) => [c.x - 7, c.y - 7, c.x + 7, c.y + 7]);
+    const free = b => !taken.some(t => b[0] < t[2] && b[2] > t[0] && b[1] < t[3] && b[3] > t[1]);
+    measure.font = '600 10px Inter,Kanit,sans-serif';
+    for (const { p, c } of dots) {
+      const w = Math.min(190, Math.ceil(measure.measureText(p.name).width) + 16);
+      let spot = null;
+      search: for (const dy of STEPS) {
+        for (const gap of [9, 40]) {
+          for (const x of [c.x + gap, c.x - gap - w]) {
+            const b = [x, c.y + dy - H / 2, x + w, c.y + dy + H / 2];
+            if (free(b)) { spot = { b, dy, gap }; break search; }
+          }
+        }
+      }
+      if (!spot) continue;
+      const { b, dy, gap } = spot;
+      taken.push(b);
+      const at = (x, y) => map.containerPointToLatLng([x, y]);
+      if (dy || gap > 9) {
+        L.polyline([[p.lat, p.lng], at(b[0] > c.x ? b[0] : b[2], c.y + dy)], { renderer, color: '#d6336c', weight: 1.2, interactive: false }).addTo(labelLayer);
+      }
+      L.marker(at((b[0] + b[2]) / 2, c.y + dy), {
+        icon: L.divIcon({ className: 'evlabel', html: esc(p.name), iconSize: [w, H - 1] }), title: p.name, keyboard: false
+      }).on('click', () => openPoint(p)).addTo(labelLayer);
+    }
+  }
+  map.on('moveend resize', drawLabels);
+
   function drawMap() {
-    lineLayer.clearLayers(); nearLayer.clearLayers();
-    if (!show) { map.removeLayer(lineLayer); map.removeLayer(nearLayer); return; }
+    lineLayer.clearLayers(); nearLayer.clearLayers(); labelLayer.clearLayers();
+    if (!show) { map.removeLayer(lineLayer); map.removeLayer(nearLayer); map.removeLayer(labelLayer); return; }
     for (const [name, color, weight, pts] of activeRoutes()) {
       L.polyline(pts, { renderer, color, weight, opacity: .85 }).bindTooltip(`งานวิ่ง ${name} · ปิดถนน ${DAY_LABEL[CLOSE_DAY[name]]}`, { sticky: true }).addTo(lineLayer);
     }
     for (const { p, m } of visible()) {
       L.circleMarker([p.lat, p.lng], { renderer, radius: 7, color: '#fff', weight: 2, fillColor: '#d6336c', fillOpacity: 1 })
-        .bindTooltip(labels ? esc(p.name) : `${esc(p.name)} · ${Math.round(m)} ม.`,
-          labels ? { permanent: true, interactive: true, direction: 'right', offset: [7, 0], className: 'evlabel' } : {})
+        .bindTooltip(`${esc(p.name)} · ${Math.round(m)} ม.`)
         .on('click', () => openPoint(p))
         .addTo(nearLayer);
     }
-    lineLayer.addTo(map); nearLayer.addTo(map);
+    lineLayer.addTo(map); nearLayer.addTo(map); labelLayer.addTo(map);
+    drawLabels();
   }
   function render() {
     search(); drawMap();
