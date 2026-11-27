@@ -169,11 +169,11 @@ function newReport() {
 }
 
 // สีของจุด: แดง = พลาด, เหลือง = ยังไม่ถึงชีต, เขียว = เรียบร้อย
-function status(text, bad = false) {
-    const wait = !bad && /รอส่ง|กำลัง|ในเครื่อง/.test(text);
+function status(text, bad = false, title = '') {
+    const wait = !bad && /รอคิว|กำลัง/.test(text);
     $('status').className = 'save-state ' + (bad ? 'bad' : wait ? 'wait' : 'done');
     $('status').hidden = !text;
-    $('status-title').textContent = bad ? 'มีปัญหา' : wait ? 'กำลังบันทึก' : 'บันทึกแล้ว';
+    $('status-title').textContent = title || (bad ? 'มีปัญหา' : wait ? 'กำลังทำงาน' : 'เสร็จแล้ว');
     $('status-detail').textContent = text;
 }
 
@@ -214,7 +214,7 @@ async function flush() {
     clearTimeout(idleTimer);
     clearTimeout(maxTimer);
     maxTimer = null;
-    if (pending.size) status('กำลังส่งขึ้น Google Sheet…');
+    if (pending.size) status('กำลัง Push ขึ้น Server…', false, 'Pushing');
     for (const [key, doc] of [...pending]) {
         pending.delete(key);
         try {
@@ -222,11 +222,11 @@ async function flush() {
             const merged = merge(JSON.parse(doc), remote);
             if (!sameReport(merged, remote)) await call({ action: 'save', key, doc: JSON.stringify(merged) });
             adopt(merged);
-            status(pending.size ? 'รอส่งขึ้น Google Sheet…'
-                : 'บันทึกลง Google Sheet แล้ว ' + new Date().toTimeString().slice(0, 5) + ' น.');
+            if (pending.size) status('แคชลงเครื่องแล้ว รอคิว Push', false, 'Cached');
+            else status('Push ขึ้น Server แล้ว ' + new Date().toTimeString().slice(0, 5) + ' น.', false, 'Synced');
         } catch (err) {
             if (!pending.has(key)) pending.set(key, doc);
-            status('ส่งขึ้น Google Sheet ไม่ได้ (เก็บในเครื่องแล้ว จะลองใหม่): ' + err.message, true);
+            status('ข้อมูลยังอยู่ในเครื่อง จะ Push ใหม่อัตโนมัติ: ' + err.message, true, 'Push failed');
             maxTimer ||= setTimeout(flush, MAX_WAIT_MS);
         }
     }
@@ -251,7 +251,7 @@ setInterval(pull, PULL_MS);
 
 function queue(key, doc) {
     pending.set(key, doc);
-    status('บันทึกในเครื่องแล้ว รอส่งขึ้น Google Sheet…');
+    status('แคชลงเครื่องแล้ว รอคิว Push', false, 'Cached');
     clearTimeout(idleTimer);
     idleTimer = setTimeout(flush, IDLE_MS);
     maxTimer ||= setTimeout(flush, MAX_WAIT_MS);
@@ -265,7 +265,7 @@ function save() {
         localStorage.setItem(localKey(key), JSON.stringify(report));
         localStorage.setItem('bbs-names', JSON.stringify({ checker: report.checker, monitor: report.monitor }));
     } catch { status('บันทึกในเครื่องไม่ได้ (พื้นที่เต็มหรือถูกบล็อก)', true); return; }
-    if (!API_URL) { status('บันทึกในเครื่องนี้แล้ว (ยังไม่ได้เชื่อม Google Sheet)'); return; }
+    if (!API_URL) { status('แคชในเครื่องนี้แล้ว (ยังไม่ได้เชื่อม Server)', false, 'Cached'); return; }
     queue(key, JSON.stringify(report));
 }
 
@@ -324,7 +324,7 @@ async function load() {
     if (!API_URL || !template) return;
     note('ดู', 'เปิดรายงาน');
     try {
-        status('กำลังโหลดจาก Google Sheet…');
+        status('กำลัง Pull จาก Server…', false, 'Loading');
         const remote = await fetchRemote(key);
         if (key !== keyOf()) return;
         if (remote) {
@@ -338,10 +338,10 @@ async function load() {
         }
         // กรอกค้างไว้แล้วยังไม่ได้ส่ง (ปิดหน้าไปก่อน) → ส่งตอนนี้
         if (local && !sameReport(report, remote)) queue(key, JSON.stringify(report));
-        else status('ข้อมูลตรงกับ Google Sheet');
+        else status('ข้อมูลตรงกับ Server', false, 'Synced');
         await adoptNightHours(key);
     } catch (err) {
-        status('โหลดจาก Google Sheet ไม่ได้: ' + err.message, true);
+        status('Pull จาก Server ไม่ได้: ' + err.message, true, 'Pull failed');
     }
 }
 
