@@ -218,7 +218,8 @@ export async function readHourly(buffer) {
         groups: [['depot', 'คลังน้ำมัน', codesOf('depot')], ['unit', 'หน่วยงาน', codesOf('unit')]].filter((g) => g[2].length),
         hourly: true,
         units: await readUnits(book),
-        shiftHours: (shift) => hoursOf(layout, shift),
+        // ฟอร์ม RSC 1 รายงาน = 1 วันปฏิทิน ครบ 24 ชม. ไม่แยกกะ
+        shiftHours: rsc ? () => Array.from({ length: 24 }, (_, i) => i) : (shift) => hoursOf(layout, shift),
         results,
         vehicles: plates.map((scc) => ({ scc, plate: '', driver: '', risk: '' })),
         checks: {},

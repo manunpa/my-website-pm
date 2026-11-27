@@ -1,7 +1,7 @@
 import { requireLogin, fetchProtectedText, PRESENCE_URL, auth } from './firebase-guard.js?v=20261122-cut';
 import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=11';
 import { readPlans, vehicleNo, sccName, PEOPLE_FIELDS } from './bbs-plan.js?v=17';
-import { readHourly, buildHourly, baseCar, plainName } from './bbs-hourly.js?v=12';
+import { readHourly, buildHourly, baseCar, plainName } from './bbs-hourly.js?v=13';
 import { readPrior } from './bbs-prior.js?v=1';
 import { readImage, parseShot, readGps, inShift } from './bbs-ocr.js?v=3';
 import { samePlace } from './bbs-match.js?v=1';
@@ -146,7 +146,9 @@ const shortName = (name) => name.replace(/\.xlsx$/i, '').split('วันที�
 // ===== ข้อมูลรายงานต่อ 1 ฟอร์ม/วัน/กะ =====
 // ฟอร์มที่มีหน่วยงานย่อย แยกรายงานกันคนละ key
 const unit = () => template?.units?.[Number($('unit').value)] || null;
-const keyOf = () => (API_URL ? $('form').value + (unit() ? '-u' + $('unit').value : '') + '_' : '') + $('date').value + '_' + $('shift').value;
+const keyOf = () => (API_URL ? $('form').value + (unit() ? '-u' + $('unit').value : '') + '_' : '') + $('date').value + '_' + shiftNow();
+// ฟอร์ม RSC เก็บวันละรายงานเดียว (ใช้ช่อง day) ไม่แยกกะ
+const shiftNow = () => (template?.rsc ? 'day' : $('shift').value);
 const localKey = (key) => 'bbs-report:' + key;
 
 function emptyVehicle(v) {
@@ -159,7 +161,7 @@ function emptyVehicle(v) {
 
 function newReport() {
     return {
-        date: $('date').value, shift: $('shift').value,
+        date: $('date').value, shift: shiftNow(),
         checker: $('checker').value, monitor: $('monitor').value,
         vehicles: []
     };
@@ -684,7 +686,7 @@ function hourGrid(v, who) {
         if (r?.note || r?.detail) { node.title = [r.detail, r.note].filter(Boolean).join(' · '); node.classList.add('noted'); }
         return node;
     }));
-    grid.style.setProperty('--n', hours.length);
+    grid.style.setProperty('--n', hours.length > 12 ? 12 : hours.length); // 24 ช่อง = 2 แถว
     return grid;
 }
 
@@ -697,9 +699,12 @@ function riskTag(name) {
     return el('span', { className: 'risk' + (/^wolf/i.test(r.group) ? ' wolf' : ''),
         textContent: r.group + (r.detail ? ' · ' + r.detail : '') });
 }
+const localDate = (at) => new Date(at - at.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 // ชั่วโมงปัจจุบัน ถ้าอยู่ในกะที่เปิดอยู่
 const nowHour = () => {
-    const hour = new Date().getHours();
+    const now = new Date();
+    const hour = now.getHours();
+    if (template.rsc && report.date !== localDate(now)) return null;
     return template.shiftHours(report.shift).includes(hour) ? hour : null;
 };
 const checkedAt = (v, hour) => (hour === null ? v.rounds.length > 0 : v.rounds.some((r) => r.hour === hour));
@@ -869,7 +874,7 @@ function hourlySummary() {
     const section = (title, lines) => (lines.length ? ['', '[' + title + ']', ...lines] : []);
     return [
         'สรุป BBS ' + (unit()?.name || shortName(template.name)),
-        d + '/' + m + '/' + (Number(y) + 543) + (report.shift === 'night' ? ' กะกลางคืน' : ' กะกลางวัน') +
+        d + '/' + m + '/' + (Number(y) + 543) + (template.rsc ? '' : report.shift === 'night' ? ' กะกลางคืน' : ' กะกลางวัน') +
             ' (ณ ' + new Date().toTimeString().slice(0, 5) + ' น.)',
         '',
         'ตรวจแล้ว ' + (working.length - unchecked.length) + '/' + working.length + ' คัน',
@@ -949,8 +954,9 @@ function render() {
         $('form').selectedOptions[0]?.textContent,
         unit()?.name,
         report.date.split('-').reverse().join('/'),
-        report.shift === 'night' ? 'กลางคืน' : 'กลางวัน'
+        template?.rsc ? '24 ชม.' : report.shift === 'night' ? 'กลางคืน' : 'กลางวัน'
     ].filter(Boolean).join(' · ');
+    $('shift').closest('label').hidden = !!template?.rsc;
     for (const id of ['reset-button', 'export', 'summary-button', 'alert-button', 'plan-button', 'shot-button', 'search', 'add']) $(id).disabled = !template;
     $('template-name').textContent = template ? template.name : '';
     $('template-name').hidden = !!API_URL || !template;
@@ -1030,7 +1036,7 @@ const DAY_FIELDS = ['plate', 'driver', 'driver2', 'driver3', 'risk', 'remark', '
     'status', 'rest', 'status2', 'rest2', 'status3', 'rest3', 'route', 'route2', 'jobTime', 'jobTime2'];
 
 async function shareDay(cars, fields) {
-    if (!template.hourly || !cars.length) return;
+    if (!template.hourly || template.rsc || !cars.length) return; // RSC มีรายงานเดียวต่อวัน
     // จำค่าของตอนนี้ไว้ก่อน ระหว่างรอโหลดคนใช้อาจสลับรายงานไปแล้ว
     const copies = structuredClone(cars);
     const { date, formName, layout, unitTitle, tab } = report;
@@ -1204,23 +1210,8 @@ function matchCrews(plan, mine) {
     }
 }
 
-// ===== รายงานกะก่อน (ฟอร์ม RSC): แท็บ 1 วัน = ชั่วโมง 0-23 ของวันปฏิทิน =====
-const addDays = (date, n) => new Date(Date.parse(date + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10);
-const keyFor = (date, shift) => report.key.replace(/\d{4}-\d{2}-\d{2}_(day|night)$/, date + '_' + shift);
-// ชั่วโมงของแท็บวันนั้น อยู่ในรายงานของกะไหน
-const ownerOf = (date, hour) => (hour < 8 ? [addDays(date, -1), 'night'] : hour < 20 ? [date, 'day'] : [date, 'night']);
+// ===== รายงานกะก่อน (ฟอร์ม RSC): แท็บ 1 วัน = ชั่วโมง 0-23 ของวันปฏิทิน ตรงกับรายงาน 1 วัน =====
 const priorKey = (date) => 'prior:' + $('form').value + ':' + date;
-
-async function otherReport(key) {
-    if (key === report.key) return report;
-    let local = null;
-    try { local = JSON.parse(localStorage.getItem(localKey(key))); } catch { /* เริ่มใหม่ */ }
-    let remote = null;
-    if (API_URL) remote = await fetchRemote(key).catch(() => null);
-    const [date, shift] = key.split('_').slice(-2);
-    const doc = normalize(local || { date, shift, checker: '', monitor: '', vehicles: [] });
-    return remote ? merge(doc, remote) : doc;
-}
 
 async function importPrior(file) {
     status('กำลังอ่านรายงานกะก่อน…');
@@ -1265,28 +1256,7 @@ async function importPrior(file) {
                 note: '', ...(r.detail ? { detail: r.detail } : {}), marks: {}, quiet: true });
         }
     };
-
-    // ชั่วโมงแต่ละช่วงเก็บในรายงานของกะนั้น ส่วนชื่อ/รูธใส่ในรายงานที่เปิดอยู่ด้วย
-    const keys = new Map([[report.key, []]]);
-    for (let hour = 0; hour < 24; hour++) {
-        const key = keyFor(...ownerOf(date, hour));
-        keys.set(key, [...(keys.get(key) || []), hour]);
-    }
-    for (const [key, hours] of keys) {
-        const open = key === report.key;
-        const doc = await otherReport(key);
-        const before = open ? null : snapshot(doc);
-        if (!open) Object.assign(doc, { key, formName: report.formName, layout: report.layout, unitTitle: report.unitTitle, tab: report.tab });
-        for (const car of cars) {
-            const rounds = car.rounds.filter((r) => hours.includes(r.hour));
-            if (open || rounds.length) fillIn(doc, car, rounds);
-        }
-        if (open) continue;
-        doc.updatedAt = Date.now();
-        markEdits(doc, before);
-        try { localStorage.setItem(localKey(key), JSON.stringify(doc)); } catch { /* ยังส่งขึ้นชีตได้ */ }
-        if (API_URL) queue(key, JSON.stringify(doc));
-    }
+    for (const car of cars) fillIn(report, car, car.rounds);
     // เก็บไฟล์ไว้เป็นต้นแบบตอนส่งออก (เฉพาะ .xlsx) จะได้ลำดับแถวและรูปแบบเดิม
     if (/\.xlsx$/i.test(file.name)) {
         const buffer = await file.arrayBuffer();
@@ -1297,50 +1267,19 @@ async function importPrior(file) {
     render();
 }
 
-// รวมชั่วโมง 0-23 ของแท็บวันนั้นจากทุกกะ
-async function daySheetReport(date) {
-    const parts = new Map(); // key -> ชั่วโมงที่รายงานนั้นเป็นเจ้าของในแท็บนี้
-    for (let hour = 0; hour < 24; hour++) {
-        const key = keyFor(...ownerOf(date, hour));
-        parts.set(key, [...(parts.get(key) || []), hour]);
-    }
-    const ordered = [...parts].sort((a, b) => Number(b[0] === report.key) - Number(a[0] === report.key));
-    const cars = new Map();
-    for (const [key, hours] of ordered) {
-        const doc = await otherReport(key);
-        // รายงานกะดึกของเมื่อวานถือข้อมูลคันของแท็บเมื่อวาน เอามาแค่ชั่วโมง กับชื่อถ้ายังไม่มี
-        const sameDay = key.includes(date);
-        for (const v of doc.vehicles) {
-            const rounds = v.rounds.filter((r) => hours.includes(r.hour));
-            const car = cars.get(v.scc) || { scc: v.scc, plate: v.plate, trips: [], rounds: [] };
-            cars.set(v.scc, car);
-            for (const k of ['driver', 'driver2', 'route', 'route2', 'jobTime', 'jobTime2', 'gps', 'cctv', 'abnormal']) {
-                if (!car[k] && v[k] && (sameDay || rounds.length) && (sameDay || k !== 'abnormal')) car[k] = v[k];
-            }
-            if (!car.trips.length && sameDay) car.trips = v.trips;
-            car.rounds.push(...rounds);
-        }
-    }
-    return { ...report, date, vehicles: [...cars.values()] };
-}
-
-// กะดึกคร่อมสองวัน = สองแท็บ สองไฟล์
-async function exportDaySheets() {
-    const dates = report.shift === 'night' ? [report.date, addDays(report.date, 1)] : [report.date];
-    const names = [];
-    for (const date of dates) {
-        const doc = await daySheetReport(date);
-        // แท็บวันถัดไป: ชื่อผู้ Monitor กะดึกก็เป็นคนเดียวกัน
-        const prior = await idb('readonly', (s) => s.get(priorKey(date))).catch(() => null);
-        const blob = await buildHourly(template.buffer, doc, { prior: prior?.buffer });
-        const [y, m, d] = date.split('-');
-        const link = el('a', { href: URL.createObjectURL(blob),
-            download: baseName() + ' ' + d + '-' + m + '-' + (Number(y) + 543) + (report.shift === 'night' ? ' Night' : ' Day') + '.xlsx' });
-        link.click();
-        setTimeout(() => URL.revokeObjectURL(link.href), 10000);
-        names.push(link.download);
-    }
-    return names.join(' + ');
+// 1 ไฟล์ = 1 แท็บของวันนั้น ครบ 24 ชม.
+async function exportDaySheet() {
+    const prior = await idb('readonly', (s) => s.get(priorKey(report.date))).catch(() => null);
+    // ชื่อผู้ Monitor ลงช่องกะที่เราตรวจเอง (ไม่นับช่องที่ดึงจากคนก่อน)
+    const mine = report.vehicles.flatMap((v) => v.rounds).filter((r) => !r.quiet);
+    const night = mine.filter((r) => r.hour < 8 || r.hour >= 20).length * 2 > mine.length;
+    const blob = await buildHourly(template.buffer, { ...report, shift: night ? 'night' : 'day', monitor: mine.length ? report.monitor : '',
+        checker: mine.length ? report.checker : '' }, { prior: prior?.buffer });
+    const [y, m, d] = report.date.split('-');
+    const link = el('a', { href: URL.createObjectURL(blob), download: baseName() + ' ' + d + '-' + m + '-' + (Number(y) + 543) + '.xlsx' });
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+    return link.download;
 }
 
 // ===== อ่านรูป: เลือกไฟล์ / วาง / ลากมาใส่ → ตรวจสรุป → เพิ่มเป็นรอบ "ลงเวลาอย่างเดียว" =====
@@ -1932,7 +1871,7 @@ function bind() {
         $('export').disabled = true;
         try {
             if (template.rsc) {
-                const files = await exportDaySheets();
+                const files = await exportDaySheet();
                 status('ส่งออกรายงานแล้ว');
                 note('ส่งออก', 'ส่งออกรายงาน Excel', { detail: files });
                 $('export').disabled = false;
@@ -1994,6 +1933,8 @@ requireLogin(async () => {
         fail('เปิดฟอร์มไม่ได้: ' + err.message);
     }
     for (const id of ['form', 'date', 'shift']) $(id).disabled = false;
+    // ฟอร์ม RSC ยึดวันปฏิทิน: หลังเที่ยงคืนคือวันนี้ ไม่ใช่กะดึกของเมื่อวาน
+    if (template?.rsc) $('date').value = localDate(new Date());
     bind();
     loadHistory(); // ไม่ต้องรอ ประวัติมาช้าไม่ขวางการทำงาน
     setInterval(loadHistory, 60000);
