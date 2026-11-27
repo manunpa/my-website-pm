@@ -5,6 +5,7 @@ import {
   loadOffshore, DMF_CREDIT, PLATFORM_GROUP, PLATFORM_COLOR, areaColor, areaPopupHtml, platformDetailsHtml, windyLink,
   ADMIN_CREDIT, loadAdmin, adminReady, areaOf, formatArea, areaSearchText
 } from './maps-layers.js?v=20261125';
+import { initEventRoute } from './event-route.js?v=20261127';
 import { setProtectedFetch, getGoogleBase, openStreetView, closeStreetView, onGoogleAuthFail } from './maps-google.js?v=20261125';
 setProtectedFetch(fetchProtectedText);
 /* API ชุดที่ 1: Geofence — โค้ดอยู่ที่ apps-script/geofence.gs (URL เดิม ...uVCF ยังเปิดไว้ให้ my-web-p3 ใช้) */
@@ -21,6 +22,7 @@ const NO_SUPPLIER = '(ไม่ระบุ Supplier)';
 let markerById = new Map();
 // งานออฟชอร์ (โหลดครั้งแรกที่เปิดชั้น) — id แท่นผลิตเริ่มที่ PLAT_ID0 ไม่ชนกับ Geofence/ปั๊ม
 const PLAT_ID0 = 1e7;
+let eventRoute = { refresh(){} };
 let offRows = [], offAreas = null, offStatus = 'idle';
 // แผนเส้นทาง: stops = จุดแวะ (จุดแรกคือต้นทาง), vias = จุดผ่านที่ลากเส้นทาง, route = เส้นทางที่คำนวณ, along = ปั๊มตามทาง
 let plan = { stops: [], vias: [], route: null, along: null, base: null };
@@ -937,6 +939,7 @@ function applyData(mainText,stText,fit){
   if(selectedId!==null&&!allRows.some(p=>p.id===selectedId)) selectedId=null;
   buildSupplierOptions();
   renderMap({fit});renderList();
+  eventRoute.refresh();
   return stationsOk;
 }
 // Geofence ที่ชื่อซ้ำ หรือพิกัดซ้ำกัน (ใช้กับตัวกรอง "ข้อมูลซ้ำ") → p.dup = 'ชื่อซ้ำ' | 'พิกัดซ้ำ' | 'ชื่อ+พิกัดซ้ำ'
@@ -1849,6 +1852,8 @@ $('rainBar')?.addEventListener('input',e=>{
 
 renderPlanner();
 renderRain();
+// ชั่วคราว 27–29 พ.ย. 2569: แนวเส้นทางงานวิ่ง (ดู event-route.js) — ต้องสร้างก่อนโหลดข้อมูล
+eventRoute = initEventRoute({ map, getPoints:()=>allRows, popupHtml:pointPopupHtml, esc, toast, copy:copyText, unlock:unlockFollow });
 
 // ===== Firebase: ตรวจสิทธิ์ / Logout / ตัด Session (ดู firebase-guard.js) =====
 // โหลดข้อมูลหลังยืนยันตัวตนแล้วเท่านั้น
