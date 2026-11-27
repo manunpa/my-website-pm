@@ -1,7 +1,7 @@
 import { requireLogin, fetchProtectedText, PRESENCE_URL, auth } from './firebase-guard.js?v=20261122-cut';
 import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=11';
 import { readPlans, vehicleNo, sccName, PEOPLE_FIELDS } from './bbs-plan.js?v=17';
-import { readHourly, buildHourly, baseCar, plainName } from './bbs-hourly.js?v=13';
+import { readHourly, buildHourly, baseCar, plainName } from './bbs-hourly.js?v=14';
 import { readPrior } from './bbs-prior.js?v=2';
 import { readImage, parseShot, readGps, inShift } from './bbs-ocr.js?v=3';
 import { samePlace } from './bbs-match.js?v=1';
@@ -683,6 +683,7 @@ function hourGrid(v, who) {
             el('b', { textContent: r ? r.place : '–' }),
             el('small', { textContent: r ? shortTime(r) : '' }));
         node.setAttribute('aria-label', v.scc + ' ' + hour + ' นาฬิกา ' + (r ? r.place : 'ยังไม่ตรวจ'));
+        if (r?.color) { node.classList.add('tinted'); node.style.setProperty('--c', r.color); }
         if (r?.note || r?.detail) { node.title = [r.detail, r.note].filter(Boolean).join(' · '); node.classList.add('noted'); }
         return node;
     }));
@@ -778,6 +779,27 @@ function hourlyPage(v) {
     return page;
 }
 
+// ===== ตัวเลือกผลที่พิมพ์เองแล้วเก็บไว้ (จำในเครื่องนี้ แยกตามฟอร์ม) พร้อมสี =====
+const SWATCHES = [['', 'ไม่ใส่สี'], ['#f4b6f4', 'ชมพู'], ['#fff59d', 'เหลือง'], ['#b3e5fc', 'ฟ้า'], ['#c5e1a5', 'เขียว'],
+    ['#ffcc80', 'ส้ม'], ['#ef9a9a', 'แดง'], ['#d1c4e9', 'ม่วง']];
+const choicesKey = () => 'bbs-choices:' + ($('form').value || template.name);
+const choices = () => {
+    try { return JSON.parse(localStorage.getItem(choicesKey())) || []; } catch { return []; }
+};
+const keepChoices = (list) => {
+    try { localStorage.setItem(choicesKey(), JSON.stringify(list)); } catch { /* เก็บไม่ได้ ใช้ครั้งเดียว */ }
+};
+let swatch = '';
+function drawSwatches() {
+    $('hour-colors').replaceChildren(...SWATCHES.map(([color, name]) => {
+        const node = el('button', { type: 'button', className: 'swatch', title: name, onclick: () => { swatch = color; drawSwatches(); } });
+        node.setAttribute('aria-label', 'สี' + name);
+        node.setAttribute('aria-pressed', String(swatch === color));
+        if (color) node.style.setProperty('--c', color);
+        return node;
+    }));
+}
+
 function editHour(v, hour, who) {
     const old = roundAt(v, hour, who);
     $('hour-title').textContent = v.scc + ' · ' + String(hour).padStart(2, '0') + ':00 น.' + (who > 1 ? ' · พขร.' + who : '');
@@ -786,7 +808,8 @@ function editHour(v, hour, who) {
     $('hour-detail').value = old?.detail || '';
     $('hour-detail-field').hidden = !template.rsc;
     $('hour-error').hidden = true;
-    $('hour-other').value = old && !/^C\d+$/.test(old.place) && !template.results.some(([code]) => code === old.place) ? old.place : '';
+    $('hour-other').value = old && !/^C\d+$/.test(old.place) && !template.results.some(([code]) => code === old.place) &&
+        !choices().some((x) => x.code === old.place) ? old.place : '';
     // หารถใหม่ตอนกด: ระหว่างเปิดหน้าต่างรายงานอาจถูกโหลดใหม่
     const car = () => report.vehicles.find((x) => x.scc === v.scc);
     const done = () => { save(); $('hour-dialog').close(); render(); };
@@ -797,9 +820,11 @@ function editHour(v, hour, who) {
             $('hour-note').focus();
             return;
         }
+        // สีของตัวเลือกที่เก็บเองติดไปกับช่อง เครื่องอื่นและไฟล์ส่งออกจึงเห็นสีเดียวกัน
+        const color = choices().find((x) => x.code === place)?.color || (old?.place === place ? old.color : '');
         // id ตามช่อง: สองเครื่องลงช่องเดียวกันจะเหลืออันที่แก้ล่าสุด
         const entry = {
-            id: 'h' + who + '-' + hour, type: 'hour', hour, who, place, ...(group ? { group } : {}),
+            id: 'h' + who + '-' + hour, type: 'hour', hour, who, place, ...(group ? { group } : {}), ...(color ? { color } : {}),
             time: ($('hour-time').value || new Date().toTimeString().slice(0, 5)) + ':00',
             note: $('hour-note').value.trim(), ...(detail ? { detail } : {}), marks: {}
         };
@@ -841,9 +866,35 @@ function editHour(v, hour, who) {
                 el('b', { textContent: '+' }))]),
         ...groups.flatMap(([group, title, codes]) => [
             el('small', { className: 'grouphead', textContent: title }),
-            ...codes.map((code) => result(code, code, group))]));
+            ...codes.map((code) => result(code, code, group))]),
+        ...choices().map(({ code, color }) => {
+            const pick = result(code, '');
+            if (color) { pick.classList.add('tinted'); pick.style.setProperty('--c', color); }
+            const drop = el('button', { type: 'button', className: 'drop', textContent: '×', title: 'เอา ' + code + ' ออกจากตัวเลือก',
+                onclick: () => {
+                    if (!confirm('เอา "' + code + '" ออกจากตัวเลือก?\n(ช่องที่ลงไปแล้วไม่เปลี่ยน)')) return;
+                    keepChoices(choices().filter((x) => x.code !== code));
+                    drawResults();
+                } });
+            drop.setAttribute('aria-label', drop.title);
+            return el('span', { className: 'mine' }, pick, drop);
+        }));
     drawResults();
-    $('hour-other-ok').onclick = () => { const text = $('hour-other').value.trim(); if (text) set(text); };
+    swatch = '';
+    $('hour-keep').checked = false;
+    $('hour-colors').hidden = true;
+    $('hour-keep').onchange = () => { $('hour-colors').hidden = !$('hour-keep').checked; };
+    drawSwatches();
+    $('hour-other-ok').onclick = () => {
+        const text = $('hour-other').value.trim();
+        if (!text) return;
+        // รหัสที่มีบนฟอร์มอยู่แล้วไม่ต้องเก็บซ้ำ
+        if ($('hour-keep').checked && !template.results.some(([code]) => code === text)) {
+            keepChoices([...choices().filter((x) => x.code !== text), { code: text, color: swatch }]);
+            drawResults();
+        }
+        set(text);
+    };
     $('hour-clear').hidden = !old;
     $('hour-clear').onclick = () => {
         note('ลบ', 'ลบช่องรายชั่วโมง', { scc: v.scc, detail: roundText(old) });

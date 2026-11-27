@@ -392,8 +392,27 @@ function painter(book, doc, styles) {
     }
 
     const made = new Map(); // สไตล์เดิม:สี -> สไตล์ใหม่ (เส้นขอบ ฟอนต์ คงเดิม)
-    return (cell, code, kind) => {
-        const fill = legend.get(code + '@' + kind) ?? legend.get(/^C\d+$/.test(code) ? 'C' : code);
+    // สีของตัวเลือกที่ผู้ใช้เก็บเอง: เพิ่มสีพื้นใหม่ในไฟล์
+    const fills = els(styles, 'fills')[0];
+    const custom = new Map();
+    const fillOf = (color) => {
+        if (!/^#[0-9a-f]{6}$/i.test(color || '')) return undefined;
+        if (!custom.has(color)) {
+            const make = (name) => styles.createElementNS(NS, name);
+            const [node, pattern, front] = ['fill', 'patternFill', 'fgColor'].map(make);
+            pattern.setAttribute('patternType', 'solid');
+            front.setAttribute('rgb', 'FF' + color.slice(1).toUpperCase());
+            pattern.appendChild(front);
+            node.appendChild(pattern);
+            fills.appendChild(node);
+            const count = els(fills, 'fill').length;
+            fills.setAttribute('count', String(count));
+            custom.set(color, count - 1);
+        }
+        return custom.get(color);
+    };
+    return (cell, code, kind, color) => {
+        const fill = fillOf(color) ?? legend.get(code + '@' + kind) ?? legend.get(/^C\d+$/.test(code) ? 'C' : code);
         if (!cell || fill === undefined) return;
         const base = Number(cell.getAttribute('s') || 0);
         const key = base + ':' + fill;
@@ -500,7 +519,7 @@ function fill(book, doc, layout, blocks, report, paint, driverCol) {
             const time = watched(r.time);
             setCell(doc, rows[at], col, rsc && time ? Number(time) : time); // ฟอร์ม RSC เก็บเวลาเป็นตัวเลข
             setCell(doc, rows[at + 1], col, r.place || '');
-            paint(cellAt(rows[at + 1], col), r.place || '', r.group);
+            paint(cellAt(rows[at + 1], col), r.place || '', r.group, r.color);
             const text = r.note && r.hour + ' น. ' + r.note;
             if (text && !String(v.abnormal || '').includes(text)) notes.push(text);
             if (rsc && r.detail) comments.push({ ref: col + rowNum(rows[at + 1]), text: r.detail });

@@ -74,6 +74,13 @@ section p{margin:0 0 8px}
 body.dropping::after{content:'วางไฟล์แผนงานที่นี่';position:fixed;inset:10px;z-index:9;display:grid;place-items:center;border:3px dashed var(--ink);border-radius:16px;background:color-mix(in srgb,var(--panel) 88%,transparent);font-size:18px;font-weight:600;pointer-events:none}
 .duty{font-size:12px;color:var(--mute);margin-left:6px}
 .duty.off{color:var(--no);font-weight:600}
+.swatches{display:inline-flex;gap:6px;flex-wrap:wrap}
+.swatch{width:26px;height:26px;border-radius:50%;border:1px solid var(--line);background:var(--c,var(--panel));cursor:pointer;padding:0}
+.swatch[aria-pressed=true]{outline:3px solid var(--ink);outline-offset:1px}
+.mine{position:relative;display:flex}
+.mine .result{flex:1}
+.mine .drop{position:absolute;top:-6px;right:-4px;width:18px;height:18px;line-height:1;border-radius:50%;border:1px solid var(--line);background:var(--panel);font-size:12px;padding:0;cursor:pointer}
+.hour.tinted{background:color-mix(in srgb,var(--c) 30%,var(--panel));border-color:var(--c)}
 .risk{display:inline-block;margin-left:6px;padding:0 7px;font-size:12px;border:1px solid #b07400;color:#b07400;border-radius:6px}
 .risk.wolf{border-color:var(--no);color:var(--no)}
 .hide{align-self:center;display:inline-flex;padding:3px;color:var(--mute);cursor:pointer;border-radius:5px}
@@ -260,6 +267,7 @@ dialog em{font-style:normal;color:var(--no)}
     <p class="bad" id="hour-error" hidden>เลือก NG ต้องกรอกหมายเหตุก่อน</p>
     <div class="results" id="hour-results"></div>
     <div class="line"><input id="hour-other" class="grow" placeholder="ผลอื่น เช่น GS, ACS" aria-label="ผลอื่น"><button class="btn" id="hour-other-ok" type="button">ใช้</button></div>
+    <div class="line"><label><input type="checkbox" id="hour-keep"> เก็บเป็นตัวเลือก</label><span class="swatches" id="hour-colors" hidden></span></div>
     <div class="line" style="margin:0">
       <button class="btn" id="hour-clear" type="button">ลบช่องนี้</button>
       <button class="btn" id="hour-close" type="button">ปิด</button>
@@ -338,6 +346,6 @@ dialog em{font-style:normal;color:var(--no)}
   });
 })();
 </script>
-<script type="module" src="./bbs.js?v=63"></script>
+<script type="module" src="./bbs.js?v=64"></script>
 </body>
 </html>
