@@ -1184,6 +1184,13 @@ function hourOf({ date, time }) {
     return day.toISOString().slice(0, 10) === date ? hour : null;
 }
 
+// เวลาตอนนี้ในรูปแบบเดียวกับแถวจากรูป
+function nowStamp() {
+    const now = new Date();
+    const two = (n) => String(n).padStart(2, '0');
+    return { date: now.getFullYear() + '-' + two(now.getMonth() + 1) + '-' + two(now.getDate()), time: now.toTimeString().slice(0, 8) };
+}
+
 function drawNames() {
     $('shot-all').hidden = true;
     $('shot-list').replaceChildren(...shotItems.map((item) => {
@@ -1201,7 +1208,8 @@ function drawNames() {
                 item.warn ? el('em', { textContent: item.warn }) : null),
             item.name ? el('div', { className: 'line' }, tick('use', 'ใส่ชื่อ'), name) : null,
             item.code ? el('label', { className: 'line' }, tick('useCode', 'ลงผลตรวจ'),
-                item.code + ' เวลา ' + item.time.slice(0, 5)) : null);
+                item.stale ? 'ลง ' + item.code + ' เป็นเวลานี้ ' + item.time.slice(0, 5) + ' (เวลา GPS เก่า ' + item.stale + ')'
+                    : item.code + ' เวลา ' + item.time.slice(0, 5)) : null);
     }));
     countShots();
 }
@@ -1209,14 +1217,27 @@ function drawNames() {
 async function readNames(blob) {
     const found = await readGps(blob);
     const digits = (text) => String(text || '').replace(/\D/g, '');
-    let outside = 0;
+    let old = 0;
+    let blocked = 0;
     for (const row of found) {
         const known = report.vehicles.find((v) => [v.scc, v.plate].some((t) => digits(t) === digits(row.plate)));
         const v = known || emptyVehicle({ scc: row.plate, plate: '', driver: '', risk: '' });
-        const hour = row.code ? hourOf(row) : null;
-        if (row.code && hour === null) outside++;
+        let hour = row.code ? hourOf(row) : null;
+        let { time } = row;
+        let stale = '';
+        // เวลา GPS ไม่ตรงวัน/กะ (เช่น รถจอดดับเครื่อง): ให้คนเลือกเองว่าจะลงเป็นเวลาตอนนี้ไหม
+        if (row.code && hour === null) {
+            const now = nowStamp();
+            hour = hourOf(now);
+            if (hour === null) blocked++;
+            else {
+                old++;
+                stale = row.date.split('-').reverse().slice(0, 2).join('/') + ' ' + row.time.slice(0, 5);
+                time = now.time;
+            }
+        }
         const code = hour === null ? '' : row.code;
-        const { name, time } = row;
+        const { name } = row;
         if (!name && !code) continue;
         if (shotItems.some((i) => i.v.scc === v.scc && i.name === name && i.hour === hour)) continue;
         // ช่องที่ลงผลแล้วไม่ทับ ชื่อที่มีอยู่แล้ว (เช่น จากแผน) และรถไม่มีในฟอร์ม ไม่ติ๊กให้
@@ -1227,12 +1248,14 @@ async function readNames(blob) {
             taken ? 'ช่อง ' + hour + ' น. ลงแล้ว' : ''
         ].filter(Boolean).join(' · ');
         shotItems.push({
-            v, name, hour, time, code: taken ? '' : code, created: !known, warn,
-            use: !!known && !!name && !v.driver, useCode: !!known && !!code && !taken
+            v, name, hour, time, stale, code: taken ? '' : code, created: !known, warn,
+            use: !!known && !!name && !v.driver, useCode: !!known && !!code && !taken && !stale
         });
     }
     $('shot-state').textContent = (found.length ? '✔ อ่านได้ ' + found.length + ' แถวในรูปล่าสุด ตรวจก่อนกดใส่'
-        : '⚠ ไม่พบแถวรถในรูปล่าสุด') + (outside ? ' · เวลาอยู่นอกวัน/กะนี้ ' + outside + ' คัน ไม่ลงผลตรวจ' : '');
+        : '⚠ ไม่พบแถวรถในรูปล่าสุด')
+        + (old ? ' · ⚠ เวลา GPS เก่า ' + old + ' คัน ติ๊กเลือกถ้าจะลงเป็นเวลานี้' : '')
+        + (blocked ? ' · ⚠ เวลา GPS เก่า ' + blocked + ' คัน ลงไม่ได้ เพราะตอนนี้ไม่อยู่ในวัน/กะที่เปิด' : '');
     drawShots();
 }
 
