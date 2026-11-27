@@ -269,7 +269,27 @@ function scheduleLabelRelayout(){
 }
 map.on('zoomend moveend resize',scheduleLabelRelayout);
 
+// พิกัดแบบองศา-ลิปดา-ฟิลิปดา เช่น 13°49'29.0"N 100°35'05.2"E (ที่ Google Maps แสดง) หรือแบบองศา-ลิปดา 13°49.483'N
+function parseDms(text){
+  const t=String(text).trim().toUpperCase().replace(/[’‘′]/g,"'").replace(/[”“″]|''/g,'"');
+  const part=String.raw`(\d{1,3}(?:\.\d+)?)\s*°\s*(?:(\d{1,2}(?:\.\d+)?)\s*'\s*)?(?:(\d{1,2}(?:\.\d+)?)\s*"\s*)?([NSEW])`;
+  const m=t.match(new RegExp(`^\\(?\\s*${part}\\s*[,;/]?\\s*${part}\\s*\\)?$`));
+  if(!m) return null;
+  const read=i=>{
+    const min=Number(m[i+1]||0), sec=Number(m[i+2]||0);
+    if(min>=60||sec>=60) return null;
+    const dir=m[i+3];
+    return {axis:dir==='N'||dir==='S'?'lat':'lng', v:(Number(m[i])+min/60+sec/3600)*(dir==='S'||dir==='W'?-1:1)};
+  };
+  const a=read(1), b=read(5);
+  if(!a||!b||a.axis===b.axis) return null;
+  const lat=Number((a.axis==='lat'?a:b).v.toFixed(6)), lng=Number((a.axis==='lng'?a:b).v.toFixed(6));
+  if(Math.abs(lat)>90||Math.abs(lng)>180) return null;
+  return {lat,lng};
+}
 function parseLatLng(text){
+  const dms=parseDms(text);
+  if(dms) return dms;
   const m = String(text).trim().match(/^(-?\d+(?:[.,]\d+)?)\s*[,\s;/]\s*(-?\d+(?:[.,]\d+)?)$/);
   if(!m) return null;
   const lat = Number(m[1].replace(',','.')), lng = Number(m[2].replace(',','.'));
@@ -1382,6 +1402,8 @@ const stopOf = p => ({id:p.id,name:p.name,lat:p.lat,lng:p.lng});
 // "13.7563, 100.5018", "13.7563 100.5018", "(13.7, 100.5)" หรือลิงก์ Google Maps → {lat,lng} (สลับให้ถ้าพิมพ์ ลองจิจูด, ละติจูด)
 function parseCoordsLoose(s){
   const t=String(s).trim();
+  const dms=parseDms(t);
+  if(dms) return dms;
   const m=t.match(/@(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/)||t.match(/[?&](?:q|query|ll)=(-?\d+(?:\.\d+)?)(?:,|%2C)\s*(-?\d+(?:\.\d+)?)/i)
     ||t.match(/^\(?\s*(-?\d+(?:\.\d+)?)\s*(?:,|\s)\s*(-?\d+(?:\.\d+)?)\s*\)?$/);
   if(!m) return null;
