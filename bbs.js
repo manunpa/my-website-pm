@@ -402,6 +402,21 @@ function select(obj, prop, label, options) {
     return node;
 }
 
+// ===== ข้อความสถานะ: ไอคอนเส้นแบบเดียวกันทั้งหน้า (ok / warn / busy) =====
+const ICONS = {
+    ok: '<circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/>',
+    warn: '<path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17.5v.01"/>'
+};
+function icon(kind) {
+    const node = el('span', { className: kind === 'busy' ? 'spin small' : 'mark ' + kind });
+    node.setAttribute('aria-hidden', 'true');
+    if (ICONS[kind]) node.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + ICONS[kind] + '</svg>';
+    return node;
+}
+// แต่ละคู่ [ชนิด, ข้อความ] ขึ้นคนละบรรทัด ข้อความว่างไม่แสดง
+const say = (id, ...lines) => $(id).replaceChildren(...lines.filter(([, text]) => text)
+    .map(([kind, text]) => el('span', { className: 'saying' }, icon(kind), text)));
+
 const button = (text, onClick, cls = 'btn') => el('button', { type: 'button', className: cls, textContent: text, onclick: onClick });
 
 const presetMarks = (type) => Object.fromEntries(TYPES[type].preset.map((c) => [c, 'P']));
@@ -635,10 +650,11 @@ function historyBadge(name) {
         note('ดู', 'ดูประวัติพฤติกรรม พขร.', { detail: name });
     };
     const node = el('span', {
-        className: 'history', tabIndex: 0, textContent: '⚠ ' + list.length,
+        className: 'history', tabIndex: 0,
         title: [head, ...lines.slice(0, 8), ...(lines.length > 8 ? ['… กดเพื่อดูทั้งหมด'] : [])].join('\n'),
         onclick: open, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') open(e); }
     });
+    node.append(icon('warn'), String(list.length));
     node.setAttribute('role', 'button');
     node.setAttribute('aria-label', head);
     return node;
@@ -1019,7 +1035,7 @@ function vehiclePage(v) {
             if (r === editing) {
                 return el('div', { className: 'editor' },
                     roundView(v, r, i, () => redraw()),
-                    button('✔ เสร็จ', () => { openRound.delete(v.scc); redraw(); }, 'btn primary wide'));
+                    button('เสร็จ', () => { openRound.delete(v.scc); redraw(); }, 'btn primary wide'));
             }
             return el('button', { type: 'button', className: 'entry', onclick: () => { openRound.set(v.scc, i); redraw(); } },
                 roundLine(r));
@@ -1582,10 +1598,10 @@ async function readNames(blob) {
             use: !!known && !!name && !v.driver, useCode: !!known && !!code && !taken && !stale
         });
     }
-    $('shot-state').textContent = (found.length ? '✔ อ่านได้ ' + found.length + ' แถวในรูปล่าสุด ตรวจก่อนกดใส่'
-        : '⚠ ไม่พบแถวรถในรูปล่าสุด')
-        + (old ? ' · ⚠ เวลา GPS เก่า ' + old + ' คัน ติ๊กเลือกถ้าจะลงเป็นเวลานี้' : '')
-        + (blocked ? ' · ⚠ เวลา GPS เก่า ' + blocked + ' คัน ลงไม่ได้ เพราะตอนนี้ไม่อยู่ในวัน/กะที่เปิด' : '');
+    say('shot-state',
+        found.length ? ['ok', 'อ่านได้ ' + found.length + ' แถวจากรูปล่าสุด กรุณาตรวจสอบก่อนบันทึก'] : ['warn', 'ไม่พบข้อมูลรถในรูปล่าสุด'],
+        ['warn', old ? 'เวลา GPS เก่า ' + old + ' คัน ติ๊กเลือกหากต้องการลงเป็นเวลาปัจจุบัน' : ''],
+        ['warn', blocked ? 'เวลา GPS เก่า ' + blocked + ' คัน ลงไม่ได้ เพราะขณะนี้ไม่อยู่ในวัน/กะที่เปิด' : '']);
     drawShots();
 }
 
@@ -1621,7 +1637,7 @@ function applyNames() {
 }
 
 async function readShot(blob) {
-    $('shot-state').textContent = '⏳ กำลังอ่านรูป… (ครั้งแรกต้องโหลดตัวอ่านภาษาไทย อาจนานหน่อย)';
+    say('shot-state', ['busy', 'กำลังอ่านรูป… ครั้งแรกอาจใช้เวลาสักครู่']);
     if (template.hourly) return readNames(blob);
     const working = report.vehicles.filter(hasWork);
     // จับรถทุกคันในรายงาน คันที่ไม่มีงานก็เก็บข้อมูลไว้ เรียงคันมีงานขึ้นก่อน
@@ -1640,9 +1656,10 @@ async function readShot(blob) {
     shotItems.sort((a, b) => Number(!hasWork(a.v)) - Number(!hasWork(b.v)));
     const missing = working.filter((v) => !shotItems.some((i) => i.v === v)).map((v) => v.scc);
     const idle = found.filter((x) => !hasWork(x.v)).length;
-    $('shot-state').textContent = (found.length ? '✔ พบ ' + found.length + ' คันในรูปล่าสุด' +
-        (idle ? ' (ไม่มีงาน ' + idle + ' คัน เก็บไว้แต่ไม่แสดงหน้าทำงาน)' : '') : '⚠ ไม่พบรถของรายงานนี้ในรูปล่าสุด') +
-        (missing.length ? ' · รถมีงานที่ยังไม่เจอ: ' + missing.join(', ') : '');
+    say('shot-state',
+        found.length ? ['ok', 'พบ ' + found.length + ' คันในรูปล่าสุด' + (idle ? ' (ไม่มีงาน ' + idle + ' คัน เก็บไว้แต่ไม่แสดงในหน้าทำงาน)' : '')]
+            : ['warn', 'ไม่พบรถของรายงานนี้ในรูปล่าสุด'],
+        ['warn', missing.length ? 'รถที่มีงานแต่ยังไม่พบ: ' + missing.join(', ') : '']);
     drawShots();
 }
 
@@ -1654,7 +1671,7 @@ function addShots(files) {
         shotsLeft++;
         shotQueue = shotQueue.then(() => readShot(image)).catch((err) => {
             console.error(err);
-            $('shot-state').textContent = '⚠ อ่านรูปไม่ได้: ' + err.message;
+            say('shot-state', ['warn', 'อ่านรูปไม่ได้: ' + err.message]);
         }).then(() => { shotsLeft--; countShots(); });
     }
     countShots();
@@ -1701,9 +1718,9 @@ function bindShots() {
                 if (type) images.push(await item.getType(type));
             }
             if (images.length) addShots(images);
-            else $('shot-state').textContent = '⚠ ยังไม่มีรูปในคลิปบอร์ด ให้คัดลอกรูปก่อน';
+            else say('shot-state', ['warn', 'ยังไม่มีรูปในคลิปบอร์ด กรุณาคัดลอกรูปก่อน']);
         } catch {
-            $('shot-state').textContent = '⚠ เบราว์เซอร์ไม่ให้อ่านคลิปบอร์ด ใช้ Ctrl+V หรือเลือกรูปแทน';
+            say('shot-state', ['warn', 'เบราว์เซอร์ไม่อนุญาตให้อ่านคลิปบอร์ด ใช้ Ctrl+V หรือเลือกรูปแทน']);
         }
     });
     const zone = $('shot-zone');
@@ -1850,7 +1867,7 @@ function buildAlert() {
 
 async function alertImage(images) {
     for (const image of images) {
-        $('alert-guess').textContent = '⏳ กำลังอ่านรูป…';
+        say('alert-guess', ['busy', 'กำลังอ่านรูป…']);
         try {
             const text = await readImage(image);
             $('alert-input').value += ($('alert-input').value ? '\n' : '') + text.trim();
