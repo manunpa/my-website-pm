@@ -180,6 +180,8 @@ button.car{width:100%;border:0;text-align:left;cursor:pointer}
 .result.primary.depot,.result.primary.unit,.result.primary.tinted{outline:3px solid var(--ink);outline-offset:1px}
 dialog{width:min(640px,94vw);max-height:85vh;overflow:auto;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:16px}
 dialog::backdrop{background:rgba(0,0,0,.45)}
+#shotplan-dialog{width:min(900px,96vw)}
+#shotplan-list input{padding:4px 6px;font-size:13px}
 dialog ul{padding-left:18px;margin:0 0 12px}
 dialog em{font-style:normal;color:var(--no)}
 </style>
@@ -227,7 +229,7 @@ dialog em{font-style:normal;color:var(--no)}
     <div class="line tools">
       <input id="search" class="grow" type="search" placeholder="ค้นหารถ / ชื่อ" aria-label="ค้นหา" disabled>
       <button class="btn" id="plan-button" type="button" title="ดึงเฉพาะวันที่และกะที่เลือก" disabled><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>แผนงาน</button>
-      <input type="file" id="plan" accept=".xlsx,.ods" multiple hidden>
+      <input type="file" id="plan" accept=".xlsx,.ods,image/*" multiple hidden>
       <button class="btn" id="prior-button" type="button" title="ดึงข้อมูลที่คนก่อนหน้าลงไว้ จากแท็บของวันที่เลือก" hidden>รายงานกะก่อน</button>
       <input type="file" id="prior" accept=".xlsx,.ods" hidden>
       <button class="btn" id="shot-button" type="button" title="อ่านเวลาและสถานที่จากรูป" disabled><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></svg>รูป</button>
@@ -235,7 +237,7 @@ dialog em{font-style:normal;color:var(--no)}
       <button class="btn" id="alert-button" type="button" title="จัดข้อความแจ้งเหตุสำหรับส่ง LINE" disabled><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17.5v.01"/></svg>แจ้งเหตุ</button>
     </div>
     <p class="mute tools" id="count"></p>
-    <p class="tools line" id="rsc-filters" hidden><label><input type="checkbox" id="only-pending"> ค้างตรวจชั่วโมงนี้</label><label><input type="checkbox" id="only-risk"> กลุ่มเสี่ยง</label></p>
+    <p class="tools line" id="rsc-filters" hidden><label><input type="checkbox" id="only-pending"> ค้างตรวจชั่วโมงนี้</label><label><input type="checkbox" id="only-risk"> กลุ่มเสี่ยง</label><label id="shift-filter" hidden>กะตามแผน <select id="only-shift"><option value="">ทั้งหมด</option><option value="D">เช้า</option><option value="N">ดึก</option></select></label></p>
     <datalist id="driver-names"></datalist>
     <p class="mute tools" id="history-note" hidden>โหลดประวัติพฤติกรรม พขร. ไม่ได้ (ป้าย ⚠ จะไม่แสดง)</p>
     <div id="list"></div>
@@ -325,6 +327,16 @@ dialog em{font-style:normal;color:var(--no)}
       </div>
     </form>
   </dialog>
+  <dialog id="shotplan-dialog" aria-labelledby="shotplan-title">
+    <h3 id="shotplan-title"></h3>
+    <p class="mute">ตัวอ่านรูปอาจอ่านผิด ตรวจและแก้ก่อนกดใช้ (เอาติ๊กออก = ไม่ใช้แถวนั้น)</p>
+    <ul id="shotplan-notes" class="bad"></ul>
+    <div id="shotplan-list"></div>
+    <div class="line" style="margin:0">
+      <button class="btn primary" id="shotplan-ok" type="button">ใช้ข้อมูลนี้</button>
+      <button class="btn" id="shotplan-cancel" type="button">ยกเลิก</button>
+    </div>
+  </dialog>
   <dialog id="plan-dialog" aria-labelledby="plan-title">
     <h3 id="plan-title"></h3>
     <ul id="plan-notes" class="bad"></ul>
@@ -346,6 +358,6 @@ dialog em{font-style:normal;color:var(--no)}
   });
 })();
 </script>
-<script type="module" src="./bbs.js?v=65"></script>
+<script type="module" src="./bbs.js?v=67"></script>
 </body>
 </html>

@@ -1,12 +1,13 @@
 import { requireLogin, fetchProtectedText, PRESENCE_URL, auth } from './firebase-guard.js?v=20261122-cut';
 import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=11';
 import { readPlans, vehicleNo, sccName, PEOPLE_FIELDS } from './bbs-plan.js?v=17';
-import { readHourly, buildHourly, baseCar, plainName } from './bbs-hourly.js?v=15';
+import { readHourly, buildHourly, baseCar, plainName } from './bbs-hourly.js?v=16';
 import { readPrior } from './bbs-prior.js?v=3';
+import { readPlanShots, shotPlan } from './bbs-planshot.js?v=1';
 import { readImage, parseShot, readGps, inShift } from './bbs-ocr.js?v=3';
 import { samePlace } from './bbs-match.js?v=1';
 import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
-import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=8';
+import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=9';
 import { destList, diffPlan, mergeChanges, describe, roundsChanged } from './bbs-diff.js?v=2';
 import { HISTORY_URL, nameKey, indexHistory, thaiDate } from './bbs-history.js?v=1';
 import { createLog } from './bbs-log.js?v=1';
@@ -147,8 +148,8 @@ const shortName = (name) => name.replace(/\.xlsx$/i, '').split('วันที�
 // ฟอร์มที่มีหน่วยงานย่อย แยกรายงานกันคนละ key
 const unit = () => template?.units?.[Number($('unit').value)] || null;
 const keyOf = () => (API_URL ? $('form').value + (unit() ? '-u' + $('unit').value : '') + '_' : '') + $('date').value + '_' + shiftNow();
-// ฟอร์ม RSC เก็บวันละรายงานเดียว (ใช้ช่อง day) ไม่แยกกะ
-const shiftNow = () => (template?.rsc ? 'day' : $('shift').value);
+// ฟอร์ม 24 ชม. เก็บวันละรายงานเดียว (ใช้ช่อง day) ไม่แยกกะ
+const shiftNow = () => (template?.daily ? 'day' : $('shift').value);
 const localKey = (key) => 'bbs-report:' + key;
 
 function emptyVehicle(v) {
@@ -280,6 +281,36 @@ function mergeVehicles() {
     report.vehicles.push(...template.vehicles.filter((v) => !have.has(v.scc)).map(emptyVehicle));
 }
 
+// ฟอร์มที่เคยแยกกะ (NPM): ช่องที่ลงไว้ในรายงานกะกลางคืนแบบเก่า ย้ายเข้ารายงานของวันตามเวลาจริง
+// 20-23 น. มาจากกะดึกของวันเดียวกัน 0-7 น. มาจากกะดึกของเมื่อวาน
+async function adoptNightHours(key) {
+    if (!template?.hourly || !template.daily || template.rsc || !report.key) return;
+    const before = new Date(Date.parse(report.date + 'T00:00:00Z') - 86400000).toISOString().slice(0, 10);
+    const sources = [[report.date, (h) => h >= 20], [before, (h) => h < 8]];
+    let added = 0;
+    for (const [date, wanted] of sources) {
+        const old = key.replace(/\d{4}-\d{2}-\d{2}_day$/, date + '_night');
+        let local = null;
+        try { local = JSON.parse(localStorage.getItem(localKey(old))); } catch { /* ไม่มีของเก่า */ }
+        const remote = await fetchRemote(old).catch(() => null);
+        if (key !== keyOf()) return;
+        const doc = local && remote ? merge(normalize(local), remote) : remote || (local && normalize(local));
+        for (const v of doc?.vehicles || []) {
+            const rounds = v.rounds.filter((r) => r.type === 'hour' && wanted(r.hour));
+            if (!rounds.length) continue;
+            let car = report.vehicles.find((x) => x.scc === v.scc);
+            if (!car) report.vehicles.push(car = emptyVehicle({ scc: v.scc, plate: v.plate, driver: '', risk: '' }));
+            for (const k of ['driver', 'driver2', 'driver3', 'gps', 'cctv']) car[k] ||= v[k];
+            for (const r of rounds) {
+                if (report.gone?.[v.scc + '#' + r.id] || car.rounds.some((x) => x.id === r.id)) continue;
+                car.rounds.push({ ...r });
+                added++;
+            }
+        }
+    }
+    if (added) { save(); render(); }
+}
+
 async function load() {
     current = null;
     openRound.clear();
@@ -308,6 +339,7 @@ async function load() {
         // กรอกค้างไว้แล้วยังไม่ได้ส่ง (ปิดหน้าไปก่อน) → ส่งตอนนี้
         if (local && !sameReport(report, remote)) queue(key, JSON.stringify(report));
         else status('ข้อมูลตรงกับ Google Sheet');
+        await adoptNightHours(key);
     } catch (err) {
         status('โหลดจาก Google Sheet ไม่ได้: ' + err.message, true);
     }
@@ -705,7 +737,7 @@ const localDate = (at) => new Date(at - at.getTimezoneOffset() * 60000).toISOStr
 const nowHour = () => {
     const now = new Date();
     const hour = now.getHours();
-    if (template.rsc && report.date !== localDate(now)) return null;
+    if (template.daily && report.date !== localDate(now)) return null;
     return template.shiftHours(report.shift).includes(hour) ? hour : null;
 };
 const checkedAt = (v, hour) => (hour === null ? v.rounds.length > 0 : v.rounds.some((r) => r.hour === hour));
@@ -948,7 +980,7 @@ function hourlySummary() {
     const section = (title, lines) => (lines.length ? ['', '[' + title + ']', ...lines] : []);
     return [
         'สรุป BBS ' + (unit()?.name || shortName(template.name)),
-        d + '/' + m + '/' + (Number(y) + 543) + (template.rsc ? '' : report.shift === 'night' ? ' กะกลางคืน' : ' กะกลางวัน') +
+        d + '/' + m + '/' + (Number(y) + 543) + (template.daily ? '' : report.shift === 'night' ? ' กะกลางคืน' : ' กะกลางวัน') +
             ' (ณ ' + new Date().toTimeString().slice(0, 5) + ' น.)',
         '',
         'ตรวจแล้ว ' + (working.length - unchecked.length) + '/' + working.length + ' คัน',
@@ -1017,6 +1049,7 @@ function vehiclePage(v) {
 // กดซ่อนเอง (เช่น แผนใส่ข้อความอื่นมาแทนงาน) ไม่นับว่ามีงาน
 // ฟอร์ม RSC ก่อนอัปแผนแสดงทุกคันในฟอร์ม พอมีแผนแล้วเหลือเฉพาะคันที่มีงาน
 const unplanned = () => !!template?.rsc && !report.vehicles.some((x) => x.trips.length);
+const hasShifts = () => report.vehicles.some((v) => v.planShift);
 const hasWork = (v) => !v.hidden && (unplanned() || v.trips.length > 0 || !!v.pinned || v.rounds.some((r) => !r.quiet));
 
 function render() {
@@ -1028,9 +1061,9 @@ function render() {
         $('form').selectedOptions[0]?.textContent,
         unit()?.name,
         report.date.split('-').reverse().join('/'),
-        template?.rsc ? '24 ชม.' : report.shift === 'night' ? 'กลางคืน' : 'กลางวัน'
+        template?.daily ? '24 ชม.' : report.shift === 'night' ? 'กลางคืน' : 'กลางวัน'
     ].filter(Boolean).join(' · ');
-    $('shift').closest('label').hidden = !!template?.rsc;
+    $('shift').closest('label').hidden = !!template?.daily;
     for (const id of ['reset-button', 'export', 'summary-button', 'alert-button', 'plan-button', 'shot-button', 'search', 'add']) $(id).disabled = !template;
     $('template-name').textContent = template ? template.name : '';
     $('template-name').hidden = !!API_URL || !template;
@@ -1043,7 +1076,8 @@ function render() {
         ? [v.scc, v.plate, v.driver, v.driver2].join(' ').toLowerCase().includes(q)
         : $('show-all').checked || hasWork(v)))
         .filter((v) => !template?.rsc || ((!$('only-pending').checked || !checkedAt(v, nowHour())) &&
-            (!$('only-risk').checked || risky(v))))
+            (!$('only-risk').checked || risky(v)) &&
+            (!$('only-shift').value || !hasShifts() || v.planShift === $('only-shift').value)))
         .sort((x, y) => Number(!hasWork(x)) - Number(!hasWork(y)) ||
             x.scc.localeCompare(y.scc, undefined, { numeric: true }));
     $('list').replaceChildren(...(shown.length
@@ -1054,6 +1088,7 @@ function render() {
         ? 'ยังไม่ตรวจ ' + working.filter((v) => !v.rounds.length).length + ' จาก ' + working.length + ' คัน' : '';
     $('hidden-count').textContent = String(report.vehicles.length - working.length);
     $('rsc-filters').hidden = !template?.rsc;
+    $('shift-filter').hidden = !hasShifts();
     $('prior-button').hidden = !template?.rsc;
     if (template?.rsc) {
         const hour = nowHour();
@@ -1107,10 +1142,10 @@ async function knownVehicles() {
 
 // ===== ฟอร์มรายชั่วโมง: กะเป็นแค่ช่วงของคนดู แผนและชื่อ พขร. นับทั้งวัน จึงใส่ให้อีกกะของวันเดียวกันด้วย =====
 const DAY_FIELDS = ['plate', 'driver', 'driver2', 'driver3', 'risk', 'remark', 'trips', 'changes',
-    'status', 'rest', 'status2', 'rest2', 'status3', 'rest3', 'route', 'route2', 'jobTime', 'jobTime2', 'adas'];
+    'status', 'rest', 'status2', 'rest2', 'status3', 'rest3', 'route', 'route2', 'jobTime', 'jobTime2', 'adas', 'planShift'];
 
 async function shareDay(cars, fields) {
-    if (!template.hourly || template.rsc || !cars.length) return; // RSC มีรายงานเดียวต่อวัน
+    if (!template.hourly || template.daily || !cars.length) return; // ฟอร์ม 24 ชม. มีรายงานเดียวต่อวัน
     // จำค่าของตอนนี้ไว้ก่อน ระหว่างรอโหลดคนใช้อาจสลับรายงานไปแล้ว
     const copies = structuredClone(cars);
     const { date, formName, layout, unitTitle, tab } = report;
@@ -1148,12 +1183,12 @@ async function shareDay(cars, fields) {
 // ===== อัปโหลดแผนงาน: ดึงเฉพาะวันที่ + กะ ที่เลือกอยู่ ให้ตรวจสรุปก่อนเติม =====
 let planPreview = []; // [{ v, item, changes, fresh }]
 
-async function importPlans(files) {
+async function importPlans(files, ready) {
     const { date, shift } = report;
     const when = date.split('-').reverse().join('/')
         + (template.hourly ? ' ทั้งวัน' : shift === 'night' ? ' กะกลางคืน' : ' กะกลางวัน');
     status('กำลังอ่านแผนงาน…');
-    const { vehicles, notes, dispatch } = await readPlans(files, date, shift);
+    const { vehicles, notes, dispatch } = ready || await readPlans(files, date, shift);
     if (vehicles.size && dispatch !== !!template.rsc) {
         status('แผนงานนี้ไม่ตรงกับหน่วยงานที่เลือกอยู่', true);
         return;
@@ -1236,7 +1271,7 @@ function applyPlans() {
     const at = new Date().toTimeString().slice(0, 5);
     for (const { v, item, fresh, changes, rounds, created, extra, skip } of planPreview) {
         if (skip) continue;
-        for (const k of ['route', 'route2', 'jobTime']) if (item[k]) v[k] = item[k];
+        for (const k of ['route', 'route2', 'jobTime', 'planShift']) if (item[k]) v[k] = item[k];
         if ((created || extra) && !report.vehicles.some((x) => x.scc === v.scc)) report.vehicles.push(v);
         // ของที่คนก่อนหน้าลงไว้ แผนไม่เขียนทับ
         if (v.prior) for (const k of ['driver', 'driver2', 'route', 'route2', 'jobTime']) if (v[k]) item[k] = v[k];
@@ -1364,6 +1399,41 @@ async function exportDaySheet() {
     link.click();
     setTimeout(() => URL.revokeObjectURL(link.href), 10000);
     return link.download;
+}
+
+// ===== รูปแผนงาน (ฟอร์ม RSC): อ่านแล้วให้ตรวจ/แก้ในตารางก่อน แล้วค่อยเข้าขั้นตอนแผนปกติ =====
+async function importPlanImages(files) {
+    const key = report.key;
+    status('กำลังอ่านรูปแผนงาน…');
+    const names = (template.risks || []).map((x) => x.name);
+    const { rows, notes } = await readPlanShots(files, names, (at) => status('กำลังอ่านรูปแผนงาน: ' + at));
+    status('');
+    if (key !== report.key) return;
+    const cell = (row, prop, label, width) => {
+        const node = el('input', { value: row[prop] || '', oninput: () => { row[prop] = node.value.trim(); } });
+        node.setAttribute('aria-label', label);
+        node.style.width = width;
+        if (prop === 'driver' || prop === 'driver2') node.setAttribute('list', 'driver-names');
+        return node;
+    };
+    const used = new Set(rows);
+    $('shotplan-title').textContent = 'ตรวจที่อ่านจากรูป: แผนวันที่ ' + report.date.split('-').reverse().join('/') + ' · ' + rows.length + ' งาน';
+    $('shotplan-notes').replaceChildren(...notes.map((text) => el('li', { textContent: text })));
+    $('shotplan-list').replaceChildren(...rows.map((row) => el('div', { className: 'line' },
+        el('input', { type: 'checkbox', checked: true, title: 'ใช้แถวนี้',
+            onchange: (e) => { if (e.target.checked) used.add(row); else used.delete(row); } }),
+        el('b', { textContent: row.shift }),
+        cell(row, 'car', 'เบอร์รถ', '76px'), cell(row, 'driver', 'พขร.1', '170px'), cell(row, 'driver2', 'พขร.2', '130px'),
+        cell(row, 'code', 'รหัสงาน', '120px'), cell(row, 'time', 'เวลารับงาน', '64px'), cell(row, 'to', 'สถานที่ลง', '130px'))));
+    $('shotplan-ok').disabled = !rows.length;
+    $('shotplan-ok').onclick = async () => {
+        $('shotplan-dialog').close();
+        if (key !== report.key) return;
+        const kept = rows.filter((row) => used.has(row) && row.car && row.driver);
+        await importPlans(files, { vehicles: shotPlan(kept), notes: [], dispatch: true });
+    };
+    $('shotplan-cancel').onclick = () => $('shotplan-dialog').close();
+    $('shotplan-dialog').showModal();
 }
 
 // ===== อ่านรูป: เลือกไฟล์ / วาง / ลากมาใส่ → ตรวจสรุป → เพิ่มเป็นรอบ "ลงเวลาอย่างเดียว" =====
@@ -1882,7 +1952,7 @@ function bind() {
     }
     $('search').addEventListener('change', () => { if ($('search').value.trim()) note('ดู', 'ค้นหา', { detail: $('search').value.trim() }); });
     $('search').addEventListener('input', render);
-    for (const id of ['show-all', 'only-pending', 'only-risk']) $(id).addEventListener('change', render);
+    for (const id of ['show-all', 'only-pending', 'only-risk', 'only-shift']) $(id).addEventListener('change', render);
     $('plan-button').addEventListener('click', () => $('plan').click());
     $('prior-button').addEventListener('click', () => $('prior').click());
     $('prior').addEventListener('change', async () => {
@@ -1898,6 +1968,12 @@ function bind() {
     const readFiles = async (files) => {
         if (!files.length) return;
         if (template.rsc) {
+            const images = files.filter((f) => /\.(jpe?g|png|webp)$/i.test(f.name) || f.type?.startsWith('image/'));
+            if (images.length) {
+                try { await importPlanImages(images); }
+                catch (err) { console.error(err); status('อ่านรูปแผนงานไม่ได้: ' + err.message, true); }
+                return;
+            }
             const plans = [];
             for (const file of files) {
                 if (!(await isReport(file))) { plans.push(file); continue; }
@@ -1930,7 +2006,7 @@ function bind() {
         dragging(false);
         if (!hasFiles(e) || !ready()) return;
         e.preventDefault(); // ไม่ให้เบราว์เซอร์เปิดไฟล์แทนหน้านี้
-        const files = [...e.dataTransfer.files].filter((f) => /\.(xlsx|ods)$/i.test(f.name));
+        const files = [...e.dataTransfer.files].filter((f) => /\.(xlsx|ods|jpe?g|png|webp)$/i.test(f.name));
         if (files.length) readFiles(files);
         else status('ลากได้เฉพาะไฟล์แผนงาน .xlsx หรือ .ods', true);
     });
@@ -1976,7 +2052,9 @@ function bind() {
             }
             // มีแผนแล้ว คันที่ไม่มีงานให้เขียนว่าไม่มีวิ่งงาน (ยังไม่อัปแผน = ยังไม่รู้ ไม่เขียน)
             const planned = report.vehicles.some((v) => v.trips.some((t) => t.cust || t.ship));
-            const blob = template.hourly ? await buildHourly(template.buffer, report) : await buildReport(template.buffer, {
+            const hourNow = new Date().getHours();
+            const sheet = template.daily ? { ...report, shift: hourNow >= 8 && hourNow < 20 ? 'day' : 'night' } : report;
+            const blob = template.hourly ? await buildHourly(template.buffer, sheet) : await buildReport(template.buffer, {
                 ...report,
                 vehicles: report.vehicles.map((v) => ({
                     ...v,
@@ -1991,7 +2069,7 @@ function bind() {
             const link = el('a', {
                 href: URL.createObjectURL(blob),
                 download: baseName() + ' ' + d + '-' + m + '-' + (Number(y) + 543) +
-                    (report.shift === 'night' ? ' Night' : ' Day') + '.xlsx'
+                    (template.daily ? '' : report.shift === 'night' ? ' Night' : ' Day') + '.xlsx'
             });
             link.click();
             setTimeout(() => URL.revokeObjectURL(link.href), 10000);
@@ -2030,8 +2108,8 @@ requireLogin(async () => {
         fail('เปิดฟอร์มไม่ได้: ' + err.message);
     }
     for (const id of ['form', 'date', 'shift']) $(id).disabled = false;
-    // ฟอร์ม RSC ยึดวันปฏิทิน: หลังเที่ยงคืนคือวันนี้ ไม่ใช่กะดึกของเมื่อวาน
-    if (template?.rsc) $('date').value = localDate(new Date());
+    // ฟอร์ม 24 ชม. ยึดวันปฏิทิน: หลังเที่ยงคืนคือวันนี้ ไม่ใช่กะดึกของเมื่อวาน
+    if (template?.daily) $('date').value = localDate(new Date());
     bind();
     loadHistory(); // ไม่ต้องรอ ประวัติมาช้าไม่ขวางการทำงาน
     setInterval(loadHistory, 60000);

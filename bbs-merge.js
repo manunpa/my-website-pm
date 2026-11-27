@@ -6,7 +6,7 @@
 
 const INFO = ['plate', 'driver', 'risk', 'gps', 'cctv', 'trips', 'dest', 'changes', 'pinned', 'driver2', 'remark', 'hidden',
     'driver3', 'status', 'rest', 'status2', 'rest2', 'status3', 'rest3',
-    'route', 'route2', 'jobTime', 'jobTime2', 'abnormal', 'prior', 'adas'];
+    'route', 'route2', 'jobTime', 'jobTime2', 'abnormal', 'prior', 'adas', 'planShift'];
 
 // เรียง key ก่อนเทียบ ข้อมูลเดียวกันแต่ลำดับต่างต้องถือว่าเท่ากัน
 const stable = (value) => JSON.stringify(value, (key, v) => (v && typeof v === 'object' && !Array.isArray(v)

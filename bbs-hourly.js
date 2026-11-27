@@ -244,7 +244,10 @@ export async function readHourly(buffer) {
         ? [...known(RSC_RESULTS), ...layout.keys.filter((k) => !RSC_RESULTS.some(([c]) => c === k)).map((c) => [c, c])]
         : [...BASE_RESULTS, ...layout.codes.filter((c) => !BASE_RESULTS.some(([b]) => b === c)).map((c) => [c, c])];
     const plates = [...new Set(sheet.blocks.map((b) => b.plate).filter(Boolean))];
+    // ฟอร์มที่มีหัวครบ 0-23 (RSC, NPM) = 1 รายงานต่อ 1 วันปฏิทิน ไม่แยกกะ
+    const daily = rsc || layout.fixed;
     return {
+        daily,
         rsc,
         risks: rsc ? await readRisk(book) : [],
         palette: rsc ? paletteOf(book, sheet.doc, styles) : [],
@@ -255,8 +258,7 @@ export async function readHourly(buffer) {
         groups: [['depot', 'คลังน้ำมัน', codesOf('depot')], ['unit', 'หน่วยงาน', codesOf('unit')]].filter((g) => g[2].length),
         hourly: true,
         units: await readUnits(book),
-        // ฟอร์ม RSC 1 รายงาน = 1 วันปฏิทิน ครบ 24 ชม. ไม่แยกกะ
-        shiftHours: rsc ? () => Array.from({ length: 24 }, (_, i) => i) : (shift) => hoursOf(layout, shift),
+        shiftHours: daily ? () => Array.from({ length: 24 }, (_, i) => i) : (shift) => hoursOf(layout, shift),
         results,
         vehicles: plates.map((scc) => ({ scc, plate: '', driver: '', risk: '' })),
         checks: {},
@@ -584,7 +586,8 @@ function fill(book, doc, layout, blocks, report, paint, driverCol) {
     const buddhist = Number(book.value(cellAt(row(date.row), date.col))) > 150000;
     put(date, (Date.UTC(y + (buddhist ? 543 : 0), m - 1, d) - Date.UTC(1899, 11, 30)) / 86400000);
     put(shift, report.shift === 'night' ? 'กะกลางคืน 20.00 น. - 08.00 น.' : 'กะกลางวัน 08.00 น. - 20.00 น.');
-    put(monitor, report.monitor || report.checker || '');
+    // บางฟอร์ม (NPM) ช่องนั้นคือหัวคอลัมน์ "ชื่อ" ห้ามเขียนทับ
+    if (!monitor || book.value(cellAt(row(monitor.row), monitor.col)).trim() !== 'ชื่อ') put(monitor, report.monitor || report.checker || '');
     return comments;
 }
 
