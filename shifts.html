@@ -63,6 +63,7 @@ tr.sum td{font-weight:500;color:var(--mute)}
 .tabs button{font:inherit;background:var(--panel);border:1px solid var(--line);padding:3px 14px;cursor:pointer;color:var(--mute)}
 .tabs button:first-child{border-radius:999px 0 0 999px}.tabs button:last-child{border-radius:0 999px 999px 0}
 .tabs button[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:#fff}
+.step{padding:1px 12px}
 </style>
 </head>
 <body>
@@ -144,7 +145,7 @@ const spot = (e) => {
   return cell ? { x: cell.cellIndex, y: cell.parentNode.rowIndex } : null;
 };
 
-// ===== สรุปวันนี้ / พรุ่งนี้ (พรุ่งนี้เทียบกับวันนี้) (ตามปฏิทินจริง ไม่ขึ้นกับเดือนที่เลือกดู) =====
+// ===== สรุปเมื่อวาน / วันนี้ / พรุ่งนี้ (พรุ่งนี้เทียบกับวันนี้) (ตามปฏิทินจริง ไม่ขึ้นกับเดือนที่เลือกดู) =====
 const GROUPS = [['D', 'เข้าเช้า'], ['N', 'เข้าดึก'], ['DO', 'หยุด (DO)'], ['L', 'ลา / พักร้อน']];
 const groupOf = (code) => (!code ? '' : code === 'D' || code === 'N' || code === 'DO' ? code : 'L');
 const shortName = (name) => name.replace(/^(นางสาว|นาย|นาง|น\.ส\.|นส\.)\s*/, '').split(/\s+/)[0];
@@ -166,19 +167,21 @@ function dayCodes(month, date) {
 // months = { m2569-11: ตาราง, ... }
 let dayData = {};
 let dayNow = new Date();
-let dayTab = 0; // 0 = วันนี้, 1 = พรุ่งนี้
+let dayTab = 0; // จำนวนวันนับจากวันนี้: -1 = เมื่อวาน, 0 = วันนี้, 1 = พรุ่งนี้ (กดลูกศรเลื่อนไปวันอื่นได้)
+let fetchMonth = async () => {}; // ส่วนที่ล็อกอินแล้วใส่ตัวโหลดจริงให้
 function renderTomorrow(months = dayData, now = dayNow) {
   dayData = months;
   dayNow = now;
-  const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const dayAt = (n) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + n);
   const a = dayCodes(months[monthKey(now)], now);
-  const b = dayCodes(months[monthKey(next)], next);
-  const [shown, base] = dayTab ? [b, a] : [a, new Map()];
-  const when = (dayTab ? next : now).toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'short' });
+  const day = dayAt(dayTab);
+  const picked = dayCodes(months[monthKey(day)], day);
+  const [shown, base] = [picked, dayTab === 1 ? a : new Map()]; // เทียบเฉพาะพรุ่งนี้กับวันนี้
+  const when = day.toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'short' });
   const box = $('tomorrow');
   box.hidden = false;
-  const head = `<div class="top"><div class="tabs">${['วันนี้', 'พรุ่งนี้'].map((t, n) => `<button type="button" data-day="${n}" aria-pressed="${n === dayTab}">${t}</button>`).join('')}</div><b>${esc(when)}</b>`;
-  if (!shown.size) { box.innerHTML = head + '</div><div class="mute">ยังไม่มีข้อมูลกะของวันนี้ในตาราง</div>'; return; }
+  const head = `<div class="top"><div class="tabs">${['เมื่อวาน', 'วันนี้', 'พรุ่งนี้'].map((t, n) => `<button type="button" data-day="${n - 1}" aria-pressed="${n - 1 === dayTab}">${t}</button>`).join('')}</div><div><button type="button" class="btn step" data-day="${dayTab - 1}" aria-label="วันก่อนหน้า">‹</button> <b>${esc(when)}</b> <button type="button" class="btn step" data-day="${dayTab + 1}" aria-label="วันถัดไป">›</button></div>`;
+  if (!shown.size) { box.innerHTML = head + '</div><div class="mute">ยังไม่มีข้อมูลกะของวันที่เลือกในตาราง</div>'; return; }
   const count = (map, group) => [...map.values()].filter((p) => groupOf(p.code) === group).length;
   const diff = (x, y) => (!base.size || x === y ? '' : y > x ? `เพิ่ม ${y - x}` : `ลด ${x - y}`);
   const work = (map) => count(map, 'D') + count(map, 'N');
@@ -238,9 +241,14 @@ function render() {
 }
 
 $('q').oninput = render;
-$('tomorrow').onclick = (e) => {
+$('tomorrow').onclick = async (e) => {
   const day = e.target.dataset.day;
-  if (day !== undefined) { dayTab = Number(day); renderTomorrow(); }
+  if (day === undefined) return;
+  dayTab = Number(day);
+  const date = new Date(dayNow.getFullYear(), dayNow.getMonth(), dayNow.getDate() + dayTab);
+  try { await fetchMonth(monthKey(date)); }
+  catch (err) { $('info').textContent = 'โหลดไม่สำเร็จ: ' + err.message; }
+  renderTomorrow();
 };
 $('t').onmouseover = (e) => { hover = spot(e); paint(); };
 $('t').onmouseleave = () => { hover = null; paint(); };
@@ -273,13 +281,17 @@ function fillMonths(keys, selected) {
   $("month").hidden = !keys.length;
 }
 
-// โหลดตารางของวันนี้และพรุ่งนี้ (สิ้นเดือนจะเป็นคนละเดือน)
+// โหลดตารางของเมื่อวาน วันนี้ และพรุ่งนี้ (ต้น/สิ้นเดือนจะเป็นคนละเดือน)
 async function loadTomorrow(available) {
   const now = new Date();
-  const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  // เลื่อนไปเดือนที่ยังไม่ได้โหลดค่อยดึงมา
+  fetchMonth = async (key) => {
+    if (!dayData[key] && available.includes(key)) dayData[key] = (await call({ action: "get", key })).data;
+  };
+  const dates = [-1, 0, 1].map((n) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + n));
   const months = {};
   try {
-    for (const key of new Set([monthKey(now), monthKey(next)])) {
+    for (const key of new Set(dates.map(monthKey))) {
       if (available.includes(key)) months[key] = (await call({ action: "get", key })).data;
     }
     renderTomorrow(months, now);
