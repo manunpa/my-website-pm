@@ -5,7 +5,7 @@ import {
   loadOffshore, DMF_CREDIT, PLATFORM_GROUP, PLATFORM_COLOR, areaColor, areaPopupHtml, platformDetailsHtml, windyLink,
   ADMIN_CREDIT, loadAdmin, adminReady, areaOf, formatArea, areaSearchText
 } from './maps-layers.js?v=20261125';
-import { initEventRoute } from './event-route.js?v=20261127d';
+import { initEventRoute } from './event-route.js?v=20261127e';
 import { setProtectedFetch, getGoogleBase, openStreetView, closeStreetView, onGoogleAuthFail } from './maps-google.js?v=20261125';
 setProtectedFetch(fetchProtectedText);
 /* API ชุดที่ 1: Geofence — โค้ดอยู่ที่ apps-script/geofence.gs (URL เดิม ...uVCF ยังเปิดไว้ให้ my-web-p3 ใช้) */
@@ -22,6 +22,7 @@ const NO_SUPPLIER = '(ไม่ระบุ Supplier)';
 let markerById = new Map();
 // งานออฟชอร์ (โหลดครั้งแรกที่เปิดชั้น) — id แท่นผลิตเริ่มที่ PLAT_ID0 ไม่ชนกับ Geofence/ปั๊ม
 const PLAT_ID0 = 1e7;
+let mobileSearch = null;
 let eventRoute = { refresh(){}, focus:()=>false, close(){} };
 let offRows = [], offAreas = null, offStatus = 'idle';
 // แผนเส้นทาง: stops = จุดแวะ (จุดแรกคือต้นทาง), vias = จุดผ่านที่ลากเส้นทาง, route = เส้นทางที่คำนวณ, along = ปั๊มตามทาง
@@ -349,7 +350,8 @@ function showSearchMarker(lat,lng,opts={}){
   // วงความแม่นยำใหญ่มาก (ไม่มี GPS เดาตำแหน่งจากเครือข่าย) จะบังทั้งแผนที่ → ไม่แสดงวง
   if(isGps) accuracyCircle=L.circle([lat,lng],{radius:opts.accuracy,color:'#1a73e8',weight:1,opacity:opts.accuracy<=ACC_CIRCLE_MAX_M?.5:0,fillColor:'#1a73e8',fillOpacity:opts.accuracy<=ACC_CIRCLE_MAX_M?.12:0,interactive:false}).addTo(map);
   searchMarker = L.marker([lat,lng],{icon,zIndexOffset:1000}).addTo(map);
-  searchMarker.bindPopup(searchPopupHtml);
+  // มือถือ: เลื่อนแผนที่ให้ป๊อปอัปพ้นปุ่มด้านบน
+  searchMarker.bindPopup(searchPopupHtml,window.innerWidth<=850?{autoPanPaddingTopLeft:[10,(document.querySelector('.mapcontrols')?.offsetHeight||0)+20]}:{});
   drawNearestLines();
   // ซูมให้เห็นทั้งหมุดที่ค้นหาและจุดที่ใกล้ที่สุดในจอเดียว
   if(near.length) map.flyToBounds(L.latLngBounds([[lat,lng],...near.map(n=>[n.p.lat,n.p.lng])]),{padding:[70,70],maxZoom:16,duration:.8});
@@ -359,8 +361,9 @@ function showSearchMarker(lat,lng,opts={}){
   // เปิดรายการด้านข้างเพื่อให้เห็นผล 5 อันดับ
   // ยกเว้นปุ่มตำแหน่งของฉันบนมือถือ: รายการจะบังแผนที่และการแตะครั้งถัดไปจะแค่ปิดรายการ (แถบใกล้สุดแสดงข้อมูลให้แล้ว)
   const sidebar=$('sidebar');
-  const skipOpen=isGps&&window.innerWidth<=850;
-  if(!skipOpen&&sidebar&&sidebar.classList.contains('collapsed')){ sidebar.classList.remove('collapsed'); setTimeout(()=>map.invalidateSize(),280); }
+  const mobile=window.innerWidth<=850;
+  if(mobile&&sidebar&&!sidebar.classList.contains('collapsed')){ sidebar.classList.add('collapsed'); setTimeout(()=>map.invalidateSize(),280); }
+  if(!mobile&&sidebar&&sidebar.classList.contains('collapsed')){ sidebar.classList.remove('collapsed'); setTimeout(()=>map.invalidateSize(),280); }
   renderList();
 }
 
@@ -838,6 +841,10 @@ const isMobileWidth=()=>window.innerWidth<=850;
 function scheduleRenderList(){ clearTimeout(searchTimer); searchTimer=setTimeout(renderList,250); }
 
 function renderList(){
+  renderListRows();
+  mobileSearch?.render();
+}
+function renderListRows(){
   clearTimeout(searchTimer);
   syncSearchClear();
   const searchInput = $('searchInput');
@@ -1025,6 +1032,51 @@ async function loadData(){
     toast('โหลดข้อมูลไม่สำเร็จ — ตรวจสอบ URL, สิทธิ์ Web App และ CORS',5000);
   }finally{if($('refreshBtn')) $('refreshBtn').disabled=false}
 }
+
+// ===== มือถือ: ช่องค้นหาอยู่บนสุดเสมอ ไม่ต้องเปิดรายการ (จอกว้างกลับไปอยู่ในแถบข้างตามเดิม) =====
+mobileSearch=(()=>{
+  const wrap=document.querySelector('.searchwrap'), main=document.querySelector('.main');
+  if(!wrap||!main) return { render(){}, hide(){} };
+  const home=wrap.parentNode, after=wrap.nextElementSibling;
+  const bar=document.createElement('div'); bar.className='msearch';
+  const hits=document.createElement('div'); hits.className='mhits'; hits.hidden=true;
+  bar.appendChild(hits);
+  main.parentNode.insertBefore(bar,main);
+  const mq=matchMedia('(max-width:850px)'), input=$('searchInput');
+  const hide=()=>{ hits.hidden=true; };
+  // ผลการค้นหาแบบย่อใต้ช่องค้นหา (ตอนปิดรายการอยู่)
+  function render(){
+    const q=input.value.trim();
+    if(!mq.matches||document.activeElement!==input||!q||!$('sidebar')?.classList.contains('collapsed')) return hide();
+    const pt=parseLatLng(q);
+    hits.innerHTML=pt?'<button type="button" data-go="1">⌖ ไปที่พิกัดนี้</button>'
+      :filteredRows.length?filteredRows.slice(0,8).map(p=>`<button type="button" data-id="${p.id}">${esc(p.name)}<small>${esc(p.supplier)}</small></button>`).join('')
+        +(filteredRows.length>8?`<p>อีก ${(filteredRows.length-8).toLocaleString('th-TH')} จุด · พิมพ์เพิ่มเพื่อกรอง</p>`:'')
+      :'<p>ไม่พบรายการที่ตรงกับการค้นหา</p>';
+    hits.hidden=false;
+  }
+  function pick(btn){
+    const pt=parseLatLng(input.value.trim());
+    input.blur(); hide();
+    if(btn.dataset.go){ if(pt) showSearchMarker(pt.lat,pt.lng); return; }
+    const id=Number(btn.dataset.id);
+    selectPoint(id); revealMarker(id);
+  }
+  // กันช่องค้นหาเสียโฟกัสก่อนที่การแตะผลลัพธ์จะทำงาน
+  hits.addEventListener('pointerdown',e=>e.preventDefault());
+  hits.addEventListener('click',e=>{ const b=e.target.closest('button'); if(b) pick(b); });
+  input.addEventListener('focus',render);
+  input.addEventListener('blur',()=>setTimeout(()=>{ if(document.activeElement!==input) hide(); },200));
+  input.addEventListener('keydown',e=>{ if(e.key==='Enter'&&mq.matches){ input.blur(); hide(); } });
+  $('sidebarToggle')?.addEventListener('click',hide);
+  function place(){
+    if(mq.matches) bar.insertBefore(wrap,hits); else { home.insertBefore(wrap,after); hide(); }
+    setTimeout(()=>map.invalidateSize(),50);
+  }
+  mq.addEventListener('change',place);
+  place();
+  return { render, hide };
+})();
 
 const searchInputEl = $('searchInput');
 if(searchInputEl){

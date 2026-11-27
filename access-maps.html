@@ -381,6 +381,17 @@ body{position:relative;isolation:isolate}
   .map-stack{left:10px;right:58px;transform:none;width:auto;max-width:none;align-items:stretch;bottom:calc(var(--bot-h,40px) + 18px + env(safe-area-inset-bottom))}
   .rain-bar input[type=range]{flex:1;width:auto;min-width:50px}
 }
+/* มือถือ: ช่องค้นหาบนสุด + ผลแบบย่อ (maps.js) */
+.msearch{display:none}
+@media(max-width:850px){
+  .msearch{display:block;position:relative;z-index:1400;padding:7px 10px;background:var(--panel);border-bottom:1px solid var(--border)}
+  .msearch .searchwrap input{height:40px;font-size:16px}
+  .mhits{position:absolute;left:10px;right:10px;top:100%;max-height:45vh;overflow:auto;background:var(--panel);border:1px solid var(--border);border-radius:0 0 12px 12px;box-shadow:var(--shadow)}
+  .mhits[hidden]{display:none}
+  .mhits button{display:block;width:100%;padding:9px 12px;border:0;border-bottom:1px solid var(--border);background:none;color:var(--text);font-size:13px;font-weight:600;text-align:left}
+  .mhits small{display:block;color:var(--muted);font-size:10px;font-weight:400}
+  .mhits p{margin:0;padding:9px 12px;color:var(--muted);font-size:11px}
+}
 /* Street View ทับพื้นที่แผนที่ */
 .sv-panel{position:absolute;inset:0;z-index:1100;display:flex;flex-direction:column;background:var(--bg)}
 .sv-head{flex:none;display:flex;align-items:center;gap:10px;padding:8px;background:var(--panel);border-bottom:1px solid var(--border);font-size:12px}
@@ -463,6 +474,6 @@ body{position:relative;isolation:isolate}
 
 <!-- ต้องเปิดผ่านเว็บเซิร์ฟเวอร์ (http/https) ไม่ใช่ file:// เพราะใช้ type="module" -->
 <!-- ?v= บังคับให้มือถือโหลด maps.js ตัวใหม่ทันทีหลังอัปเดต (เปลี่ยนเลขทุกครั้งที่แก้ maps.js) -->
-<script type="module" src="./maps.js?v=20261127-dms"></script>
+<script type="module" src="./maps.js?v=20261127-msearch"></script>
 </body>
 </html>

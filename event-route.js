@@ -2,6 +2,7 @@
    ฟังก์ชันชั่วคราว: แนวเส้นทางงานวิ่ง Amazing Thailand Marathon Bangkok 2026 บน Access Maps
    - แสดงเฉพาะ 27–29 พ.ย. 2569 (หมดช่วงแล้วหายเอง) · ทดลองดูนอกช่วง: access-maps.html?event=marathon
    - วันปิดถนน: 21K วันเสาร์ 28 พ.ย. · ระยะอื่น (42K / 10K / 4.5K) วันอาทิตย์ 29 พ.ย.
+   - ใช้งานผ่านปุ่มลอยบนแผนที่ → แผงลอย (ไม่กินที่แถบรายการด้านข้าง) อีเว้นพิเศษครั้งต่อไปให้ใช้รูปแบบเดียวกัน
    - วาดเส้นทาง 4 ระยะ และแสดงจุดพิกัดที่อยู่ใกล้แนวเส้นทาง (งานขนส่งอาจกระทบจากการปิดถนน)
    - เส้นทางมาจากไฟล์ GPX ของงาน (ฉบับ 17NOV2026) ลดจำนวนจุดแล้ว คลาดเคลื่อนไม่เกินราว 3 ม.
    - เลิกใช้: ลบไฟล์นี้ และบรรทัดที่เรียก initEventRoute ใน maps.js
@@ -40,37 +41,66 @@ export function distToLineM(lat, lng, line) {
 export function initEventRoute(ctx) {
   const forced = /[?&]event=marathon\b/.test(location.search);
   const now = Date.now();
-  const sidebar = document.getElementById('sidebar'), list = document.getElementById('pointList');
-  if ((!forced && (now < START || now >= END)) || !sidebar || !list) return { refresh() {}, focus: () => false, close() {} };
+  const area = document.querySelector('.maparea');
+  if ((!forced && (now < START || now >= END)) || !area) return { refresh() {}, focus: () => false, close() {} };
 
   const { map, esc } = ctx;
   const on = new Set(ROUTES.map(r => r[0]));
-  let radius = 300, withStations = false, show = true, hideOthers = true, focused = false, found = [];
+  let radius = 300, withStations = false, hideOthers = true, focused = false, found = [];
+  let open = false, folded = false, optsOpen = false;
 
   const style = document.createElement('style');
-  style.textContent = '.evroute .along{max-height:38vh;overflow:auto}.evroute summary{color:#d6336c}' +
-    '.evroute .planner-radius button.on{background:#d6336c;border-color:#d6336c}' +
-    '.evroute .swatch{display:inline-block;width:14px;height:4px;border-radius:2px;margin-right:5px;vertical-align:middle}' +
-    '.evroute .along li{display:flex;align-items:center;gap:2px}.evroute .along li>button:first-child{flex:1;min-width:0}' +
-    '.evroute .along li.off>button:first-child{opacity:.45}.evroute .along button.eye{display:block;width:auto;flex:none;font-size:10px;color:var(--muted);border:1px solid var(--border)}' +
-    '.evlabel{box-sizing:border-box;padding:0 5px;font:600 10px/16px Inter,Kanit,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' +
-    'background:var(--panel);color:var(--text);border:1px solid #d6336c88;border-radius:5px;box-shadow:0 1px 3px #0003;cursor:pointer}' +
-    '.evchip{height:32px;padding:0 12px;border-radius:12px;border:1px solid #d6336c;background:var(--top);color:var(--text);font-size:11.5px;font-weight:600;box-shadow:var(--shadow);align-self:center}';
+  style.textContent = [
+    '.evpanel{position:absolute;z-index:470;left:17px;top:calc(var(--ctl-h,58px) + 28px);bottom:calc(var(--bot-h,40px) + 32px + env(safe-area-inset-bottom));width:300px;',
+    'display:flex;flex-direction:column;overflow:hidden;font-size:11px;background:var(--panel);color:var(--text);border:1px solid #d6336c66;border-radius:14px;box-shadow:var(--shadow)}',
+    '.evpanel[hidden]{display:none}.evpanel.folded{bottom:auto}.evpanel.folded .evbody{display:none}',
+    '.evhead{display:flex;align-items:center;gap:6px;padding:8px 8px 8px 12px;border-bottom:1px solid var(--border)}',
+    '.evhead b{flex:1;min-width:0;font-size:12px;color:#d6336c}.evhead b span{display:block;font-weight:500;font-size:10px;color:var(--muted)}',
+    '.evhead button{width:28px;height:28px;flex:none;padding:0;border:0;border-radius:8px;background:var(--panel2);color:var(--text)}',
+    '.evbody{flex:1;min-height:0;display:flex;flex-direction:column;gap:7px;padding:9px 10px}',
+    '.evbody>*{flex:none;margin:0}.evbody .along{flex:1;min-height:0;overflow:auto;align-content:start}',
+    '.evopts summary{cursor:pointer;color:var(--muted)}.evopts>div{display:grid;gap:7px;padding-top:7px}',
+    '.evpanel .planner-radius button.on{background:#d6336c;border-color:#d6336c}',
+    '.evpanel .swatch{display:inline-block;width:14px;height:4px;border-radius:2px;margin-right:5px;vertical-align:middle}',
+    '.evpanel .along li{display:flex;align-items:center;gap:2px}.evpanel .along li>button:first-child{flex:1;min-width:0}',
+    '.evpanel .along li.off>button:first-child{opacity:.45}.evpanel .along button.eye{display:block;width:auto;flex:none;font-size:10px;color:var(--muted);border:1px solid var(--border)}',
+    '.evlabel{box-sizing:border-box;padding:0 5px;font:600 10px/16px Inter,Kanit,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;',
+    'background:var(--panel);color:var(--text);border:1px solid #d6336c88;border-radius:5px;box-shadow:0 1px 3px #0003;cursor:pointer}',
+    '.evchip{height:32px;padding:0 12px;border-radius:12px;border:1px solid #d6336c;background:var(--top);color:var(--text);font-size:11.5px;font-weight:600;box-shadow:var(--shadow);align-self:center}',
+    '@media(max-width:850px){.evpanel{left:10px;right:10px;width:auto;top:auto;height:48%;bottom:calc(var(--bot-h,40px) + 18px + env(safe-area-inset-bottom))}.evpanel.folded{height:auto;bottom:auto;top:calc(var(--ctl-h,48px) + 18px)}}'
+  ].join('');
   document.head.appendChild(style);
 
-  const box = document.createElement('details');
-  box.className = 'planner evroute';
-  box.innerHTML = '<summary><span>🏃 งานวิ่งปิดถนน 27–29 พ.ย.</span> <span class="muted" data-ev="count"></span></summary><div class="planner-body" data-ev="body"></div>';
-  sidebar.insertBefore(box, list);
-  const body = box.querySelector('[data-ev="body"]');
+  const panel = document.createElement('div');
+  panel.className = 'evpanel'; panel.hidden = true;
+  panel.innerHTML = '<div class="evhead"><b>🏃 งานวิ่งปิดถนน 27–29 พ.ย.<span data-ev="count"></span></b>' +
+    '<button type="button" data-ev="fold" title="ย่อ/ขยาย" aria-label="ย่อ/ขยาย">▾</button>' +
+    '<button type="button" data-ev="close" title="ปิด กลับแผนที่ปกติ" aria-label="ปิด">✕</button></div><div class="evbody"></div>';
+  area.appendChild(panel);
+  const body = panel.querySelector('.evbody');
 
-  // ปุ่มลอยบนแผนที่: บนมือถือแถบรายการถูกพับไว้ กดปุ่มนี้แล้วเปิดให้
   const chip = document.createElement('button');
-  chip.type = 'button'; chip.className = 'evchip'; chip.textContent = '🏃 เส้นทางงานวิ่ง';
+  chip.type = 'button'; chip.className = 'evchip'; chip.textContent = '🏃 งานวิ่งปิดถนน';
   document.getElementById('mapStack')?.prepend(chip);
-  chip.addEventListener('click', () => {
-    if (sidebar.classList.contains('collapsed')) document.getElementById('sidebarToggle')?.click();
-    box.open = true; show = true; render(); syncFocus(); fit();
+  const isMobile = () => matchMedia('(max-width:850px)').matches;
+  function setFolded(v) {
+    folded = v; panel.classList.toggle('folded', v);
+    panel.querySelector('[data-ev="fold"]').textContent = v ? '▸' : '▾';
+  }
+  // เปิด = วาดเส้นทาง+จุดใกล้แนว · ปิด = เอาออกทั้งหมด แผนที่กลับเหมือนเดิม
+  function setOpen(v) {
+    open = v; panel.hidden = !v; chip.hidden = v;
+    if (v && isMobile()) {
+      const sb = document.getElementById('sidebar');
+      if (sb && !sb.classList.contains('collapsed')) document.getElementById('sidebarToggle')?.click();
+    }
+    render(); syncFocus();
+  }
+  chip.addEventListener('click', () => { setFolded(false); setOpen(true); fit(); });
+  panel.querySelector('.evhead').addEventListener('click', e => {
+    const ev = e.target.closest('button')?.dataset.ev;
+    if (ev === 'close') setOpen(false);
+    else if (ev === 'fold') setFolded(!folded);
   });
 
   // หมุดที่ผู้ใช้ซ่อนเอง (จำไว้ในเครื่องนี้) — อ้างด้วยชื่อ+พิกัด เพราะลำดับ id เปลี่ยนได้เมื่อข้อมูลอัปเดต
@@ -92,20 +122,19 @@ export function initEventRoute(ctx) {
 
   // เปิดแผงงานวิ่งอยู่ = ซ่อนหมุดอื่น เหลือเส้นทางกับจุดใกล้แนว · ปิดแผง = กลับเหมือนเดิม
   function syncFocus() {
-    const next = box.open && show && hideOthers;
+    const next = open && hideOthers;
     if (next === focused) return;
     focused = next;
     if (focused) map.closePopup();
     ctx.redraw();
   }
-  box.addEventListener('toggle', syncFocus);
 
   const activeRoutes = () => ROUTES.filter(r => on.has(r[0]));
   function fit() {
     const pts = activeRoutes().flatMap(r => r[3]);
     if (!pts.length) return;
     ctx.unlock?.();
-    map.fitBounds(L.latLngBounds(pts), { padding: [40, 40] });
+    map.fitBounds(L.latLngBounds(pts), { paddingTopLeft: [isMobile() ? 20 : 330, 40], paddingBottomRight: [20, isMobile() ? area.clientHeight * .48 : 40] });
   }
   function search() {
     const routes = activeRoutes();
@@ -136,7 +165,7 @@ export function initEventRoute(ctx) {
     hideBtn.addEventListener('click', () => setHidden(p, true));
     content.appendChild(hideBtn);
     L.popup({ maxWidth: 300, minWidth: 230 }).setLatLng([p.lat, p.lng]).setContent(content).openOn(map);
-    if (matchMedia('(max-width:850px)').matches) document.getElementById('sidebarToggle')?.click();
+    if (isMobile()) setFolded(true);
   }
   // ป้ายชื่อ: วางทีละอันในตำแหน่งว่าง (ขวา/ซ้ายของหมุด แล้วขยับขึ้นลง) ไม่ให้ทับกัน ป้ายที่ถูกขยับมีเส้นโยงกลับหาหมุด
   // ที่แน่นจนไม่มีที่ว่าง จะไม่แสดงป้าย (ชี้ที่หมุดหรือซูมเข้าเพื่อดูชื่อ)
@@ -145,7 +174,8 @@ export function initEventRoute(ctx) {
   for (let i = 1; i <= 12; i++) STEPS.push(-i * H, i * H);
   function drawLabels() {
     labelLayer.clearLayers();
-    if (!show || !labels) return;
+    // ซูมไกลมากหมุดกองเป็นจุดเดียว ไม่แสดงป้าย
+    if (!open || !labels || map.getZoom() < 11) return;
     const view = map.getSize();
     const dots = visible().map(f => ({ p: f.p, c: map.latLngToContainerPoint([f.p.lat, f.p.lng]) }))
       .filter(({ c }) => c.x > -20 && c.y > -20 && c.x < view.x + 20 && c.y < view.y + 20);
@@ -179,7 +209,7 @@ export function initEventRoute(ctx) {
 
   function drawMap() {
     lineLayer.clearLayers(); nearLayer.clearLayers(); labelLayer.clearLayers();
-    if (!show) { map.removeLayer(lineLayer); map.removeLayer(nearLayer); map.removeLayer(labelLayer); return; }
+    if (!open) { map.removeLayer(lineLayer); map.removeLayer(nearLayer); map.removeLayer(labelLayer); return; }
     for (const [name, color, weight, pts] of activeRoutes()) {
       L.polyline(pts, { renderer, color, weight, opacity: .85 }).bindTooltip(`งานวิ่ง ${name} · ปิดถนน ${DAY_LABEL[CLOSE_DAY[name]]}`, { sticky: true }).addTo(lineLayer);
     }
@@ -194,28 +224,32 @@ export function initEventRoute(ctx) {
   }
   function render() {
     search(); drawMap();
-    box.querySelector('[data-ev="count"]').textContent = found.length ? `ใกล้เส้นทาง ${found.length} จุด` : '';
+    panel.querySelector('[data-ev="count"]').textContent = found.length ? `ใกล้เส้นทาง ${found.length} จุด` : '';
+    if (!open) return;
     const loaded = ctx.getPoints().length > 0;
     const daySel = [28, 29].find(d => ROUTES.every(r => on.has(r[0]) === (CLOSE_DAY[r[0]] === d)));
     const allOn = on.size === ROUTES.length;
+    const scroll = body.querySelector('.along')?.scrollTop || 0;
+    const check = (key, val, label) => `<label class="planner-focus"><input type="checkbox" data-ev="${key}"${val ? ' checked' : ''}> ${label}</label>`;
     body.innerHTML =
-      '<div class="planner-radius">วันปิดถนน ' + [['all', 'ทั้งหมด', allOn], [28, DAY_LABEL[28], daySel === 28], [29, DAY_LABEL[29], daySel === 29]].map(([v, label, sel]) =>
+      '<div class="planner-radius">' + [['all', 'ทั้งหมด', allOn], [28, DAY_LABEL[28], daySel === 28], [29, DAY_LABEL[29], daySel === 29]].map(([v, label, sel]) =>
         `<button type="button" data-day="${v}" class="${sel ? 'on' : ''}">${label}</button>`).join('') + '</div>' +
+      `<details class="evopts"${optsOpen ? ' open' : ''}><summary>⚙ ตัวเลือก (ระยะวิ่ง · รัศมี ${radius >= 1000 ? radius / 1000 + ' กม.' : radius + ' ม.'})</summary><div>` +
       '<div class="planner-radius">' + ROUTES.slice().reverse().map(([name, color]) =>
         `<button type="button" data-route="${name}" class="${on.has(name) ? 'on' : ''}"><i class="swatch" style="background:${color}"></i>${name} (${CLOSE_DAY[name]})</button>`).join('') + '</div>' +
-      '<div class="planner-radius">ระยะจากแนวเส้นทาง ' + RADII.map(r =>
+      '<div class="planner-radius">รัศมี ' + RADII.map(r =>
         `<button type="button" data-radius="${r}" class="${r === radius ? 'on' : ''}">${r >= 1000 ? r / 1000 + ' กม.' : r + ' ม.'}</button>`).join('') + '</div>' +
-      `<label class="planner-focus"><input type="checkbox" data-ev="st"${withStations ? ' checked' : ''}> รวมปั๊มน้ำมัน</label>` +
-      `<label class="planner-focus"><input type="checkbox" data-ev="show"${show ? ' checked' : ''}> แสดงบนแผนที่</label>` +
-      `<label class="planner-focus"><input type="checkbox" data-ev="labels"${labels ? ' checked' : ''}> แสดงป้ายชื่อ</label>` +
-      `<label class="planner-focus"><input type="checkbox" data-ev="hide"${hideOthers ? ' checked' : ''}> ซ่อนหมุดอื่นที่ไม่เกี่ยว</label>` +
+      check('st', withStations, 'รวมปั๊มน้ำมัน') + check('labels', labels, 'แสดงป้ายชื่อ') + check('hide', hideOthers, 'ซ่อนหมุดอื่นที่ไม่เกี่ยว') +
+      '</div></details>' +
       '<div class="planner-actions"><button type="button" class="planbtn" data-ev="fit">ดูทั้งเส้นทาง</button>' +
       `<button type="button" class="planbtn" data-ev="copy"${visible().length ? '' : ' disabled'}>คัดลอกรายชื่อ</button>` +
       (found.length > visible().length ? `<button type="button" class="planbtn" data-ev="unhide">แสดงที่ซ่อน (${found.length - visible().length})</button>` : '') + '</div>' +
-      `<p class="planner-count">${!loaded ? 'กำลังรอข้อมูลพิกัด…' : found.length ? `พบ ${found.length} จุด (เรียงจากใกล้สุด)` : 'ไม่พบจุดในระยะที่เลือก'}</p>` +
+      (found.length ? '' : `<p class="planner-count">${loaded ? 'ไม่พบจุดในระยะที่เลือก' : 'กำลังรอข้อมูลพิกัด…'}</p>`) +
       '<ul class="along">' + found.map(({ p, m, hit }, i) =>
         `<li class="${hidden.has(keyOf(p)) ? 'off' : ''}"><button type="button" data-i="${i}"><i class="nb-fuel">📍</i><span class="pname">${esc(p.name)}</span>` +
         `<span class="pmeta">ห่าง ${Math.round(m)} ม. · ปิด ${closeDays(hit)} · ${esc(hit.slice().reverse().join(', '))} · ${esc(p.supplier || '')}</span></button><button type="button" class="eye" data-eye="${i}">${hidden.has(keyOf(p)) ? 'แสดง' : 'ซ่อน'}</button></li>`).join('') + '</ul>';
+    body.querySelector('.along').scrollTop = scroll;
+    body.querySelector('.evopts').addEventListener('toggle', e => { optsOpen = e.target.open; });
   }
   body.addEventListener('click', e => {
     const b = e.target.closest('button');
@@ -223,18 +257,17 @@ export function initEventRoute(ctx) {
     if (b.dataset.day) {
       on.clear();
       ROUTES.forEach(r => { if (b.dataset.day === 'all' || CLOSE_DAY[r[0]] === Number(b.dataset.day)) on.add(r[0]); });
-      show = true; render(); syncFocus(); fit();
+      render(); fit();
     }
     else if (b.dataset.route) { on.has(b.dataset.route) ? on.delete(b.dataset.route) : on.add(b.dataset.route); render(); }
     else if (b.dataset.radius) { radius = Number(b.dataset.radius); render(); }
     else if (b.dataset.i) { const { p } = found[Number(b.dataset.i)]; if (hidden.has(keyOf(p))) setHidden(p, false); openPoint(p); }
     else if (b.dataset.eye) {
-      const { p } = found[Number(b.dataset.eye)], list = body.querySelector('.along'), top = list.scrollTop;
+      const { p } = found[Number(b.dataset.eye)];
       setHidden(p, !hidden.has(keyOf(p)));
-      body.querySelector('.along').scrollTop = top;
     }
     else if (b.dataset.ev === 'unhide') { found.forEach(f => hidden.delete(keyOf(f.p))); saveHidden(); }
-    else if (b.dataset.ev === 'fit') { fit(); if (matchMedia('(max-width:850px)').matches) document.getElementById('sidebarToggle')?.click(); }
+    else if (b.dataset.ev === 'fit') { fit(); if (isMobile()) setFolded(true); }
     else if (b.dataset.ev === 'copy') {
       const rows = visible().map(({ p, m, hit }) => [p.name, p.supplier || '', Math.round(m), hit.slice().reverse().join('/'), closeDays(hit), `${p.lat},${p.lng}`].join('\t'));
       ctx.copy(['ชื่อ\tSupplier\tห่าง(ม.)\tระยะวิ่ง\tวันปิดถนน\tพิกัด', ...rows].join('\n')).then(
@@ -243,10 +276,9 @@ export function initEventRoute(ctx) {
   });
   body.addEventListener('change', e => {
     if (e.target.dataset.ev === 'st') { withStations = e.target.checked; render(); }
-    else if (e.target.dataset.ev === 'show') { show = e.target.checked; render(); syncFocus(); }
     else if (e.target.dataset.ev === 'labels') { labels = e.target.checked; drawMap(); }
     else if (e.target.dataset.ev === 'hide') { hideOthers = e.target.checked; syncFocus(); }
   });
   render();
-  return { refresh: render, focus: () => focused, close() { box.open = false; syncFocus(); } };
+  return { refresh: render, focus: () => focused, close() { setOpen(false); } };
 }
