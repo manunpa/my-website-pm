@@ -97,9 +97,17 @@ const isDispatch = (row) => {
     const texts = [...row.cells.values()];
     return texts.includes('เบอร์รถ') && texts.some((t) => /พขร\.?\s*1/.test(t)) && texts.includes('รายละเอียดงาน');
 };
+// "17.30" / 17.3 / "21:30" / 0.8958 (เวลาของ Excel) → "HH:MM"
 const clock = (text) => {
-    const m = /^(\d{1,2})[.:](\d{2})/.exec(text || '');
-    return m && Number(m[1]) < 24 ? m[1].padStart(2, '0') + ':' + m[2] : '';
+    const raw = String(text || '').trim();
+    const n = Number(raw);
+    const two = (x) => String(x).padStart(2, '0');
+    if (n > 0 && n < 1 && !/^0\.[0-5]\d$/.test(raw)) {
+        const minutes = Math.round(n * 1440);
+        return two(Math.floor(minutes / 60)) + ':' + two(minutes % 60);
+    }
+    const m = /^(\d{1,2})[.:](\d{2})/.exec(raw && !Number.isNaN(n) ? n.toFixed(2) : raw);
+    return m && Number(m[1]) < 24 && Number(m[2]) < 60 ? two(m[1]) + ':' + m[2] : '';
 };
 const unique = (list) => [...new Set(list.filter(Boolean))];
 
@@ -122,7 +130,8 @@ function readDispatch(rows, header) {
         last = row.n;
         // แถวคั่น (เหลือแต่สูตรสรุปท้ายแถว) = จบงานของคันนั้น
         if (gap || !['car', 'brand', 'detail', 'from', 'to'].some(at)) crew = null;
-        const no = /^SC\s*(\d{3})\b/i.exec(at('car'))?.[1];
+        // .xlsx เก็บเบอร์รถเป็นตัวเลขล้วน (รูปแบบเซลล์ "SC"000)
+        const no = /^(?:SC\s*)?(\d{1,3})(?![\d\-])/i.exec(at('car'))?.[1].padStart(3, '0');
         if (no) {
             const car = 'SC' + no;
             const driver = person(at('driver'));

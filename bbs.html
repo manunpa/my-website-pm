@@ -221,6 +221,8 @@ dialog em{font-style:normal;color:var(--no)}
       <input id="search" class="grow" type="search" placeholder="ค้นหารถ / ชื่อ" aria-label="ค้นหา" disabled>
       <button class="btn" id="plan-button" type="button" title="ดึงเฉพาะวันที่และกะที่เลือก" disabled><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>แผนงาน</button>
       <input type="file" id="plan" accept=".xlsx,.ods" multiple hidden>
+      <button class="btn" id="prior-button" type="button" title="ดึงข้อมูลที่คนก่อนหน้าลงไว้ จากแท็บของวันที่เลือก" hidden>รายงานกะก่อน</button>
+      <input type="file" id="prior" accept=".xlsx,.ods" hidden>
       <button class="btn" id="shot-button" type="button" title="อ่านเวลาและสถานที่จากรูป" disabled><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></svg>รูป</button>
       <button class="btn" id="add" type="button" disabled>+ รถ</button>
       <button class="btn" id="alert-button" type="button" title="จัดข้อความแจ้งเหตุสำหรับส่ง LINE" disabled><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17.5v.01"/></svg>แจ้งเหตุ</button>
@@ -336,6 +338,6 @@ dialog em{font-style:normal;color:var(--no)}
   });
 })();
 </script>
-<script type="module" src="./bbs.js?v=60"></script>
+<script type="module" src="./bbs.js?v=61"></script>
 </body>
 </html>

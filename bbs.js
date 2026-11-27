@@ -1,11 +1,12 @@
 import { requireLogin, fetchProtectedText, PRESENCE_URL, auth } from './firebase-guard.js?v=20261122-cut';
 import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=11';
-import { readPlans, vehicleNo, sccName, PEOPLE_FIELDS } from './bbs-plan.js?v=16';
-import { readHourly, buildHourly } from './bbs-hourly.js?v=11';
+import { readPlans, vehicleNo, sccName, PEOPLE_FIELDS } from './bbs-plan.js?v=17';
+import { readHourly, buildHourly, baseCar, plainName } from './bbs-hourly.js?v=12';
+import { readPrior } from './bbs-prior.js?v=1';
 import { readImage, parseShot, readGps, inShift } from './bbs-ocr.js?v=3';
 import { samePlace } from './bbs-match.js?v=1';
 import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
-import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=6';
+import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=7';
 import { destList, diffPlan, mergeChanges, describe, roundsChanged } from './bbs-diff.js?v=2';
 import { HISTORY_URL, nameKey, indexHistory, thaiDate } from './bbs-history.js?v=1';
 import { createLog } from './bbs-log.js?v=1';
@@ -688,7 +689,6 @@ function hourGrid(v, who) {
 }
 
 // ===== ฟอร์ม RSC: กลุ่มเสี่ยงจากชีตในฟอร์ม =====
-const plainName = (name) => String(name || '').replace(/^\s*(นางสาว|น\.ส\.|นาย|นาง)/, '').replace(/\s+/g, '');
 const riskOf = (name) => (name && template.risks?.find((x) => plainName(x.name) === plainName(name))) || null;
 const risky = (v) => [1, 2].some((n) => { const r = riskOf(driverName(v, n)); return r && !/^sheep/i.test(r.group); });
 function riskTag(name) {
@@ -974,6 +974,7 @@ function render() {
         ? 'ยังไม่ตรวจ ' + working.filter((v) => !v.rounds.length).length + ' จาก ' + working.length + ' คัน' : '';
     $('hidden-count').textContent = String(report.vehicles.length - working.length);
     $('rsc-filters').hidden = !template?.rsc;
+    $('prior-button').hidden = !template?.rsc;
     if (template?.rsc) {
         const hour = nowHour();
         const done = working.filter((v) => checkedAt(v, hour)).length;
@@ -1083,6 +1084,7 @@ async function importPlans(files) {
     const inForm = new Set(template.vehicles.map((v) => keyOfCar(v.scc)));
     note('นำเข้า', 'เปิดไฟล์แผนงาน', { detail: [...files].map((f) => f.name).join(', ') });
     const mine = new Map(report.vehicles.map((v) => [keyOfCar(v.scc), v]));
+    if (template.rsc) matchCrews(vehicles, mine);
     // รถในแผนที่ยังไม่มีในรายงาน (รถย้ายเข้าใหม่ หรือฟอร์มกลาง) สร้างเพิ่มให้ ทะเบียนค้นจากฟอร์มอื่นใน Drive
     const created = new Set();
     if ([...vehicles.keys()].some((no) => !mine.has(no))) {
@@ -1156,6 +1158,8 @@ function applyPlans() {
         if (skip) continue;
         for (const k of ['route', 'route2', 'jobTime']) if (item[k]) v[k] = item[k];
         if ((created || extra) && !report.vehicles.some((x) => x.scc === v.scc)) report.vehicles.push(v);
+        // ของที่คนก่อนหน้าลงไว้ แผนไม่เขียนทับ
+        if (v.prior) for (const k of ['driver', 'driver2', 'route', 'route2', 'jobTime']) if (v[k]) item[k] = v[k];
         if (item.driver) v.driver = item.driver;
         if (item.risk) v.risk = item.risk;
         else v.risk ||= item.riskIfEmpty;
@@ -1176,6 +1180,167 @@ function applyPlans() {
     save();
     render();
     shareDay(planPreview.filter((p) => !p.skip).map((p) => p.v), DAY_FIELDS);
+}
+
+// คันเดียวมีหลายชุดคนขับ: ให้ชุดในแผนไปลงรายการที่ชื่อ พขร. ตรงกันอยู่แล้ว
+function matchCrews(plan, mine) {
+    const entries = [...plan];
+    plan.clear();
+    const taken = new Set();
+    const waiting = [];
+    for (const [key, item] of entries) {
+        const found = [...mine].find(([k, v]) => !taken.has(k) && baseCar(v.scc) === baseCar(key) &&
+            item.driver && [v.driver, v.driver2].map(plainName).includes(plainName(item.driver)));
+        if (found) { taken.add(found[0]); plan.set(found[0], item); }
+        else waiting.push([key, item]);
+    }
+    for (const [key, item] of waiting) {
+        const base = key.replace(/ \(\d+\)$/, '');
+        const free = (name) => !taken.has(name) && !mine.get(name)?.driver;
+        let name = free(key) ? key : base;
+        for (let n = 2; !free(name); n++) name = base + ' (' + n + ')';
+        taken.add(name);
+        plan.set(name, item);
+    }
+}
+
+// ===== รายงานกะก่อน (ฟอร์ม RSC): แท็บ 1 วัน = ชั่วโมง 0-23 ของวันปฏิทิน =====
+const addDays = (date, n) => new Date(Date.parse(date + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10);
+const keyFor = (date, shift) => report.key.replace(/\d{4}-\d{2}-\d{2}_(day|night)$/, date + '_' + shift);
+// ชั่วโมงของแท็บวันนั้น อยู่ในรายงานของกะไหน
+const ownerOf = (date, hour) => (hour < 8 ? [addDays(date, -1), 'night'] : hour < 20 ? [date, 'day'] : [date, 'night']);
+const priorKey = (date) => 'prior:' + $('form').value + ':' + date;
+
+async function otherReport(key) {
+    if (key === report.key) return report;
+    let local = null;
+    try { local = JSON.parse(localStorage.getItem(localKey(key))); } catch { /* เริ่มใหม่ */ }
+    let remote = null;
+    if (API_URL) remote = await fetchRemote(key).catch(() => null);
+    const [date, shift] = key.split('_').slice(-2);
+    const doc = normalize(local || { date, shift, checker: '', monitor: '', vehicles: [] });
+    return remote ? merge(doc, remote) : doc;
+}
+
+async function importPrior(file) {
+    status('กำลังอ่านรายงานกะก่อน…');
+    const date = report.date;
+    const { sheet, cars } = await readPrior(file, date);
+    const total = cars.reduce((n, c) => n + c.rounds.length, 0);
+    status('');
+    if (!confirm('ดึงแท็บ ' + sheet + ' จาก ' + file.name + '\nเป็นข้อมูลของวันที่ ' + date.split('-').reverse().join('/') +
+        '\nรถ ' + cars.length + ' ชุด · ลงเวลาแล้ว ' + total + ' ช่อง\n\nถูกวันและเดือนหรือไม่?')) return;
+    if (date !== report.date) return;
+
+    // จับคู่ชุดแถวในไฟล์กับรายการบนหน้า (ชื่อ พขร. ก่อน แล้วตามลำดับ)
+    const taken = new Set();
+    for (const car of cars) {
+        const names = car.people.map((p) => plainName(p.driver)).filter(Boolean);
+        const same = report.vehicles.filter((v) => baseCar(v.scc) === baseCar(car.car) && !taken.has(v.scc));
+        const found = same.find((v) => [v.driver, v.driver2].some((n) => names.includes(plainName(n)))) || same.find((v) => !v.driver);
+        if (found) car.scc = found.scc;
+        else {
+            const base = car.car.replace(/\s+(DTC|10W)$/i, '');
+            let n = 1;
+            car.scc = base;
+            while (taken.has(car.scc) || report.vehicles.some((v) => v.scc === car.scc)) car.scc = base + ' (' + ++n + ')';
+        }
+        taken.add(car.scc);
+    }
+
+    const fillIn = (doc, car, rounds) => {
+        let v = doc.vehicles.find((x) => x.scc === car.scc);
+        if (!v) doc.vehicles.push(v = emptyVehicle({ scc: car.scc, plate: '', driver: '', risk: '' }));
+        const [first = {}, second = {}] = car.people;
+        const values = { driver: first.driver, route: first.route, jobTime: first.jobTime, driver2: second.driver,
+            route2: second.route, jobTime2: second.jobTime, gps: car.gps, cctv: car.cctv, abnormal: car.abnormal };
+        for (const [k, value] of Object.entries(values)) if (value) v[k] = value;
+        v.prior = true;
+        v.pinned = true;
+        delete v.hidden;
+        for (const r of rounds) {
+            const id = 'h' + r.who + '-' + r.hour;
+            if (v.rounds.some((x) => x.id === id)) continue; // ที่ลงบนเว็บแล้วไม่ทับ
+            v.rounds.push({ id, type: 'hour', hour: r.hour, who: r.who, place: r.place, time: r.time ? r.time + ':00' : '',
+                note: '', ...(r.detail ? { detail: r.detail } : {}), marks: {}, quiet: true });
+        }
+    };
+
+    // ชั่วโมงแต่ละช่วงเก็บในรายงานของกะนั้น ส่วนชื่อ/รูธใส่ในรายงานที่เปิดอยู่ด้วย
+    const keys = new Map([[report.key, []]]);
+    for (let hour = 0; hour < 24; hour++) {
+        const key = keyFor(...ownerOf(date, hour));
+        keys.set(key, [...(keys.get(key) || []), hour]);
+    }
+    for (const [key, hours] of keys) {
+        const open = key === report.key;
+        const doc = await otherReport(key);
+        const before = open ? null : snapshot(doc);
+        if (!open) Object.assign(doc, { key, formName: report.formName, layout: report.layout, unitTitle: report.unitTitle, tab: report.tab });
+        for (const car of cars) {
+            const rounds = car.rounds.filter((r) => hours.includes(r.hour));
+            if (open || rounds.length) fillIn(doc, car, rounds);
+        }
+        if (open) continue;
+        doc.updatedAt = Date.now();
+        markEdits(doc, before);
+        try { localStorage.setItem(localKey(key), JSON.stringify(doc)); } catch { /* ยังส่งขึ้นชีตได้ */ }
+        if (API_URL) queue(key, JSON.stringify(doc));
+    }
+    // เก็บไฟล์ไว้เป็นต้นแบบตอนส่งออก (เฉพาะ .xlsx) จะได้ลำดับแถวและรูปแบบเดิม
+    if (/\.xlsx$/i.test(file.name)) {
+        const buffer = await file.arrayBuffer();
+        await idb('readwrite', (s) => s.put({ buffer, name: file.name }, priorKey(date))).catch(() => {});
+    }
+    note('นำเข้า', 'ดึงรายงานกะก่อน', { detail: file.name + ' แท็บ ' + sheet + ': ' + cars.length + ' ชุด' });
+    save();
+    render();
+}
+
+// รวมชั่วโมง 0-23 ของแท็บวันนั้นจากทุกกะ
+async function daySheetReport(date) {
+    const parts = new Map(); // key -> ชั่วโมงที่รายงานนั้นเป็นเจ้าของในแท็บนี้
+    for (let hour = 0; hour < 24; hour++) {
+        const key = keyFor(...ownerOf(date, hour));
+        parts.set(key, [...(parts.get(key) || []), hour]);
+    }
+    const ordered = [...parts].sort((a, b) => Number(b[0] === report.key) - Number(a[0] === report.key));
+    const cars = new Map();
+    for (const [key, hours] of ordered) {
+        const doc = await otherReport(key);
+        // รายงานกะดึกของเมื่อวานถือข้อมูลคันของแท็บเมื่อวาน เอามาแค่ชั่วโมง กับชื่อถ้ายังไม่มี
+        const sameDay = key.includes(date);
+        for (const v of doc.vehicles) {
+            const rounds = v.rounds.filter((r) => hours.includes(r.hour));
+            const car = cars.get(v.scc) || { scc: v.scc, plate: v.plate, trips: [], rounds: [] };
+            cars.set(v.scc, car);
+            for (const k of ['driver', 'driver2', 'route', 'route2', 'jobTime', 'jobTime2', 'gps', 'cctv', 'abnormal']) {
+                if (!car[k] && v[k] && (sameDay || rounds.length) && (sameDay || k !== 'abnormal')) car[k] = v[k];
+            }
+            if (!car.trips.length && sameDay) car.trips = v.trips;
+            car.rounds.push(...rounds);
+        }
+    }
+    return { ...report, date, vehicles: [...cars.values()] };
+}
+
+// กะดึกคร่อมสองวัน = สองแท็บ สองไฟล์
+async function exportDaySheets() {
+    const dates = report.shift === 'night' ? [report.date, addDays(report.date, 1)] : [report.date];
+    const names = [];
+    for (const date of dates) {
+        const doc = await daySheetReport(date);
+        // แท็บวันถัดไป: ชื่อผู้ Monitor กะดึกก็เป็นคนเดียวกัน
+        const prior = await idb('readonly', (s) => s.get(priorKey(date))).catch(() => null);
+        const blob = await buildHourly(template.buffer, doc, { prior: prior?.buffer });
+        const [y, m, d] = date.split('-');
+        const link = el('a', { href: URL.createObjectURL(blob),
+            download: baseName() + ' ' + d + '-' + m + '-' + (Number(y) + 543) + (report.shift === 'night' ? ' Night' : ' Day') + '.xlsx' });
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+        names.push(link.download);
+    }
+    return names.join(' + ');
 }
 
 // ===== อ่านรูป: เลือกไฟล์ / วาง / ลากมาใส่ → ตรวจสรุป → เพิ่มเป็นรอบ "ลงเวลาอย่างเดียว" =====
@@ -1696,6 +1861,14 @@ function bind() {
     $('search').addEventListener('input', render);
     for (const id of ['show-all', 'only-pending', 'only-risk']) $(id).addEventListener('change', render);
     $('plan-button').addEventListener('click', () => $('plan').click());
+    $('prior-button').addEventListener('click', () => $('prior').click());
+    $('prior').addEventListener('change', async () => {
+        const [file] = $('prior').files;
+        $('prior').value = '';
+        if (!file) return;
+        try { await importPrior(file); }
+        catch (err) { console.error(err); status('อ่านรายงานกะก่อนไม่ได้: ' + err.message, true); }
+    });
     const readFiles = async (files) => {
         if (!files.length) return;
         try { await importPlans(files); }
@@ -1758,6 +1931,13 @@ function bind() {
     $('export').addEventListener('click', async () => {
         $('export').disabled = true;
         try {
+            if (template.rsc) {
+                const files = await exportDaySheets();
+                status('ส่งออกรายงานแล้ว');
+                note('ส่งออก', 'ส่งออกรายงาน Excel', { detail: files });
+                $('export').disabled = false;
+                return;
+            }
             // มีแผนแล้ว คันที่ไม่มีงานให้เขียนว่าไม่มีวิ่งงาน (ยังไม่อัปแผน = ยังไม่รู้ ไม่เขียน)
             const planned = report.vehicles.some((v) => v.trips.some((t) => t.cust || t.ship));
             const blob = template.hourly ? await buildHourly(template.buffer, report) : await buildReport(template.buffer, {

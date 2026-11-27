@@ -333,6 +333,28 @@ function appendBlocks(doc, blocks, count) {
 const watched = (time) => (time ? Number(time.slice(0, 2)) + '.' + time.slice(3, 5) : '');
 const used = (v) => !!(v.driver || v.trips.length || v.rounds.length);
 
+/** "SC001 (2)", "SC025 DTC" → เบอร์รถจริง ใช้จับคู่ฟอร์ม RSC */
+export const baseCar = (scc) => String(scc).replace(/\s*\(\d+\)$/, '').replace(/^(SC\s*\d{3})\s*(DTC|10W)$/i, '$1').replace(/\s+/g, '');
+export const plainName = (name) => String(name || '').replace(/^\s*(นางสาว|น\.ส\.|นาย|นาง)/, '').replace(/\s+/g, '');
+
+// คันเดียวมีได้หลายชุดแถว: จับคู่ด้วยชื่อ พขร. ก่อน ที่เหลือเรียงตามลำดับ
+function assignBlocks(book, blocks, vehicles, driverCol) {
+    const free = [...vehicles].sort((x, y) => x.scc.localeCompare(y.scc, undefined, { numeric: true }));
+    const result = new Map();
+    const take = (block, test) => {
+        if (result.has(block) || !block.plate) return;
+        const i = free.findIndex((v) => baseCar(v.scc) === baseCar(block.plate) && test(v));
+        if (i >= 0) result.set(block, free.splice(i, 1)[0]);
+    };
+    for (const block of blocks) {
+        const names = [0, 2].map((at) => plainName(book.value(cellAt(block.rows[at], driverCol)))).filter(Boolean);
+        take(block, (v) => [v.driver, v.driver2].some((n) => names.includes(plainName(n))));
+    }
+    for (const block of blocks) take(block, used);
+    for (const block of blocks) take(block, () => true);
+    return result;
+}
+
 // คำอธิบายรหัสที่ลงสีไว้บนหัวฟอร์ม: [{ code, fill, kind }]
 // kind ดูจากสี: ส้ม = คลังน้ำมัน, ฟ้า = หน่วยงาน (รหัสเดียวกันมีได้ทั้งสองสี)
 const KINDS = { FF9900: 'depot', '4D93D9': 'unit' };
@@ -391,7 +413,9 @@ function fill(book, doc, layout, blocks, report, paint, driverCol) {
     const comments = []; // สถานที่ของแต่ละช่อง (ฟอร์ม RSC ใส่เป็นคอมเมนต์)
     const data = new Map(report.vehicles.map((v) => [v.scc, v]));
     const have = new Set(blocks.map((b) => b.plate));
-    const waiting = report.vehicles.filter((v) => !have.has(v.scc) && (report.unitTitle || used(v)))
+    const assigned = rsc ? assignBlocks(book, blocks, report.vehicles, driverCol) : null;
+    const placed = new Set(assigned?.values());
+    const waiting = report.vehicles.filter((v) => (rsc ? !placed.has(v) && used(v) : !have.has(v.scc) && (report.unitTitle || used(v))))
         .sort((x, y) => x.scc.localeCompare(y.scc, undefined, { numeric: true }));
     const slots = blocks.filter((b) => !b.plate);
     if (waiting.length > slots.length) {
@@ -399,7 +423,11 @@ function fill(book, doc, layout, blocks, report, paint, driverCol) {
         blocks.push(...added);
         slots.push(...added);
     }
-    waiting.forEach((v, i) => { slots[i].plate = v.scc; });
+    waiting.forEach((v, i) => {
+        slots[i].plate = v.scc;
+        slots[i].added = true;
+        assigned?.set(slots[i], v);
+    });
 
     // ช่องชั่วโมง: ผังตายตัวใช้ตามหัวตาราง ผังเรียงตามกะต้องเขียนหัวตารางใหม่
     const hours = hoursOf(layout, report.shift);
@@ -414,20 +442,25 @@ function fill(book, doc, layout, blocks, report, paint, driverCol) {
     // หมายเหตุลงคอลัมน์ว่างถัดจากตาราง
     const noteCol = (rsc && layout.abnormal) || colName(Math.max(...layout.hourCells.map((x) => colNum(x.col))) + (layout.fixed ? 2 : 1));
     const written = new Set();
-    blocks.forEach(({ plate, rows, head }, index) => {
+    blocks.forEach((block, index) => {
+        const { plate, rows, head } = block;
         // คันเดียวกันที่มีสองชุดในฟอร์ม ลงเฉพาะชุดแรก
-        const v = (!written.has(plate) && data.get(plate)) || { trips: [], rounds: [] };
+        const v = (rsc ? assigned.get(block) : !written.has(plate) && data.get(plate)) || { trips: [], rounds: [] };
         written.add(plate);
         const top = head?.[0] || rows[0];
         for (const r of [...(head || []), ...rows]) {
-            for (const col of clear) setCell(doc, r, col, '');
+            // รูธบรรทัดที่สอง (แถวผลการตรวจ) ของชุดเดิมคงไว้
+            const second = rsc && !block.added && (r === rows[1] || r === rows[3]);
+            for (const col of clear) if (!(second && col === layout.route)) setCell(doc, r, col, '');
             if (rsc) setCell(doc, r, noteCol, '');
         }
         if (layout.fixed && !rsc) setCell(doc, rows[0], 'AI', '');
         const no = /^SCC(\d+)$/.exec(plate);
-        // "SC001 (2)" คือคันเดิมคนขับอีกชุด ในฟอร์มเขียนเบอร์รถเฉยๆ
-        setCell(doc, top, layout.car, no ? Number(no[1]) : rsc ? plate.replace(/ \(\d+\)$/, '') : plate);
-        if (layout.number) setCell(doc, top, layout.number, plate ? index + 1 : '');
+        // ฟอร์ม RSC: ชุดแถวเดิมคงเบอร์รถและลำดับของไฟล์ไว้ เขียนเฉพาะชุดที่เพิ่ม ("SC001 (2)" เขียนเป็น SC001)
+        if (!rsc || block.added) {
+            setCell(doc, top, layout.car, no ? Number(no[1]) : rsc ? plate.replace(/ \(\d+\)$/, '') : plate);
+            if (layout.number) setCell(doc, top, layout.number, plate ? index + 1 : '');
+        }
         const mark = (s) => (s === 'ปกติ' ? 'OK' : s === 'ไม่ปกติ' ? 'NG' : '');
         // ฟอร์ม RSC เป็นช่องติ๊ก: ยังไม่ได้เลือกให้คงค่าของฟอร์มไว้
         for (const [col, state] of [[layout.gps, v.gps], [layout.cctv, v.cctv]]) {
@@ -458,7 +491,7 @@ function fill(book, doc, layout, blocks, report, paint, driverCol) {
             names.forEach((name, i) => setCell(doc, across ? rows[0] : rows[i], layout.trips[across ? i : 0], name));
         }
 
-        const notes = [];
+        const notes = rsc && v.abnormal ? [v.abnormal] : []; // ของคนก่อนหน้ามาก่อน
         for (const r of v.rounds) {
             const at = ((r.who || 1) - 1) * 2; // พขร. คนละคู่แถว
             const col = column.get(r.hour);
@@ -467,7 +500,8 @@ function fill(book, doc, layout, blocks, report, paint, driverCol) {
             setCell(doc, rows[at], col, rsc && time ? Number(time) : time); // ฟอร์ม RSC เก็บเวลาเป็นตัวเลข
             setCell(doc, rows[at + 1], col, r.place || '');
             paint(cellAt(rows[at + 1], col), r.place || '', r.group);
-            if (r.note) notes.push(r.hour + ' น. ' + r.note);
+            const text = r.note && r.hour + ' น. ' + r.note;
+            if (text && !String(v.abnormal || '').includes(text)) notes.push(text);
             if (rsc && r.detail) comments.push({ ref: col + rowNum(rows[at + 1]), text: r.detail });
         }
         setCell(doc, rsc ? top : rows[0], noteCol, notes.join(' / '));
@@ -533,6 +567,7 @@ async function writeComments(book, path, doc, list) {
         if (!/Extension="vml"/i.test(types)) {
             types = types.replace('</Types>', '<Default Extension="vml" ContentType="application/vnd.openxmlformats-officedocument.vmlDrawing"/></Types>');
         }
+        types = types.replace(/<Override[^>]*comments_bbs\.xml"[^>]*\/>/g, '');
         types = types.replace('</Types>', '<Override PartName="/xl/comments_bbs.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml"/></Types>');
         book.zip.file('[Content_Types].xml', types);
     }
@@ -572,9 +607,24 @@ async function keepOnly(book, keepName, newName, drop = () => true) {
     book.zip.file('xl/_rels/workbook.xml.rels', xml(rels));
 }
 
-export async function buildHourly(buffer, report) {
-    const book = await openBook(buffer);
-    const sheet = await pickSheet(book);
+// แท็บวันที่ระบุในรายงานของคนก่อนหน้า (ใช้เป็นต้นแบบ จะได้ลำดับและรูปแบบเดิม)
+async function dayTab(book, day) {
+    const name = (await sheetNames(book)).find((n) => /^\s*\d{1,2}\s*$/.test(n) && Number(n) === day);
+    if (!name) return null;
+    const path = await sheetPathOf(book, name);
+    const doc = await book.read(path);
+    const layout = readLayout(book, doc);
+    const blocks = layout ? findBlocks(book, doc, layout) : [];
+    return blocks[0]?.head ? { name, path, doc, layout, blocks } : null;
+}
+
+export async function buildHourly(buffer, report, { prior } = {}) {
+    let book = prior ? await openBook(prior) : null;
+    let sheet = book ? await dayTab(book, Number(report.date.slice(8))) : null;
+    if (!sheet) {
+        book = await openBook(buffer);
+        sheet = await pickSheet(book);
+    }
     if (!sheet) throw new Error('ไม่พบตารางรายชั่วโมงในฟอร์ม');
     const styles = await book.read('xl/styles.xml');
     const rsc = !!sheet.blocks[0].head;
@@ -587,10 +637,10 @@ export async function buildHourly(buffer, report) {
         .replace(/<ext [^>]*>\s*<x14:dataValidations [^>]*>\s*<\/x14:dataValidations>\s*<\/ext>/g, '')
         .replace(/<extLst>\s*<\/extLst>|<extLst\/>/g, '');
     book.zip.file(sheet.path, xml);
-    if (/^\d{1,2}$/.test(sheet.name.trim())) await keepOnly(book, sheet.name, report.date.slice(8));
+    if (!rsc && /^\d{1,2}$/.test(sheet.name.trim())) await keepOnly(book, sheet.name, report.date.slice(8));
     if (rsc) {
         // เก็บชีตอ้างอิง (สูตรกลุ่มเสี่ยงใช้) ลบแท็บวันอื่น แล้วเปลี่ยน "ฟอร์ม" เป็นวันของรายงาน
-        await keepOnly(book, sheet.name, report.date.slice(8), (name) => /^\d{1,2}$/.test(name.trim()));
+        await keepOnly(book, sheet.name, report.date.slice(8), (name) => /^(\d{1,2}|ฟอร์ม)$/.test(name.trim()));
         // สูตรกลุ่มเสี่ยงมีค่าเก่าค้าง ให้ Excel คำนวณใหม่ตอนเปิด
         const wb = await book.read('xl/workbook.xml');
         const calc = els(wb, 'calcPr')[0];
