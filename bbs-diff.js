@@ -39,6 +39,13 @@ export function diffPlan(v, item) {
     return changes;
 }
 
+/** จำนวนเที่ยวต่างจากเดิมไหม (ปลายทางชื่อซ้ำ = วิ่งหลายรอบ diffPlan มองเป็นแห่งเดียว) */
+export function roundsChanged(before, after) {
+    if (!after.length) return false;
+    const list = (trips) => trips.map((t) => same(t.cust || t.ship)).sort().join('|');
+    return list(before) !== list(after);
+}
+
 /** รวมกับประวัติเดิม: เก็บการเปลี่ยนล่าสุดของแต่ละรายการ */
 export function mergeChanges(old, fresh, trips, at) {
     const names = destList(trips).map((d) => d.name);

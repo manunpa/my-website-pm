@@ -2,11 +2,11 @@ import { requireLogin, fetchProtectedText, PRESENCE_URL, auth } from './firebase
 import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=11';
 import { readPlans, vehicleNo, sccName, PEOPLE_FIELDS } from './bbs-plan.js?v=15';
 import { readHourly, buildHourly } from './bbs-hourly.js?v=9';
-import { readImage, parseShot, inShift } from './bbs-ocr.js?v=1';
+import { readImage, parseShot, readDrivers, inShift } from './bbs-ocr.js?v=2';
 import { samePlace } from './bbs-match.js?v=1';
 import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
 import { normalize, snapshot, stamp as markEdits, merge, sameReport } from './bbs-merge.js?v=5';
-import { destList, diffPlan, mergeChanges, describe } from './bbs-diff.js?v=1';
+import { destList, diffPlan, mergeChanges, describe, roundsChanged } from './bbs-diff.js?v=2';
 import { HISTORY_URL, nameKey, indexHistory, thaiDate } from './bbs-history.js?v=1';
 import { createLog } from './bbs-log.js?v=1';
 
@@ -909,7 +909,7 @@ function render() {
     for (const id of ['reset-button', 'export', 'summary-button', 'alert-button', 'plan-button', 'shot-button', 'search', 'add']) $(id).disabled = !template;
     $('template-name').textContent = template ? template.name : '';
     $('template-name').hidden = !!API_URL || !template;
-    $('shot-button').hidden = !!template?.hourly; // ตัวอ่านรูปทำไว้สำหรับฟอร์มรายรอบ
+    $('shot-button').title = template?.hourly ? 'อ่านชื่อคนขับจากรูป GPS' : 'อ่านเวลาและสถานที่จากรูป';
     if (open) { $('list').replaceChildren(template?.hourly ? hourlyPage(open) : vehiclePage(open)); return; }
 
     const q = $('search').value.trim().toLowerCase();
@@ -967,12 +967,53 @@ async function knownVehicles() {
     return found;
 }
 
+// ===== ฟอร์มรายชั่วโมง: กะเป็นแค่ช่วงของคนดู แผนและชื่อ พขร. นับทั้งวัน จึงใส่ให้อีกกะของวันเดียวกันด้วย =====
+const DAY_FIELDS = ['plate', 'driver', 'driver2', 'driver3', 'risk', 'remark', 'trips', 'changes',
+    'status', 'rest', 'status2', 'rest2', 'status3', 'rest3'];
+
+async function shareDay(cars, fields) {
+    if (!template.hourly || !cars.length) return;
+    // จำค่าของตอนนี้ไว้ก่อน ระหว่างรอโหลดคนใช้อาจสลับรายงานไปแล้ว
+    const copies = structuredClone(cars);
+    const { date, formName, layout, unitTitle, tab } = report;
+    const shift = report.shift === 'night' ? 'day' : 'night';
+    const key = report.key.replace(/(day|night)$/, shift);
+    let local = null;
+    try { local = JSON.parse(localStorage.getItem(localKey(key))); } catch { /* เริ่มใหม่ */ }
+    let remote = null;
+    if (API_URL) remote = await fetchRemote(key).catch(() => null); // โหลดไม่ได้: ตอนส่งจะรวมกับบนชีตอีกครั้ง
+    let other = normalize(local || { date, shift, checker: '', monitor: '', vehicles: [] });
+    if (remote) other = merge(other, remote);
+    Object.assign(other, { key, formName, layout, unitTitle, tab });
+    for (const car of copies) {
+        if (!other.vehicles.some((v) => v.scc === car.scc)) {
+            other.vehicles.push(emptyVehicle({ scc: car.scc, plate: car.plate, driver: '', risk: '' }));
+        }
+    }
+    const before = snapshot(other);
+    for (const car of copies) {
+        const v = other.vehicles.find((x) => x.scc === car.scc);
+        for (const k of fields) {
+            if (car[k] === undefined || (k === 'trips' && !car[k].length)) continue;
+            if (k === 'trips' && JSON.stringify(v.trips) !== JSON.stringify(car.trips)) delete v.hidden;
+            v[k] = car[k];
+        }
+        if (car.pinned) v.pinned = true;
+        if (v.driver) { v.gps ||= 'ปกติ'; v.cctv ||= 'ปกติ'; }
+    }
+    other.updatedAt = Date.now();
+    markEdits(other, before);
+    try { localStorage.setItem(localKey(key), JSON.stringify(other)); } catch { /* ยังส่งขึ้นชีตได้ */ }
+    if (API_URL) queue(key, JSON.stringify(other));
+}
+
 // ===== อัปโหลดแผนงาน: ดึงเฉพาะวันที่ + กะ ที่เลือกอยู่ ให้ตรวจสรุปก่อนเติม =====
 let planPreview = []; // [{ v, item, changes, fresh }]
 
 async function importPlans(files) {
     const { date, shift } = report;
-    const when = date.split('-').reverse().join('/') + (shift === 'night' ? ' กะกลางคืน' : ' กะกลางวัน');
+    const when = date.split('-').reverse().join('/')
+        + (template.hourly ? ' ทั้งวัน' : shift === 'night' ? ' กะกลางคืน' : ' กะกลางวัน');
     status('กำลังอ่านแผนงาน…');
     const { vehicles, notes } = await readPlans(files, date, shift);
     note('นำเข้า', 'เปิดไฟล์แผนงาน', { detail: [...files].map((f) => f.name).join(', ') });
@@ -997,10 +1038,13 @@ async function importPlans(files) {
         const fresh = !v.trips.length; // ยังไม่เคยมีงาน = งานใหม่ ไม่นับเป็นการเปลี่ยน
         // สถานะ/คนที่ 3 เปลี่ยนอย่างเดียวก็ต้องอัปเดต
         const people = !fresh && ['driver2', ...PEOPLE_FIELDS].some((k) => item[k] !== undefined && item[k] !== (v[k] || ''));
-        return { v, item, fresh, people, changes: fresh ? [] : diffPlan(v, item) };
+        // ฟอร์มรายชั่วโมง: ส่งแผนมาใหม่ให้แทนของเดิม ทั้งจำนวนเที่ยวและหมายเหตุ
+        const rounds = !fresh && template.hourly && roundsChanged(v.trips, item.trips);
+        const remark = !fresh && item.remark !== undefined && item.remark !== (v.remark || '');
+        return { v, item, fresh, people, rounds, remark, changes: fresh ? [] : diffPlan(v, item) };
     });
     const update = report.vehicles.some((v) => v.trips.length); // เคยมีแผนแล้ว = โหมดอัปเดต
-    planPreview = matched.filter((p) => p.fresh ? p.item.driver || p.item.trips.length : p.changes.length || p.people);
+    planPreview = matched.filter((p) => p.fresh ? p.item.driver || p.item.trips.length : p.changes.length || p.people || p.rounds || p.remark);
     for (const p of planPreview) p.created = created.has(p.v);
     const unchanged = matched.length - planPreview.length;
     status('');
@@ -1017,7 +1061,11 @@ async function importPlans(files) {
         historyBadge(item.driver || v.driver),
         fresh
             ? el('div', { className: 'mute', textContent: (update ? 'งานใหม่: ' : '') + destList(item.trips).map((d) => d.name).join(' | ') })
-            : el('ul', {}, ...(changes.length ? changes.map(describe) : ['อัปเดตสถานะ พขร.']).map((text) => el('li', { textContent: text })))); }));
+            : el('ul', {}, ...(changes.length ? changes.map(describe) : [
+                p.people ? 'อัปเดตสถานะ พขร.' : '',
+                p.rounds ? 'จำนวนเที่ยวเปลี่ยนเป็น ' + item.trips.length + ' เที่ยว' : '',
+                p.remark ? 'หมายเหตุแผนเปลี่ยน' : ''
+            ].filter(Boolean)).map((text) => el('li', { textContent: text })))); }));
     $('plan-notes').replaceChildren(...[
         ...notes,
         ...(added ? ['มีรถที่ไม่มีในฟอร์ม ' + added + ' คัน จะเติมต่อท้ายให้ (ติ๊กออกได้ถ้าไม่ใช่รถของหน่วยงานนี้)'] : [])
@@ -1033,7 +1081,7 @@ function applyPlans() {
     // เปลี่ยนวันที่/ฟอร์มระหว่างเปิดสรุป → ไม่เติมผิดรายงาน
     if ($('plan-dialog').dataset.key !== (report.key || keyOf())) return;
     const at = new Date().toTimeString().slice(0, 5);
-    for (const { v, item, fresh, changes, created, skip } of planPreview) {
+    for (const { v, item, fresh, changes, rounds, created, skip } of planPreview) {
         if (skip) continue;
         if (created && !report.vehicles.some((x) => x.scc === v.scc)) report.vehicles.push(v);
         if (item.driver) v.driver = item.driver;
@@ -1042,7 +1090,7 @@ function applyPlans() {
         if (item.remark !== undefined) v.remark = item.remark;
         if (item.driver2 !== undefined) v.driver2 = item.driver2;
         for (const k of PEOPLE_FIELDS) if (item[k] !== undefined) v[k] = item[k];
-        const jobsChanged = fresh || changes.some((c) => c.type !== 'driver');
+        const jobsChanged = fresh || rounds || changes.some((c) => c.type !== 'driver');
         if (item.trips.length && jobsChanged) {
             const ids = new Map(v.trips.map((t) => [t.cust, t.custId]));
             v.trips = item.trips.map((t) => ({ ...t, custId: t.custId || ids.get(t.cust) || '' }));
@@ -1055,6 +1103,7 @@ function applyPlans() {
     note('นำเข้า', 'เติมแผนงาน', { detail: applied.length + ' คัน: ' + applied.join(', ') });
     save();
     render();
+    shareDay(planPreview.filter((p) => !p.skip).map((p) => p.v), DAY_FIELDS);
 }
 
 // ===== อ่านรูป: เลือกไฟล์ / วาง / ลากมาใส่ → ตรวจสรุป → เพิ่มเป็นรอบ "ลงเวลาอย่างเดียว" =====
@@ -1070,6 +1119,8 @@ function openShots() {
         shotKey = report.key;
         $('shot-type').value = 'none';
         $('shot-state').textContent = '';
+        // ฟอร์มรายชั่วโมงเอาแค่ชื่อคนขับ
+        $('shot-title').textContent = template.hourly ? 'ใส่ชื่อคนขับจากรูป GPS' : 'ลงเวลาจากรูป';
         drawShots();
         $('shot-dialog').showModal();
     }
@@ -1088,6 +1139,7 @@ function typeSelect(label, value, onChange) {
 const tickNote = (type) => (TYPES[type].preset.length ? 'ติ๊กให้ ' + TYPES[type].preset.length + ' ข้อ' : '');
 
 function drawShots() {
+    if (template.hourly) { drawNames(); return; }
     $('shot-all').hidden = shotItems.length < 2;
     $('shot-list').replaceChildren(...shotItems.map((item) => {
         const use = el('input', { type: 'checkbox', checked: item.use });
@@ -1116,12 +1168,70 @@ function drawShots() {
 
 function countShots() {
     const n = shotItems.filter((x) => x.use).length;
-    $('shot-ok').textContent = shotsLeft ? 'กำลังอ่านอีก ' + shotsLeft + ' รูป…' : 'เพิ่ม ' + n + ' รอบ';
+    $('shot-ok').textContent = shotsLeft ? 'กำลังอ่านอีก ' + shotsLeft + ' รูป…'
+        : template.hourly ? 'ใส่ชื่อ ' + n + ' คัน' : 'เพิ่ม ' + n + ' รอบ';
     $('shot-ok').disabled = !!shotsLeft || !n;
+}
+
+// ===== รูปตาราง GPS (ฟอร์มรายชั่วโมง): ใส่ชื่อคนขับให้ตรงรถ ไม่เอาสถานะ/เวลา/สถานที่ =====
+function drawNames() {
+    $('shot-all').hidden = true;
+    $('shot-list').replaceChildren(...shotItems.map((item) => {
+        const use = el('input', { type: 'checkbox', checked: item.use });
+        use.setAttribute('aria-label', 'ใส่ชื่อ ' + item.v.scc);
+        use.onchange = () => { item.use = use.checked; countShots(); };
+        const name = el('input', { value: item.name, className: 'grow' });
+        name.setAttribute('aria-label', 'ชื่อ พขร. ' + item.v.scc);
+        name.oninput = () => { item.name = name.value; };
+        return el('div', { className: 'shot' },
+            el('label', { className: 'line' }, use, el('b', { textContent: item.v.scc }),
+                item.warn ? el('em', { textContent: item.warn }) : null),
+            el('div', { className: 'line' }, name));
+    }));
+    countShots();
+}
+
+async function readNames(blob) {
+    const found = await readDrivers(blob);
+    const digits = (text) => String(text || '').replace(/\D/g, '');
+    for (const { plate, name } of found) {
+        const known = report.vehicles.find((v) => [v.scc, v.plate].some((t) => digits(t) === digits(plate)));
+        const v = known || emptyVehicle({ scc: plate, plate: '', driver: '', risk: '' });
+        if (shotItems.some((i) => i.v.scc === v.scc)) continue;
+        // มีชื่ออยู่แล้ว (เช่น จากแผน) หรือรถไม่มีในฟอร์ม → ไม่ติ๊กให้ คนเลือกเอง
+        const warn = !known ? 'ไม่มีในฟอร์ม' : v.driver === name ? 'มีชื่อนี้แล้ว'
+            : v.driver ? 'มีชื่อแล้ว: ' + v.driver : '';
+        shotItems.push({ v, name, created: !known, use: !warn, warn });
+    }
+    $('shot-state').textContent = found.length ? '✔ พบชื่อคนขับ ' + found.length + ' คันในรูปล่าสุด ตรวจตัวสะกดก่อนกดใส่'
+        : '⚠ ไม่พบชื่อคนขับในรูปล่าสุด';
+    drawShots();
+}
+
+function applyNames() {
+    const done = [];
+    const cars = [];
+    for (const { v, name, use, created } of shotItems) {
+        if (!use || !name.trim()) continue;
+        let car = report.vehicles.find((x) => x.scc === v.scc);
+        if (!car && created) report.vehicles.push(car = v);
+        if (!car) continue;
+        car.driver = name.trim();
+        car.pinned = true; // ยังไม่มีแผนก็ต้องขึ้นหน้าทำงาน
+        car.gps ||= 'ปกติ';
+        car.cctv ||= 'ปกติ';
+        done.push(car.scc + ' ' + car.driver);
+        cars.push(car);
+    }
+    note('นำเข้า', 'ใส่ชื่อคนขับจากรูป', { detail: done.length + ' คัน: ' + done.join(', ') });
+    save();
+    render();
+    shareDay(cars, ['driver']);
 }
 
 async function readShot(blob) {
     $('shot-state').textContent = '⏳ กำลังอ่านรูป… (ครั้งแรกต้องโหลดตัวอ่านภาษาไทย อาจนานหน่อย)';
+    if (template.hourly) return readNames(blob);
     const working = report.vehicles.filter(hasWork);
     // จับรถทุกคันในรายงาน คันที่ไม่มีงานก็เก็บข้อมูลไว้ เรียงคันมีงานขึ้นก่อน
     const found = parseShot(await readImage(blob), report.vehicles)
@@ -1161,6 +1271,7 @@ function addShots(files) {
 
 function applyShots() {
     if (shotKey !== report.key) return; // เปลี่ยนวันที่/ฟอร์มระหว่างเปิดอยู่ → ไม่เติมผิดรายงาน
+    if (template.hourly) { applyNames(); return; }
     // ตัดสินว่ามีงานไหมก่อนเพิ่ม ไม่ให้รอบแรกที่เพิ่มเปลี่ยนผลของรอบถัดไป
     const quiet = new Set(shotItems.filter((x) => !hasWork(x.v)).map((x) => x.v));
     for (const item of shotItems.filter((x) => x.use)) {

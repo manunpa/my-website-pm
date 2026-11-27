@@ -22,9 +22,8 @@ function worker() {
     return workerReady;
 }
 
-/** ถอดข้อความจากรูป (ขยายก่อน ตัวหนังสือหน้าจอเล็กจะอ่านแม่นขึ้น) */
-export async function readImage(blob) {
-    const reader = await worker();
+// ขยายก่อน ตัวหนังสือหน้าจอเล็กจะอ่านแม่นขึ้น
+async function enlarge(blob) {
     const image = await createImageBitmap(blob);
     const scale = image.width < 1000 ? 3 : image.width < 2200 ? 2 : 1;
     const canvas = document.createElement('canvas');
@@ -33,7 +32,30 @@ export async function readImage(blob) {
     const g = canvas.getContext('2d');
     g.filter = 'grayscale(1) contrast(1.2)';
     g.drawImage(image, 0, 0, canvas.width, canvas.height);
-    return (await reader.recognize(canvas)).data.text;
+    return canvas;
+}
+
+/** ถอดข้อความจากรูป */
+export async function readImage(blob) {
+    const reader = await worker();
+    return (await reader.recognize(await enlarge(blob))).data.text;
+}
+
+/** อ่านชื่อคนขับจากรูปตาราง GPS: ไอคอนสถานะหน้าเบอร์รถกวนตัวอ่าน จึงตัดคอลัมน์ซ้ายทิ้งแล้วอ่านซ้ำ */
+export async function readDrivers(blob) {
+    const reader = await worker();
+    const canvas = await enlarge(blob);
+    const first = (await reader.recognize(canvas)).data;
+    const xs = (first.words || []).filter((w) => /^\d{2}-\d{4}$/.test(w.text)).map((w) => w.bbox.x0).sort((a, b) => a - b);
+    if (!xs.length) return parseDrivers(first.text);
+    const x = Math.max(0, xs[xs.length >> 1] - 16);
+    const cut = document.createElement('canvas');
+    cut.width = canvas.width - x;
+    cut.height = canvas.height;
+    cut.getContext('2d').drawImage(canvas, -x, 0);
+    const second = parseDrivers((await reader.recognize(cut)).data.text);
+    const more = parseDrivers(first.text).filter((d) => !second.some((s) => s.plate === d.plate));
+    return [...second, ...more];
 }
 
 const DATE_TIME = /(\d{1,2})[/.](\d{1,2})[/.](\d{4})\s+(\d{1,2})[:.](\d{2})[:.](\d{2})/;
@@ -107,6 +129,21 @@ export function parseShot(text, vehicles) {
         const no = f.v.scc.replace(/\D/g, '');
         const after = f.line.slice(f.line.indexOf(no) + no.length).replace(/^[A-Za-z]{0,3}(?=\s)/, '');
         return { v: f.v, date: '', time: '', place: tidy(after) };
+    });
+}
+
+/**
+ * ตาราง Vehicle Status ของ GPS: ... หมายเลขรถ | ชื่อคนขับ | วันและเวลา ... เอาเฉพาะแถวที่มีชื่อ
+ * @returns {{plate:string, name:string}[]}
+ */
+export function parseDrivers(text) {
+    const ROW = /(?<!\d)(\d{2})\s?[-–—.]\s?(\d{4})(?!\d)(.*?)\d{1,2}\/\d{1,2}\/\d{4}/;
+    return text.split('\n').flatMap((line) => {
+        const m = ROW.exec(line);
+        if (!m) return [];
+        // ตัดเส้นตาราง/สัญลักษณ์ที่ OCR อ่านติดมาหัวท้ายชื่อ
+        const name = m[3].replace(/^[^A-Za-zก-๙]+|[^A-Za-zก-๙.)]+$/g, '').replace(/[|\[\]_]/g, ' ').replace(/\s{2,}/g, ' ');
+        return /[A-Za-zก-๙]{2}/.test(name) ? [{ plate: m[1] + '-' + m[2], name }] : [];
     });
 }
 
