@@ -2,7 +2,7 @@ import { requireLogin, fetchProtectedText, PRESENCE_URL, auth } from './firebase
 import { readTemplate, buildReport, colName } from './bbs-xlsx.js?v=11';
 import { readPlans, vehicleNo, sccName, PEOPLE_FIELDS } from './bbs-plan.js?v=17';
 import { readHourly, buildHourly, baseCar, plainName } from './bbs-hourly.js?v=13';
-import { readPrior } from './bbs-prior.js?v=1';
+import { readPrior } from './bbs-prior.js?v=2';
 import { readImage, parseShot, readGps, inShift } from './bbs-ocr.js?v=3';
 import { samePlace } from './bbs-match.js?v=1';
 import { ALERT_TYPES, detectType, parseAlert, formatAlert } from './bbs-alert.js?v=1';
@@ -1215,13 +1215,20 @@ const priorKey = (date) => 'prior:' + $('form').value + ':' + date;
 
 async function importPrior(file) {
     status('กำลังอ่านรายงานกะก่อน…');
-    const date = report.date;
-    const { sheet, cars } = await readPrior(file, date);
+    const open = report.date;
+    // วันมาจากชื่อแท็บ เดือน/ปีจากชื่อไฟล์
+    const { sheet, date, cars } = await readPrior(file, open);
     const total = cars.reduce((n, c) => n + c.rounds.length, 0);
     status('');
-    if (!confirm('ดึงแท็บ ' + sheet + ' จาก ' + file.name + '\nเป็นข้อมูลของวันที่ ' + date.split('-').reverse().join('/') +
+    const thai = (d) => d.split('-').reverse().join('/');
+    if (!confirm('ดึงแท็บ ' + sheet + ' จาก ' + file.name + '\nเป็นข้อมูลของวันที่ ' + thai(date) +
+        (date === open ? '' : ' (หน้าจอจะเปลี่ยนจาก ' + thai(open) + ' เป็นวันนี้)') +
         '\nรถ ' + cars.length + ' ชุด · ลงเวลาแล้ว ' + total + ' ช่อง\n\nถูกวันและเดือนหรือไม่?')) return;
-    if (date !== report.date) return;
+    if (open !== report.date) return;
+    if (date !== open) {
+        $('date').value = date;
+        await load();
+    }
 
     // จับคู่ชุดแถวในไฟล์กับรายการบนหน้า (ชื่อ พขร. ก่อน แล้วตามลำดับ)
     const taken = new Set();
@@ -1808,8 +1815,21 @@ function bind() {
         try { await importPrior(file); }
         catch (err) { console.error(err); status('อ่านรายงานกะก่อนไม่ได้: ' + err.message, true); }
     });
+    // ฟอร์ม RSC: ไฟล์บันทึกของคนก่อนหน้าที่โยนเข้าช่องแผนงาน ให้ดึงเป็นรายงานกะก่อน
+    const isReport = async (file) => /บันทึกการตรวจสอบ/.test(file.name) ||
+        readPrior(file, report.date).then(() => true, () => false);
     const readFiles = async (files) => {
         if (!files.length) return;
+        if (template.rsc) {
+            const plans = [];
+            for (const file of files) {
+                if (!(await isReport(file))) { plans.push(file); continue; }
+                try { await importPrior(file); }
+                catch (err) { console.error(err); status('อ่านรายงานกะก่อนไม่ได้: ' + err.message, true); }
+            }
+            files = plans;
+            if (!files.length) return;
+        }
         try { await importPlans(files); }
         catch (err) { console.error(err); status('อ่านแผนงานไม่ได้: ' + err.message, true); }
     };
