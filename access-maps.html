@@ -538,6 +538,27 @@ body.dark .maparea,body.dark .leaflet-container{background:#161616}
   .pointrow{min-height:56px}
   .chip{padding:7px 12px}
 }
+/* มือถือ โหมดติดตาม: เหลือแผนที่ การ์ดจุดใกล้สุดเล็กๆ ด้านบน และปุ่มติดตาม (กดอีกครั้ง = ออกจากโหมด) */
+@media(max-width:850px){
+  .app:has(.locatebtn.follow) :is(.msearch,.mapcontrols,.mapbottom,.tools,.evchip,.rainbtn,.leaflet-control-zoom){display:none!important}
+  .app:has(.locatebtn.follow) .main .sidebar{transform:translateY(105%);pointer-events:none}
+  .app:has(.locatebtn.follow) .maparea{bottom:0}
+  .app:has(.locatebtn.follow) .maparea .leaflet-bottom{bottom:env(safe-area-inset-bottom)}
+  .app:has(.locatebtn.follow) .map-stack{bottom:calc(30px + env(safe-area-inset-bottom))}
+  .app:has(.locatebtn.follow) .recenter{bottom:calc(84px + env(safe-area-inset-bottom))}
+  .app:has(.locatebtn.follow) .nearbar:not([hidden]){left:10px;right:10px;transform:none;max-width:none;top:calc(10px + env(safe-area-inset-top));
+    display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 8px;padding:6px 8px 6px 12px;border-radius:14px;font-size:12px}
+  .app:has(.locatebtn.follow) .nearbar .nb-row{grid-column:1;gap:7px;padding:0;border:0;min-height:30px}
+  .app:has(.locatebtn.follow) .nearbar .nb-label{display:none}
+  .app:has(.locatebtn.follow) .nearbar .nb-name{order:2;font-weight:500}
+  .app:has(.locatebtn.follow) .nearbar .nb-dist{order:1;margin:0;font-size:18px}
+  .app:has(.locatebtn.follow) .nearbar .nb-drive-info{order:3;margin-left:auto}
+  .app:has(.locatebtn.follow) .nearbar .nb-st{min-height:22px;font-size:11px;border-top:1px solid var(--border)}
+  .app:has(.locatebtn.follow) .nearbar .nb-st .nb-dist{font-size:13px}
+  /* ปุ่มเส้นทางขับเหลือแค่ไอคอนรถ ชิดขวา */
+  .app:has(.locatebtn.follow) .nearbar .nb-drive{grid-column:2;grid-row:1 / span 2;align-self:center;width:36px;height:36px;font-size:0;border:1px solid var(--border);border-radius:10px;padding:0}
+  .app:has(.locatebtn.follow) .nearbar .nb-drive svg{width:18px;height:18px}
+}
 @media(prefers-reduced-motion:reduce){.main .sidebar,.pointrow,.toast,.live-dot,#refreshBtn:disabled svg{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -599,6 +620,19 @@ body.dark .maparea,body.dark .leaflet-container{background:#161616}
   </main>
 </div>
 
+<!-- เข้า/ออกโหมดติดตาม ความสูงแผนที่เปลี่ยน ต้องให้ Leaflet วัดขนาดใหม่ (จุดตำแหน่งจะได้อยู่กลางจอ) -->
+<script>
+(function () {
+  var following = false;
+  new MutationObserver(function () {
+    var now = !!document.querySelector('.locatebtn.follow');
+    if (now === following) return;
+    following = now;
+    setTimeout(function () { window.dispatchEvent(new Event('resize')); }, 60);
+  }).observe(document.querySelector('.maparea'), { subtree: true, attributes: true, attributeFilter: ['class'] });
+})();
+</script>
+
 <!-- มือถือ: แตะ/ปัดขีดบนแผ่นรายการ = กดปุ่มรายการเดิม (maps.js จัดการเปิด/ปิด) -->
 <script>
 (function () {
@@ -623,6 +657,6 @@ body.dark .maparea,body.dark .leaflet-container{background:#161616}
 
 <!-- ต้องเปิดผ่านเว็บเซิร์ฟเวอร์ (http/https) ไม่ใช่ file:// เพราะใช้ type="module" -->
 <!-- ?v= บังคับให้มือถือโหลด maps.js ตัวใหม่ทันทีหลังอัปเดต (เปลี่ยนเลขทุกครั้งที่แก้ maps.js) -->
-<script type="module" src="./maps.js?v=20261128-coins"></script>
+<script type="module" src="./maps.js?v=20261128-follow"></script>
 </body>
 </html>

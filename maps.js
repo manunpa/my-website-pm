@@ -303,7 +303,7 @@ let accuracyCircle = null;
 function clearSearchMarker(){
   if(searchMarker){ map.removeLayer(searchMarker); searchMarker=null; }
   if(accuracyCircle){ map.removeLayer(accuracyCircle); accuracyCircle=null; }
-  document.querySelector('.locatebtn')?.classList.remove('on');
+  document.querySelector('.locatebtn:not(.rainbtn)')?.classList.remove('on');
   stopFollow();
   searchPoint=null; gpsActive=false;
   dropStaleDrive();
@@ -1412,7 +1412,7 @@ function stopFollow(){
   searchMarker?.getElement()?.querySelector('.mypos')?.classList.remove('moving');
   $('nearBar')?.classList.remove('following');
   followLocked=false; if($('recenterBtn')) $('recenterBtn').hidden=true;
-  const btn=document.querySelector('.locatebtn');
+  const btn=document.querySelector('.locatebtn:not(.rainbtn)');
   if(btn){ btn.classList.remove('follow'); btn.title=btn.classList.contains('on')?'กดเพื่อติดตามตำแหน่งแบบเรียลไทม์':'ตำแหน่งของฉัน'; }
 }
 // อัปเดตข้อมูลตามพิกัดล่าสุดทุก 2 วินาที (ป๊อปอัป ช่องค้นหา เส้นประ รายการ 5 จุด แถบใกล้สุด)
