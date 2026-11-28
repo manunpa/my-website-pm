@@ -175,7 +175,6 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 @media(max-width:470px){.brand h1{font-size:19px;white-space:nowrap}#sidebarToggle span{display:none}}
 .legrow+.legrow{padding-top:7px;border-top:1px solid var(--border)}
 .leghead{font-weight:700;color:var(--text);min-width:64px}
-.stcluster.fuelcluster div{background:var(--panel);color:var(--text);border:1.5px solid var(--text);box-shadow:0 1px 4px #0003;font:500 10.5px/1 var(--font)}
 .legend-dot.drop{border-radius:0;clip-path:polygon(50% 0,93% 25%,93% 75%,50% 100%,7% 75%,7% 25%);width:11px;height:11px}
 .legend-dot.fuel{width:11px;height:11px;box-shadow:0 0 0 1.5px #fff,0 0 0 2.5px #0002}
 .stpin{background:none;border:0;display:grid;place-items:center}
@@ -219,6 +218,9 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 .geocluster div{position:relative;display:grid;place-items:center;border-radius:50%;background:var(--mix);box-shadow:0 1px 4px #0004;animation:ringin .7s ease-out both}
 .geocluster div::before{content:'';position:absolute;inset:4px;border-radius:50%;background:#1a1a1a;box-shadow:0 0 0 1.5px #fff}
 .geocluster b{position:relative;font:500 11px/1 var(--font);color:#fff;animation:ringback .7s ease-out both}
+/* วงของปั๊ม: ลูกเล่นเดียวกัน แต่ใจกลางขาว ให้ต่างจากวง Geofence */
+.geocluster.fuelring div::before{background:var(--panel);box-shadow:none;inset:3.5px}
+.geocluster.fuelring b{color:var(--text)}
 @keyframes ringin{from{transform:rotate(-180deg) scale(.4);opacity:0}}
 @keyframes ringback{from{transform:rotate(180deg)}}
 /* หมุดเดี่ยวเด้งขึ้นเหลื่อมกันตอนแตกจากกลุ่ม (ขยับเฉพาะรูปข้างใน ตำแหน่งหมุดเป็นของ Leaflet) */
@@ -667,6 +669,6 @@ body.dark .maparea,body.dark .leaflet-container{background:#161616}
 
 <!-- ต้องเปิดผ่านเว็บเซิร์ฟเวอร์ (http/https) ไม่ใช่ file:// เพราะใช้ type="module" -->
 <!-- ?v= บังคับให้มือถือโหลด maps.js ตัวใหม่ทันทีหลังอัปเดต (เปลี่ยนเลขทุกครั้งที่แก้ maps.js) -->
-<script type="module" src="./maps.js?v=20261128-ring"></script>
+<script type="module" src="./maps.js?v=20261128-fuelring"></script>
 </body>
 </html>

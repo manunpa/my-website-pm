@@ -127,22 +127,24 @@ $('baseControls')?.addEventListener('click',e=>{
   if(gov){ const id=gov.dataset.gov; base.overlays=base.overlays.includes(id)?base.overlays.filter(x=>x!==id):[...base.overlays,id]; saveBase(); applyBase(); }
 });
 applyBase();
+// ขอบวงกลุ่ม = สัดส่วนสี (Supplier หรือแบรนด์ปั๊ม) ของจุดในกลุ่ม
+function ringMix(cluster){
+  const n=cluster.getChildCount(), count=new Map();
+  cluster.getAllChildMarkers().forEach(m=>count.set(m.options.supColor,(count.get(m.options.supColor)||0)+1));
+  let at=0;
+  return [...count].sort((a,b)=>b[1]-a[1]).map(([color,k])=>`${color} ${at}% ${at+=k/n*100}%`).join(',');
+}
 const clusters = L.markerClusterGroup({chunkedLoading:true,chunkInterval:100,chunkDelay:25,maxClusterRadius:55,showCoverageOnHover:false,removeOutsideVisibleBounds:true,spiderfyOnMaxZoom:true,
   iconCreateFunction:c=>{
     const n=c.getChildCount(), size=n<10?27:n<100?32:n<1000?38:n<10000?44:50;
-    // ขอบวง = สัดส่วน Supplier ของจุดในกลุ่ม
-    const count=new Map();
-    c.getAllChildMarkers().forEach(m=>count.set(m.options.supColor,(count.get(m.options.supColor)||0)+1));
-    let at=0;
-    const mix=[...count].sort((a,b)=>b[1]-a[1]).map(([color,k])=>`${color} ${at}% ${at+=k/n*100}%`).join(',');
-    return L.divIcon({className:'geocluster',html:`<div style="width:${size}px;height:${size}px;--mix:conic-gradient(${mix})"><b>${n.toLocaleString('th-TH')}</b></div>`,iconSize:[size,size]});
+    return L.divIcon({className:'geocluster',html:`<div style="width:${size}px;height:${size}px;--mix:conic-gradient(${ringMix(c)})"><b>${n.toLocaleString('th-TH')}</b></div>`,iconSize:[size,size]});
   }});
 map.addLayer(clusters);
 // กลุ่มหมุดของปั๊มน้ำมันแยกจาก Geofence: วงกลุ่มคนละแบบ นับแยกกัน
 const stationClusters = L.markerClusterGroup({chunkedLoading:true,chunkInterval:100,chunkDelay:25,maxClusterRadius:60,disableClusteringAtZoom:13,showCoverageOnHover:false,removeOutsideVisibleBounds:true,spiderfyOnMaxZoom:true,
   iconCreateFunction:c=>{
-    const n=c.getChildCount(), size=n<10?22:n<100?26:n<1000?30:36;
-    return L.divIcon({className:'stcluster fuelcluster',html:`<div style="width:${size}px;height:${size}px">${n.toLocaleString('th-TH')}</div>`,iconSize:[size,size]});
+    const n=c.getChildCount(), size=n<10?26:n<100?30:n<1000?36:42;
+    return L.divIcon({className:'geocluster fuelring',html:`<div style="width:${size}px;height:${size}px;--mix:conic-gradient(${ringMix(c)})"><b>${n.toLocaleString('th-TH')}</b></div>`,iconSize:[size,size]});
   }});
 // กลุ่มหมุดแท่นผลิตนอกชายฝั่ง (สีฟ้าอมเขียว แยกจากกลุ่มอื่น)
 const platClusters = L.markerClusterGroup({chunkedLoading:true,maxClusterRadius:50,showCoverageOnHover:false,spiderfyOnMaxZoom:true,
