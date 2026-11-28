@@ -127,7 +127,11 @@ $('baseControls')?.addEventListener('click',e=>{
   if(gov){ const id=gov.dataset.gov; base.overlays=base.overlays.includes(id)?base.overlays.filter(x=>x!==id):[...base.overlays,id]; saveBase(); applyBase(); }
 });
 applyBase();
-const clusters = L.markerClusterGroup({chunkedLoading:true,chunkInterval:100,chunkDelay:25,maxClusterRadius:55,showCoverageOnHover:false,removeOutsideVisibleBounds:true,spiderfyOnMaxZoom:true});
+const clusters = L.markerClusterGroup({chunkedLoading:true,chunkInterval:100,chunkDelay:25,maxClusterRadius:55,showCoverageOnHover:false,removeOutsideVisibleBounds:true,spiderfyOnMaxZoom:true,
+  iconCreateFunction:c=>{
+    const n=c.getChildCount(), size=n<10?24:n<100?28:n<1000?34:40;
+    return L.divIcon({className:'geocluster',html:`<div style="width:${size}px;height:${size}px">${n.toLocaleString('th-TH')}</div>`,iconSize:[size,size]});
+  }});
 map.addLayer(clusters);
 // กลุ่มหมุดของปั๊มน้ำมันแยกจาก Geofence: วงกลุ่มคนละแบบ นับแยกกัน
 const stationClusters = L.markerClusterGroup({chunkedLoading:true,chunkInterval:100,chunkDelay:25,maxClusterRadius:60,disableClusteringAtZoom:13,showCoverageOnHover:false,removeOutsideVisibleBounds:true,spiderfyOnMaxZoom:true,
@@ -580,10 +584,11 @@ function supplierColor(name){
 }
 const pinIconCache = new Map();
 function pinIcon(color){
+  // Geofence = หกเหลี่ยมทึบ มีรั้วเส้นประล้อม (รั้วเป็นสัญลักษณ์ ไม่ใช่รัศมีจริง)
   if(!pinIconCache.has(color)) pinIconCache.set(color,L.divIcon({
     className:'suppin',
-    html:`<svg viewBox="0 0 32 44" width="25" height="34"><path d="M16 1C7.7 1 1 7.6 1 15.9 1 27 16 43 16 43s15-16 15-27.1C31 7.6 24.3 1 16 1z" fill="${color}" stroke="#fff" stroke-width="2.5"/><circle cx="16" cy="16" r="5.5" fill="#fff"/></svg>`,
-    iconSize:[25,34], iconAnchor:[12.5,33], popupAnchor:[0,-30]
+    html:`<svg viewBox="0 0 28 28" width="25" height="25"><path d="M14 1.5 24.8 7.75v12.5L14 26.5 3.2 20.25V7.75z" fill="${color}" fill-opacity=".16" stroke="${color}" stroke-width="1.4" stroke-dasharray="3.4 2.2" stroke-linejoin="round"/><path d="M14 7 20.1 10.5v7L14 21l-6.1-3.5v-7z" fill="${color}" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><circle cx="14" cy="14" r="1.8" fill="#fff"/></svg>`,
+    iconSize:[25,25], iconAnchor:[12.5,12.5], popupAnchor:[0,-12]
   }));
   return pinIconCache.get(color);
 }
@@ -595,7 +600,7 @@ function stationIcon(color){
   if(!stationIconCache.has(color)) stationIconCache.set(color,L.divIcon({
     className:'stpin',
     // เหรียญจิ๋ว: พื้นที่กด 24px ใหญ่กว่าที่ตาเห็น ให้นิ้วโดน
-    html:`<div style="--brand:${color}">${FUEL_SVG.replace('width="13" height="13"','width="9" height="9"')}</div>`,
+    html:`<div style="--brand:${color}">${FUEL_SVG.replace('width="13" height="13"','width="11" height="11"')}</div>`,
     iconSize:[24,24], iconAnchor:[12,12], popupAnchor:[0,-10]
   }));
   return stationIconCache.get(color);
