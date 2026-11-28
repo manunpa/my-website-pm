@@ -216,7 +216,17 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 .popbtn:hover{border-color:var(--accent)}
 .leaflet-container a.popbtn.primary,.popbtn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .geocluster{background:none;border:0}
-.geocluster div{display:grid;place-items:center;border-radius:50%;box-sizing:border-box;background:#1a1a1a;color:#fff;border:1.5px solid #fff;font:500 11px/1 var(--font);box-shadow:0 1px 4px #0004}
+.geocluster div{position:relative;display:grid;place-items:center;border-radius:50%;background:var(--mix);box-shadow:0 1px 4px #0004;animation:ringin .7s ease-out both}
+.geocluster div::before{content:'';position:absolute;inset:4px;border-radius:50%;background:#1a1a1a;box-shadow:0 0 0 1.5px #fff}
+.geocluster b{position:relative;font:500 11px/1 var(--font);color:#fff;animation:ringback .7s ease-out both}
+@keyframes ringin{from{transform:rotate(-180deg) scale(.4);opacity:0}}
+@keyframes ringback{from{transform:rotate(180deg)}}
+/* หมุดเดี่ยวเด้งขึ้นเหลื่อมกันตอนแตกจากกลุ่ม (ขยับเฉพาะรูปข้างใน ตำแหน่งหมุดเป็นของ Leaflet) */
+.suppin svg,.stpin>div{animation:pinpop .42s cubic-bezier(.2,1.6,.4,1) both}
+.leaflet-marker-icon:nth-child(3n+1)>:is(svg,div){animation-delay:60ms}
+.leaflet-marker-icon:nth-child(3n+2)>:is(svg,div){animation-delay:120ms}
+@keyframes pinpop{from{transform:scale(0);opacity:0}}
+@media(prefers-reduced-motion:reduce){.geocluster div,.geocluster b,.suppin svg,.stpin>div{animation:none}}
 .nearhint{margin:4px 4px 8px;padding:9px 11px;border-radius:10px;font-size:11px;color:var(--accent);background:color-mix(in srgb,var(--accent) 9%,transparent)}
 .nearhead{padding:10px 10px 12px;margin-bottom:4px;border-bottom:1px solid var(--border)}
 .neartitle{font-size:13px;font-weight:700}
@@ -657,6 +667,6 @@ body.dark .maparea,body.dark .leaflet-container{background:#161616}
 
 <!-- ต้องเปิดผ่านเว็บเซิร์ฟเวอร์ (http/https) ไม่ใช่ file:// เพราะใช้ type="module" -->
 <!-- ?v= บังคับให้มือถือโหลด maps.js ตัวใหม่ทันทีหลังอัปเดต (เปลี่ยนเลขทุกครั้งที่แก้ maps.js) -->
-<script type="module" src="./maps.js?v=20261128-hex"></script>
+<script type="module" src="./maps.js?v=20261128-ring"></script>
 </body>
 </html>

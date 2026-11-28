@@ -129,8 +129,13 @@ $('baseControls')?.addEventListener('click',e=>{
 applyBase();
 const clusters = L.markerClusterGroup({chunkedLoading:true,chunkInterval:100,chunkDelay:25,maxClusterRadius:55,showCoverageOnHover:false,removeOutsideVisibleBounds:true,spiderfyOnMaxZoom:true,
   iconCreateFunction:c=>{
-    const n=c.getChildCount(), size=n<10?24:n<100?28:n<1000?34:40;
-    return L.divIcon({className:'geocluster',html:`<div style="width:${size}px;height:${size}px">${n.toLocaleString('th-TH')}</div>`,iconSize:[size,size]});
+    const n=c.getChildCount(), size=n<10?27:n<100?32:n<1000?38:n<10000?44:50;
+    // ขอบวง = สัดส่วน Supplier ของจุดในกลุ่ม
+    const count=new Map();
+    c.getAllChildMarkers().forEach(m=>count.set(m.options.supColor,(count.get(m.options.supColor)||0)+1));
+    let at=0;
+    const mix=[...count].sort((a,b)=>b[1]-a[1]).map(([color,k])=>`${color} ${at}% ${at+=k/n*100}%`).join(',');
+    return L.divIcon({className:'geocluster',html:`<div style="width:${size}px;height:${size}px;--mix:conic-gradient(${mix})"><b>${n.toLocaleString('th-TH')}</b></div>`,iconSize:[size,size]});
   }});
 map.addLayer(clusters);
 // กลุ่มหมุดของปั๊มน้ำมันแยกจาก Geofence: วงกลุ่มคนละแบบ นับแยกกัน
@@ -655,7 +660,7 @@ function pointPopupHtml(p){
 }
 function buildMarker(p,group){
   const color=supplierColor(p.supplier);
-  const marker=L.marker([p.lat,p.lng],{title:p.name,icon:p.kind==='station'?stationIcon(color):p.kind==='platform'?platformIcon:pinIcon(color)});
+  const marker=L.marker([p.lat,p.lng],{title:p.name,supColor:color,icon:p.kind==='station'?stationIcon(color):p.kind==='platform'?platformIcon:pinIcon(color)});
   marker.__grp=group;
   marker.supplierIcon=marker.options.icon;
   marker.bindPopup(()=>pointPopupHtml(p),p.kind!=='geo'?{maxWidth:300,minWidth:240}:{minWidth:220});
