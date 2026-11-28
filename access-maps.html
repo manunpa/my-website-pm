@@ -520,7 +520,7 @@ body.dark .maparea,body.dark .leaflet-container{background:#161616}
 
 /* มือถือ: ค้นหาลอยบน แผ่นรายการเลื่อนจากล่าง */
 @media(max-width:850px){
-  :root{--gap:10px;--peek:calc(104px + env(safe-area-inset-bottom));--top-gap:calc(62px + env(safe-area-inset-top))}
+  :root{--gap:10px;--peek:calc(50px + env(safe-area-inset-bottom));--top-gap:calc(62px + env(safe-area-inset-top))}
   .main:has(.sidebar:not(.collapsed)){--side-w:0px}
   .msearch{position:absolute;z-index:1400;left:10px;right:10px;top:calc(10px + env(safe-area-inset-top));padding:0;background:none;border:0}
   .msearch .searchwrap input{height:44px;border-radius:14px;box-shadow:var(--shadow);background:var(--panel)}
@@ -537,6 +537,12 @@ body.dark .maparea,body.dark .leaflet-container{background:#161616}
   .sidehead{padding-top:0}
   .side-brand{padding-top:2px}
   .sidebar.collapsed .side-brand,.sidebar.collapsed .side-title{cursor:pointer}
+  /* ย่ออยู่: เหลือขีดลากกับแถวชื่อหน้าบรรทัดเดียว */
+  .main .sidebar.collapsed .grab{height:14px;flex:none}
+  .main .sidebar.collapsed .grab::after{top:6px;height:4px}
+  .sidebar.collapsed .sidehead{padding-bottom:0;border-bottom:0}
+  .sidebar.collapsed .side-brand{padding:0}
+  .sidebar.collapsed .side-title,.sidebar.collapsed .searchwrap{display:none}
   .sidebar.collapsed .filterline,.sidebar.collapsed .planner,.sidebar.collapsed .pointlist,.sidebar.collapsed .sidefoot{visibility:hidden}
   .top-status{display:flex}
   .side-title{margin-bottom:6px}
