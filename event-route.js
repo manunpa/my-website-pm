@@ -1,6 +1,6 @@
 /* =====================================================================
    ฟังก์ชันชั่วคราว: แนวเส้นทางงานวิ่ง Amazing Thailand Marathon Bangkok 2026 บน Access Maps
-   - แสดงเฉพาะ 27–29 พ.ย. 2569 (หมดช่วงแล้วหายเอง) · ทดลองดูนอกช่วง: access-maps.html?event=marathon
+   - เริ่มแสดง 27 พ.ย. 2569 และคงไว้จนกว่าจะสั่งปิดเอง (ไม่หมดอายุอัตโนมัติ) · ดูก่อนวันเริ่ม: access-maps.html?event=marathon
    - วันปิดถนน: 21K วันเสาร์ 28 พ.ย. · ระยะอื่น (42K / 10K / 4.5K) วันอาทิตย์ 29 พ.ย.
    - ใช้งานผ่านปุ่มลอยบนแผนที่ → แผงลอย (ไม่กินที่แถบรายการด้านข้าง) อีเว้นพิเศษครั้งต่อไปให้ใช้รูปแบบเดียวกัน
    - วาดเส้นทาง 4 ระยะ และแสดงจุดพิกัดที่อยู่ใกล้แนวเส้นทาง (งานขนส่งอาจกระทบจากการปิดถนน)
@@ -8,7 +8,6 @@
    - เลิกใช้: ลบไฟล์นี้ และบรรทัดที่เรียก initEventRoute ใน maps.js
    ===================================================================== */
 const START = Date.parse('2026-11-27T00:00:00+07:00');
-const END = Date.parse('2026-11-30T00:00:00+07:00');
 const RADII = [100, 300, 500, 1000];
 /* วันปิดถนนของแต่ละระยะ (วันที่ ในเดือน พ.ย. 2569) */
 const CLOSE_DAY = { '42K': 29, '21K': 28, '10K': 29, '4.5K': 29 };
@@ -42,7 +41,7 @@ export function initEventRoute(ctx) {
   const forced = /[?&]event=marathon\b/.test(location.search);
   const now = Date.now();
   const area = document.querySelector('.maparea');
-  if ((!forced && (now < START || now >= END)) || !area) return { refresh() {}, focus: () => false, close() {} };
+  if ((!forced && now < START) || !area) return { refresh() {}, focus: () => false, close() {} };
 
   const { map, esc } = ctx;
   const on = new Set(ROUTES.map(r => r[0]));
@@ -57,7 +56,7 @@ export function initEventRoute(ctx) {
     '.evhead{display:flex;align-items:center;gap:6px;padding:8px 8px 8px 12px;border-bottom:1px solid var(--border)}',
     '.evhead b{flex:1;min-width:0;font-size:12px;color:#d6336c}.evhead b span{display:block;font-weight:500;font-size:10px;color:var(--muted)}',
     '.evhead button{width:28px;height:28px;flex:none;padding:0;border:0;border-radius:8px;background:var(--panel2);color:var(--text)}',
-    '.evbody{flex:1;min-height:0;display:flex;flex-direction:column;gap:7px;padding:9px 10px}',
+    '.evbody{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:7px;padding:9px 10px}',
     '.evbody>*{flex:none;margin:0}.evbody .along{flex:1;min-height:0;overflow:auto;align-content:start}',
     '.evopts summary{cursor:pointer;color:var(--muted)}.evopts>div{display:grid;gap:7px;padding-top:7px}',
     '.evpanel .planner-radius button.on{background:#d6336c;border-color:#d6336c}',
@@ -67,6 +66,9 @@ export function initEventRoute(ctx) {
     '.evlabel{box-sizing:border-box;padding:0 5px;font:600 10px/16px Inter,Kanit,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;',
     'background:var(--panel);color:var(--text);border:1px solid #d6336c88;border-radius:5px;box-shadow:0 1px 3px #0003;cursor:pointer}',
     '.evchip{height:32px;padding:0 12px;border-radius:12px;border:1px solid #d6336c;background:var(--top);color:var(--text);font-size:11.5px;font-weight:600;box-shadow:var(--shadow);align-self:center}',
+    '.evflow{animation:evflow .9s linear infinite}@keyframes evflow{to{stroke-dashoffset:-24}}',
+    '@media(prefers-reduced-motion:reduce){.evflow{animation:none}}',
+    '.evrun{background:none;border:0}.evrun i{display:block;box-sizing:border-box;width:12px;height:12px;border-radius:50%;background:#fff;border:3px solid var(--c);box-shadow:0 0 8px 3px var(--c)}',
     '@media(max-width:850px){.evpanel{left:10px;right:10px;width:auto;top:auto;height:48%;bottom:calc(var(--bot-h,40px) + 18px + env(safe-area-inset-bottom))}.evpanel.folded{height:auto;bottom:auto;top:calc(var(--ctl-h,48px) + 18px)}}'
   ].join('');
   document.head.appendChild(style);
@@ -119,6 +121,41 @@ export function initEventRoute(ctx) {
 
   const lineLayer = L.layerGroup(), nearLayer = L.layerGroup(), labelLayer = L.layerGroup();
   const renderer = L.svg({ padding: .5 });
+
+  // จุดนักวิ่ง (ตัวเลือกเสริม จำค่าไว้ในเครื่องนี้) — ทุกเส้นวิ่งเร็วเท่ากัน เส้นยาวสุดใช้ 30 วินาทีต่อรอบ
+  const RUNNER_KEY = 'evroute-runner', t0 = performance.now();
+  const runnerLayer = L.layerGroup();
+  let runner = false, raf = 0;
+  try { runner = localStorage.getItem(RUNNER_KEY) === '1'; } catch {}
+  const tracks = new Map(ROUTES.map(([name, , , pts]) => {
+    const dist = [0];
+    for (let k = 1; k < pts.length; k++) dist.push(dist[k - 1] + map.distance(pts[k - 1], pts[k]));
+    return [name, dist];
+  }));
+  const longest = Math.max(...[...tracks.values()].map(d => d.at(-1)));
+  function drawRunners() {
+    cancelAnimationFrame(raf);
+    runnerLayer.clearLayers();
+    if (!open || !runner) { map.removeLayer(runnerLayer); return; }
+    const list = activeRoutes().map(([name, color, , pts]) => ({
+      pts, dist: tracks.get(name),
+      m: L.marker(pts[0], { icon: L.divIcon({ className: 'evrun', html: `<i style="--c:${color}"></i>`, iconSize: [12, 12] }), interactive: false, keyboard: false }).addTo(runnerLayer)
+    }));
+    runnerLayer.addTo(map);
+    if (!list.length) return;
+    const step = () => {
+      const run = (performance.now() - t0) / 30000 * longest;
+      for (const { m, pts, dist } of list) {
+        const d = run % dist.at(-1);
+        let k = 1;
+        while (dist[k] < d) k++;
+        const f = (d - dist[k - 1]) / (dist[k] - dist[k - 1] || 1), a = pts[k - 1], b = pts[k];
+        m.setLatLng([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f]);
+      }
+      raf = requestAnimationFrame(step);
+    };
+    step();
+  }
 
   // เปิดแผงงานวิ่งอยู่ = ซ่อนหมุดอื่น เหลือเส้นทางกับจุดใกล้แนว · ปิดแผง = กลับเหมือนเดิม
   function syncFocus() {
@@ -209,9 +246,12 @@ export function initEventRoute(ctx) {
 
   function drawMap() {
     lineLayer.clearLayers(); nearLayer.clearLayers(); labelLayer.clearLayers();
+    drawRunners();
     if (!open) { map.removeLayer(lineLayer); map.removeLayer(nearLayer); map.removeLayer(labelLayer); return; }
     for (const [name, color, weight, pts] of activeRoutes()) {
       L.polyline(pts, { renderer, color, weight, opacity: .85 }).bindTooltip(`งานวิ่ง ${name} · ปิดถนน ${DAY_LABEL[CLOSE_DAY[name]]}`, { sticky: true }).addTo(lineLayer);
+      // เส้นประสีขาวไหลทับ บอกทิศทางการวิ่ง
+      L.polyline(pts, { renderer, color: '#fff', weight: Math.max(1.4, weight * .4), opacity: .95, dashArray: '8 16', className: 'evflow', interactive: false }).addTo(lineLayer);
     }
     for (const { p, m } of visible()) {
       L.circleMarker([p.lat, p.lng], { renderer, radius: 7, color: '#fff', weight: 2, fillColor: '#d6336c', fillOpacity: 1 })
@@ -239,7 +279,7 @@ export function initEventRoute(ctx) {
         `<button type="button" data-route="${name}" class="${on.has(name) ? 'on' : ''}"><i class="swatch" style="background:${color}"></i>${name} (${CLOSE_DAY[name]})</button>`).join('') + '</div>' +
       '<div class="planner-radius">รัศมี ' + RADII.map(r =>
         `<button type="button" data-radius="${r}" class="${r === radius ? 'on' : ''}">${r >= 1000 ? r / 1000 + ' กม.' : r + ' ม.'}</button>`).join('') + '</div>' +
-      check('st', withStations, 'รวมปั๊มน้ำมัน') + check('labels', labels, 'แสดงป้ายชื่อ') + check('hide', hideOthers, 'ซ่อนหมุดอื่นที่ไม่เกี่ยว') +
+      check('runner', runner, 'จุดนักวิ่งเคลื่อนตามเส้นทาง') + check('st', withStations, 'รวมปั๊มน้ำมัน') +check('labels', labels, 'แสดงป้ายชื่อ') + check('hide', hideOthers, 'ซ่อนหมุดอื่นที่ไม่เกี่ยว') +
       '</div></details>' +
       '<div class="planner-actions"><button type="button" class="planbtn" data-ev="fit">ดูทั้งเส้นทาง</button>' +
       `<button type="button" class="planbtn" data-ev="copy"${visible().length ? '' : ' disabled'}>คัดลอกรายชื่อ</button>` +
@@ -276,6 +316,11 @@ export function initEventRoute(ctx) {
   });
   body.addEventListener('change', e => {
     if (e.target.dataset.ev === 'st') { withStations = e.target.checked; render(); }
+    else if (e.target.dataset.ev === 'runner') {
+      runner = e.target.checked;
+      try { localStorage.setItem(RUNNER_KEY, runner ? '1' : '0'); } catch {}
+      drawRunners();
+    }
     else if (e.target.dataset.ev === 'labels') { labels = e.target.checked; drawMap(); }
     else if (e.target.dataset.ev === 'hide') { hideOthers = e.target.checked; syncFocus(); }
   });
