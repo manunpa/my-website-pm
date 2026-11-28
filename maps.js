@@ -130,10 +130,10 @@ applyBase();
 const clusters = L.markerClusterGroup({chunkedLoading:true,chunkInterval:100,chunkDelay:25,maxClusterRadius:55,showCoverageOnHover:false,removeOutsideVisibleBounds:true,spiderfyOnMaxZoom:true});
 map.addLayer(clusters);
 // กลุ่มหมุดของปั๊มน้ำมันแยกจาก Geofence: วงกลุ่มคนละแบบ นับแยกกัน
-const stationClusters = L.markerClusterGroup({chunkedLoading:true,chunkInterval:100,chunkDelay:25,maxClusterRadius:50,showCoverageOnHover:false,removeOutsideVisibleBounds:true,spiderfyOnMaxZoom:true,
+const stationClusters = L.markerClusterGroup({chunkedLoading:true,chunkInterval:100,chunkDelay:25,maxClusterRadius:60,disableClusteringAtZoom:13,showCoverageOnHover:false,removeOutsideVisibleBounds:true,spiderfyOnMaxZoom:true,
   iconCreateFunction:c=>{
-    const n=c.getChildCount(), size=n<10?30:n<100?36:n<1000?42:46;
-    return L.divIcon({className:'stcluster',html:`<div style="width:${size}px;height:${size}px"><b>⛽</b>${n.toLocaleString('th-TH')}</div>`,iconSize:[size,size]});
+    const n=c.getChildCount(), size=n<10?22:n<100?26:n<1000?30:36;
+    return L.divIcon({className:'stcluster fuelcluster',html:`<div style="width:${size}px;height:${size}px">${n.toLocaleString('th-TH')}</div>`,iconSize:[size,size]});
   }});
 // กลุ่มหมุดแท่นผลิตนอกชายฝั่ง (สีฟ้าอมเขียว แยกจากกลุ่มอื่น)
 const platClusters = L.markerClusterGroup({chunkedLoading:true,maxClusterRadius:50,showCoverageOnHover:false,spiderfyOnMaxZoom:true,
@@ -594,8 +594,9 @@ const stationIconCache = new Map();
 function stationIcon(color){
   if(!stationIconCache.has(color)) stationIconCache.set(color,L.divIcon({
     className:'stpin',
-    html:`<div style="background:${color};color:${fuelInk(color)}">${FUEL_SVG}</div>`,
-    iconSize:[24,24], iconAnchor:[12,12], popupAnchor:[0,-12]
+    // เหรียญจิ๋ว: พื้นที่กด 24px ใหญ่กว่าที่ตาเห็น ให้นิ้วโดน
+    html:`<div style="--brand:${color}">${FUEL_SVG.replace('width="13" height="13"','width="9" height="9"')}</div>`,
+    iconSize:[24,24], iconAnchor:[12,12], popupAnchor:[0,-10]
   }));
   return stationIconCache.get(color);
 }

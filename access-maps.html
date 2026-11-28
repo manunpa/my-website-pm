@@ -175,10 +175,11 @@ body.dark .leaflet-bar a{background:var(--panel);color:var(--text);border-color:
 @media(max-width:470px){.brand h1{font-size:19px;white-space:nowrap}#sidebarToggle span{display:none}}
 .legrow+.legrow{padding-top:7px;border-top:1px solid var(--border)}
 .leghead{font-weight:700;color:var(--text);min-width:64px}
+.stcluster.fuelcluster div{background:var(--panel);color:var(--text);border:1.5px solid var(--text);box-shadow:0 1px 4px #0003;font:500 10.5px/1 var(--font)}
 .legend-dot.drop{border-radius:50% 50% 50% 0;transform:rotate(-45deg);width:9px;height:9px}
 .legend-dot.fuel{width:11px;height:11px;box-shadow:0 0 0 1.5px #fff,0 0 0 2.5px #0002}
-.stpin{background:none;border:0}
-.stpin div{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;border:2px solid #fff;box-shadow:0 2px 4px #0005;box-sizing:border-box}
+.stpin{background:none;border:0;display:grid;place-items:center}
+.stpin div{width:16px;height:16px;border-radius:50%;display:grid;place-items:center;background:var(--panel);border:1.8px solid var(--brand);color:color-mix(in srgb,var(--brand) 75%,var(--text));box-shadow:0 1px 3px #0004;box-sizing:border-box}
 .stpin svg{display:block}
 .stcluster{background:none;border:0}
 .stcluster div{display:flex;align-items:center;justify-content:center;gap:2px;border-radius:50%;background:#0f2f3d;color:#fff;font:700 11px/1 var(--font);border:3px solid #00a3e0;box-shadow:0 0 0 4px #00a3e033,0 2px 6px #0005;box-sizing:border-box}
@@ -622,6 +623,6 @@ body.dark .maparea,body.dark .leaflet-container{background:#161616}
 
 <!-- ต้องเปิดผ่านเว็บเซิร์ฟเวอร์ (http/https) ไม่ใช่ file:// เพราะใช้ type="module" -->
 <!-- ?v= บังคับให้มือถือโหลด maps.js ตัวใหม่ทันทีหลังอัปเดต (เปลี่ยนเลขทุกครั้งที่แก้ maps.js) -->
-<script type="module" src="./maps.js?v=20261128-words"></script>
+<script type="module" src="./maps.js?v=20261128-coins"></script>
 </body>
 </html>
